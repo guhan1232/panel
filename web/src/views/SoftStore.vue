@@ -50,17 +50,36 @@
 
       <el-drawer v-model="rtDlg" size="62%" :title="`运行时版本 - ${rtLang?.name || ''}`">
         <div class="toolbar">
-          <el-select v-model="rtSource" style="width: 220px" @change="loadVersions">
+          <el-select v-model="rtSource" style="width: 190px" @change="loadVersions">
             <el-option v-for="s in rtLang?.sources || []" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
-          <el-input v-model="rtFilter" placeholder="版本过滤" style="width: 180px" clearable />
-          <el-button size="small" @click="loadVersions">刷新清单</el-button>
-          <span class="hint">共 {{ filteredVersions.length }} 个版本</span>
+          <el-select v-model="rtFilterMode" style="width: 150px">
+            <el-option label="显示常用版本" value="common" />
+            <el-option label="只显示LTS版本" value="lts" />
+            <el-option label="显示所有版本" value="all" />
+          </el-select>
+          <el-input v-model="rtFilter" placeholder="版本过滤" style="width: 140px" clearable />
+          <el-button size="small" @click="loadVersions">更新版本列表</el-button>
+          <span class="hint">共 {{ filteredVersions.length }} 个</span>
+          <template v-if="rtLang?.key === 'nodejs'">
+            <span class="hint">registry源</span>
+            <el-select v-model="npmRegistry" placeholder="未设置" style="width: 200px" :loading="regLoading" @change="saveRegistry">
+              <el-option v-for="o in registryOptions" :key="o.id" :label="o.name" :value="o.id" />
+            </el-select>
+          </template>
+          <template v-if="rtInstalled.length && rtLang?.key === 'nodejs'">
+            <span class="hint">命令行版本</span>
+            <el-select v-model="defaultInstId" style="width: 160px" @change="setDefaultById">
+              <el-option v-for="i in rtInstalled" :key="i.id" :label="i.version" :value="i.id" />
+            </el-select>
+          </template>
         </div>
         <el-table :data="filteredVersions" v-loading="rtLoading" size="small" max-height="380">
           <el-table-column label="版本" width="150">
             <template #default="{ row }"><b>{{ row.version }}</b> <el-tag v-if="row.lts" size="small" type="success">LTS</el-tag></template>
           </el-table-column>
+          <el-table-column v-if="rtLang?.key === 'nodejs'" label="NPM" width="90"><template #default="{ row }">{{ row.npm || '-' }}</template></el-table-column>
+          <el-table-column v-if="rtLang?.key === 'nodejs'" label="V8" width="110"><template #default="{ row }">{{ row.v8 || '-' }}</template></el-table-column>
           <el-table-column label="发布日期" width="120"><template #default="{ row }">{{ row.date || '-' }}</template></el-table-column>
           <el-table-column label="操作" width="110">
             <template #default="{ row }"><el-button size="small" type="primary" :loading="installingVer === row.version" @click="installVer(row)">安装</el-button></template>
@@ -68,8 +87,9 @@
         </el-table>
         <h4 style="margin: 16px 0 8px">已安装</h4>
         <el-table :data="rtInstalled" size="small">
-          <el-table-column prop="version" label="版本" width="170" />
-          <el-table-column label="默认" width="80"><template #default="{ row }"><el-tag v-if="row.is_default" size="small" type="success">默认</el-tag><span v-else>-</span></template></el-table-column>
+          <el-table-column prop="version" label="版本" width="150" />
+          <el-table-column label="默认" width="70"><template #default="{ row }"><el-tag v-if="row.is_default" size="small" type="success">默认</el-tag><span v-else>-</span></template></el-table-column>
+          <el-table-column label="软件路径" min-width="220"><template #default="{ row }"><span class="mono">{{ row.dir }}</span></template></el-table-column>
           <el-table-column label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
           <el-table-column label="操作" width="180">
             <template #default="{ row }">
@@ -164,11 +184,30 @@ const rtVersions = ref<any[]>([])
 const rtFilter = ref('')
 const rtLoading = ref(false)
 const installingVer = ref('')
+const rtFilterMode = ref('common')
+const npmRegistry = ref('')
+const regLoading = ref(false)
+const registryOptions = [
+  { id: 'https://registry.npmmirror.com', name: 'npmmirror 中国镜像' },
+  { id: 'https://registry.npmjs.org', name: 'npm 官方' },
+  { id: 'https://mirrors.cloud.tencent.com/npm/', name: '腾讯云镜像' },
+  { id: 'https://mirrors.huaweicloud.com/repository/npm/', name: '华为云镜像' }
+]
+const defaultInstId = computed(() => {
+  const d = rtInstalled.value.find((i) => i.is_default)
+  return d ? d.id : undefined
+})
 const rtInstalled = computed(() => rtLang.value?.installed || [])
 const filteredVersions = computed(() => {
+  let list = rtVersions.value
+  if (rtFilterMode.value === 'lts') list = list.filter((v) => v.lts)
+  else if (rtFilterMode.value === 'common') {
+    const newest = list[0]?.version
+    list = list.filter((v) => v.lts || v.version === newest)
+  }
   const f = rtFilter.value.trim().toLowerCase()
-  if (!f) return rtVersions.value
-  return rtVersions.value.filter((v) => v.version.toLowerCase().includes(f))
+  if (!f) return list
+  return list.filter((v) => v.version.toLowerCase().includes(f))
 })
 
 async function loadRuntimes() {
@@ -184,8 +223,30 @@ function openRt(r: any) {
   rtSource.value = r.sources?.[0]?.id || ''
   rtVersions.value = []
   rtFilter.value = ''
+  rtFilterMode.value = 'common'
+  npmRegistry.value = ''
   rtDlg.value = true
   loadVersions()
+  if (r.key === 'nodejs') loadRegistry()
+}
+
+async function loadRegistry() {
+  regLoading.value = true
+  try {
+    const d: any = await api.get('/runtimes/nodejs/registry')
+    npmRegistry.value = d.registry || ''
+  } finally {
+    regLoading.value = false
+  }
+}
+
+async function saveRegistry(val: string) {
+  await api.post('/runtimes/nodejs/registry', { registry: val })
+  ElMessage.success('npm registry 已设置')
+}
+
+async function setDefaultById(id: number) {
+  await setDefault({ id })
 }
 
 async function loadVersions() {

@@ -159,6 +159,16 @@ func UnTarGz(src, dest string) error {
 			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)&0o777|0o700); err != nil {
 				return err
 			}
+		case tar.TypeSymlink:
+			_ = os.Remove(target)
+			if err := os.Symlink(hdr.Linkname, target); err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			_ = os.Remove(target)
+			if err := os.Link(filepath.Join(dest, filepath.Clean("/"+hdr.Linkname)), target); err != nil {
+				return err
+			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err

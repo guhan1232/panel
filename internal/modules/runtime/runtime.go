@@ -5,6 +5,7 @@ package rtm
 
 import (
 	"encoding/json"
+	"log/slog"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,6 +55,8 @@ type runtimeVersion struct {
 	LTS     bool   `json:"lts,omitempty"`
 	Date    string `json:"date,omitempty"`
 	Tag     string `json:"tag,omitempty"`
+	Npm     string `json:"npm,omitempty"`
+	V8      string `json:"v8,omitempty"`
 }
 
 type langDef struct {
@@ -164,6 +167,8 @@ func parseNodeIndex(data []byte, base, vendor string) []runtimeVersion {
 		Version string `json:"version"`
 		Date    string `json:"date"`
 		LTS     any    `json:"lts"`
+		Npm     string `json:"npm"`
+		V8      string `json:"v8"`
 	}
 	if json.Unmarshal(data, &arr) != nil {
 		return nil
@@ -182,7 +187,7 @@ func parseNodeIndex(data []byte, base, vendor string) []runtimeVersion {
 			lts = t != "" && t != "false"
 		}
 		out = append(out, runtimeVersion{
-			Version: v.Version, Date: v.Date, LTS: lts,
+			Version: v.Version, Date: v.Date, LTS: lts, Npm: v.Npm, V8: v.V8,
 			URL: base + "/" + v.Version + "/node-" + v.Version + "-linux-" + vendor + ".tar.gz",
 		})
 	}
@@ -524,6 +529,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("", m.installed)
 	g.GET("/langs", m.langs)
 	g.GET("/:lang/versions", m.versions)
+	g.GET("/:lang/registry", m.getRegistry)
+	g.POST("/:lang/registry", m.setRegistry)
 	g.POST("/:lang/install", m.install)
 	g.POST("/:lang/set-default", m.setDefault)
 	g.DELETE("/:id", m.remove)
@@ -840,4 +847,48 @@ func listPythonNpmmirror(vendor string) ([]runtimeVersion, error) {
 		return false
 	})
 	return out, nil
+}
+// nodeNpmPath 默认 nodejs 实例的 npm 可执行路径（无默认实例返回空）。
+func (m *Module) nodeNpmPath() string {
+	var inst RuntimeInst
+	if err := m.db.Where("lang = ? AND is_default = ?", "nodejs", true).First(&inst).Error; err != nil {
+		return ""
+	}
+	vendor := vendorArchOf("nodejs", goruntime.GOARCH)
+	return filepath.Join(inst.Dir, "node-"+inst.Version+"-linux-"+vendor, "bin", "npm")
+}
+
+func (m *Module) getRegistry(c *gin.Context) {
+	registry := ""
+	if npm := m.nodeNpmPath(); npm != "" {
+		if out, code, err := execx.Run("runtime", 60*time.Second, npm, "config", "get", "registry"); err == nil && code == 0 {
+			registry = strings.TrimSpace(out)
+		}
+	}
+	core.OK(c, gin.H{"registry": registry})
+}
+
+func (m *Module) setRegistry(c *gin.Context) {
+	var req struct {
+		Registry string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if !strings.HasPrefix(req.Registry, "http://") && !strings.HasPrefix(req.Registry, "https://") {
+		core.Err(c, 400, "registry 需以 http(s):// 开头")
+		return
+	}
+	npm := m.nodeNpmPath()
+	if npm == "" {
+		core.Err(c, 400, "未找到默认 Node.js（请先安装并设为默认）")
+		return
+	}
+	if out, code, err := execx.Run("runtime", 60*time.Second, npm, "config", "set", "registry", req.Registry); err != nil {
+		core.Err(c, 500, fmt.Sprintf("设置失败(exit %d): %s", code, out))
+		return
+	}
+	slog.Info("npm registry 已设置", "registry", req.Registry, "by", c.GetString("user"))
+	core.OK(c, gin.H{"registry": req.Registry})
 }
