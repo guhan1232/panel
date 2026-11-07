@@ -3,18 +3,24 @@
     <el-card class="page-card">
       <div class="toolbar">
         <el-tag :type="docker.installed ? (docker.compose ? 'success' : 'warning') : 'danger'" size="small">
-          Docker {{ docker.installed ? (docker.compose ? '就绪' : '缺少 compose 插件') : '未安装' }}
+          Docker {{ docker.installed ? (docker.compose ? '就绪' : '缺少 compose 插件') : '未安装（仅影响容器类模板）' }}
         </el-tag>
         <el-button v-if="!docker.installed" size="small" type="warning" :loading="installing" @click="installDocker">一键安装 Docker</el-button>
         <el-button size="small" @click="load">刷新</el-button>
+        <span class="hint">原生应用经 systemd 托管（webmblx-app-*），日志走 journalctl；容器应用走 Docker Compose</span>
       </div>
       <h4 style="margin: 12px 0 8px">可用模板</h4>
       <el-row :gutter="12">
         <el-col :span="6" v-for="t in templates" :key="t.key">
           <el-card shadow="hover" style="margin-bottom: 12px">
             <b>{{ t.name }}</b>
+            <el-tag size="small" :type="t.kind === 'native' ? 'warning' : 'primary'" style="margin-left: 6px">
+              {{ t.kind === 'native' ? '原生' : '容器' }}
+            </el-tag>
             <div class="hint" style="margin: 6px 0">{{ t.desc }}</div>
-            <el-button size="small" type="primary" :disabled="!docker.installed || !docker.compose" @click="openInstall(t)">部署</el-button>
+            <el-button size="small" type="primary"
+              :disabled="t.kind === 'compose' && (!docker.installed || !docker.compose)"
+              @click="openInstall(t)">部署</el-button>
           </el-card>
         </el-col>
       </el-row>
@@ -22,6 +28,11 @@
       <el-table :data="apps" v-loading="loading">
         <el-table-column label="实例名" min-width="130"><template #default="{ row }"><b>{{ row.app.name }}</b></template></el-table-column>
         <el-table-column label="应用" width="110"><template #default="{ row }"><el-tag size="small">{{ row.app.app_key }}</el-tag></template></el-table-column>
+        <el-table-column label="形态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.app.kind === 'native' ? 'warning' : 'primary'">{{ row.app.kind === 'native' ? '原生' : '容器' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" min-width="240"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></el-table-column>
         <el-table-column label="部署时间" width="165"><template #default="{ row }">{{ fmtTime(row.app.created_at) }}</template></el-table-column>
         <el-table-column label="操作" width="310" fixed="right">

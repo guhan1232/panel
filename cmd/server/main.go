@@ -109,7 +109,11 @@ func main() {
 		slog.Error("告警模块启动失败", "err", err)
 	}
 	alertMod.Register(protected)
-	appstore.New(db, cfg.DataDir).Register(protected)
+	appstoreMod := appstore.New(db, cfg.DataDir)
+	if err := appstoreMod.Start(); err != nil {
+		slog.Error("应用商店模块启动失败", "err", err)
+	}
+	appstoreMod.Register(protected)
 
 	// SPA 静态资源（嵌入前端）
 	spaFS := webui.FS()
