@@ -110,17 +110,15 @@ func main() {
 	dbmgr.New(db).Register(protected)
 
 	// 多节点（Agent 反连走独立端点，token 鉴权；管理面走会话权限）
+	protectedRW := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
+	protectedAdmin := protected.Group("", authSvc.RequireAdmin())
 	nodeMod := node.New(db)
 	if err := nodeMod.Start(); err != nil {
 		slog.Error("节点模块启动失败", "err", err)
 		os.Exit(1)
 	}
 	r.GET("/api/ws/agent", nodeMod.HandleAgent)
-	nodeMod.Register(
-		protected,
-		protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator)),
-		protected.Group("", authSvc.RequireAdmin()),
-	)
+	nodeMod.Register(protected, protectedRW, protectedAdmin)
 
 	// P2 模块
 	dash := dashboard.New()
@@ -134,7 +132,7 @@ func main() {
 	if err := appstoreMod.Start(); err != nil {
 		slog.Error("应用商店模块启动失败", "err", err)
 	}
-	appstoreMod.Register(protected)
+	appstoreMod.Register(protected, protectedAdmin)
 
 	// SPA 静态资源（嵌入前端）
 	spaFS := webui.FS()

@@ -9,3 +9,4 @@ web/node_modules/
 config.yaml
 data/
 logs/
+.workbuddy/

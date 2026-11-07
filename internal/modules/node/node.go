@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	KNodeToken       = "nodes_token"
 	metricsRetention = 3 * 24 * time.Hour
 	readIdleTimeout  = 60 * time.Second // 依赖 agent 15s 心跳指标保活
 )
@@ -119,10 +118,10 @@ func (m *Module) Start() error {
 		return err
 	}
 	// 首次生成节点接入 token
-	if core.GetSetting(m.db, KNodeToken) == "" {
+	if core.GetSetting(m.db, core.KNodeToken) == "" {
 		b := make([]byte, 16)
 		_, _ = rand.Read(b)
-		if err := core.SetSetting(m.db, KNodeToken, hex.EncodeToString(b)); err != nil {
+		if err := core.SetSetting(m.db, core.KNodeToken, hex.EncodeToString(b)); err != nil {
 			return err
 		}
 	}
@@ -184,7 +183,7 @@ func (m *Module) HandleAgent(c *gin.Context) {
 		c.String(http.StatusUnauthorized, "missing token/name")
 		return
 	}
-	if token != core.GetSetting(m.db, KNodeToken) {
+	if token != core.GetSetting(m.db, core.KNodeToken) {
 		c.String(http.StatusUnauthorized, "invalid token")
 		return
 	}
@@ -345,7 +344,7 @@ func (m *Module) remove(c *gin.Context) {
 }
 
 func (m *Module) getToken(c *gin.Context) {
-	t := core.GetSetting(m.db, KNodeToken)
+	t := core.GetSetting(m.db, core.KNodeToken)
 	if t == "" {
 		core.Err(c, 500, "token 未初始化")
 		return
@@ -357,7 +356,7 @@ func (m *Module) regenToken(c *gin.Context) {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	t := hex.EncodeToString(b)
-	if err := core.SetSetting(m.db, KNodeToken, t); err != nil {
+	if err := core.SetSetting(m.db, core.KNodeToken, t); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}

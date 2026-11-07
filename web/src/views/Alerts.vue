@@ -1,18 +1,18 @@
 <template>
-  <div>
-    <el-card class="page-card">
-      <div class="toolbar">
+  <div class="wm-page">
+    <WmSectionCard title="告警规则" description="阈值规则每 30 秒评估一次，触发后按冷却时间去重" flush>
+      <WmToolbar>
         <el-button type="primary" @click="openCreate">新建告警规则</el-button>
         <el-button @click="load">刷新</el-button>
-        <span class="hint">每 30 秒评估一次；触发后按冷却时间去重，通过「通知与存储」中配置的渠道推送</span>
-      </div>
-      <el-table :data="rules" v-loading="loading">
-        <el-table-column prop="name" label="规则" min-width="140" />
-        <el-table-column label="条件" min-width="220">
+        <template #note>触发后经「通知与存储」中配置的渠道推送。</template>
+      </WmToolbar>
+      <WmTable :data="rules" v-loading="loading" empty-title="还没有告警规则" empty-description="设置 CPU、内存、磁盘或负载阈值，异常时通过通知渠道推送。">
+        <el-table-column prop="name" label="规则" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></el-table-column>
+        <el-table-column label="条件" min-width="230">
           <template #default="{ row }">{{ metricLabel(row.metric) }} {{ row.op }} {{ row.threshold }}，持续 {{ row.duration_min }} 分钟</template>
         </el-table-column>
-        <el-table-column label="冷却" width="80"><template #default="{ row }">{{ row.cooldown_min }}分</template></el-table-column>
-        <el-table-column label="最近触发" width="165"><template #default="{ row }">{{ fmtTime(row.last_fired_at) }}</template></el-table-column>
+        <el-table-column label="冷却" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.cooldown_min }} 分</span></template></el-table-column>
+        <el-table-column label="最近触发" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.last_fired_at) }}</span></template></el-table-column>
         <el-table-column label="启用" width="80">
           <template #default="{ row }"><el-switch :model-value="row.enabled" @change="toggle(row)" /></template>
         </el-table-column>
@@ -22,19 +22,21 @@
             <el-button size="small" type="danger" @click="del(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
-    </el-card>
+      </WmTable>
+    </WmSectionCard>
 
-    <el-card header="触发历史">
-      <el-table :data="events" size="small" v-loading="eLoading">
-        <el-table-column prop="rule_name" label="规则" min-width="130" />
-        <el-table-column label="指标" width="130"><template #default="{ row }">{{ metricLabel(row.metric) }}</template></el-table-column>
-        <el-table-column prop="value" label="当时值" width="100" />
+    <WmSectionCard title="触发历史" description="最近告警事件，按时间倒序" flush>
+      <WmTable :data="events" size="small" v-loading="eLoading" empty-title="暂无触发记录">
+        <el-table-column prop="rule_name" label="规则" min-width="140" />
+        <el-table-column label="指标" width="140"><template #default="{ row }">{{ metricLabel(row.metric) }}</template></el-table-column>
+        <el-table-column prop="value" label="当时值" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.value }}</span></template></el-table-column>
         <el-table-column prop="message" label="详情" min-width="320" />
-        <el-table-column label="时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
-      </el-table>
-      <el-pagination style="margin-top: 12px; justify-content: flex-end" layout="prev, pager, next, total" :total="eTotal" :page-size="eSize" v-model:current-page="ePage" @current-change="loadEvents" />
-    </el-card>
+        <el-table-column label="时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.created_at) }}</span></template></el-table-column>
+      </WmTable>
+      <div class="wm-pagination-pad">
+        <el-pagination layout="prev, pager, next, total" :total="eTotal" :page-size="eSize" v-model:current-page="ePage" @current-change="loadEvents" />
+      </div>
+    </WmSectionCard>
 
     <el-dialog v-model="dlg" :title="form.id ? '编辑规则' : '新建规则'" width="540px">
       <el-form label-width="110px">
@@ -139,7 +141,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.hint { color: #999; font-size: 12px; margin-left: 8px; }
-</style>

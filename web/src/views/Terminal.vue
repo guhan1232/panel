@@ -1,12 +1,14 @@
 <template>
-  <el-card>
-    <div class="toolbar">
-      <el-tag :type="connected ? 'success' : 'danger'" size="small">{{ connected ? '已连接' : '未连接' }}</el-tag>
-      <el-button size="small" @click="connect">重新连接</el-button>
-      <span class="hint">终端会话已通过登录会话鉴权，操作将被记录</span>
-    </div>
-    <div ref="box" class="term-box"></div>
-  </el-card>
+  <div class="wm-page">
+    <WmSectionCard title="Web 终端" description="会话经登录态鉴权，全部操作将被审计记录" marker dense>
+      <WmToolbar>
+        <WmStatusPill :label="connected ? '已连接' : '未连接'" :tone="connected ? 'success' : 'danger'" :pulse="connected" />
+        <el-button size="small" @click="connect">重新连接</el-button>
+        <template #note>终端尺寸随窗口自适应；连接断开后可重新连接。</template>
+      </WmToolbar>
+      <div ref="box" class="term-box"></div>
+    </WmSectionCard>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -80,14 +82,3 @@ onBeforeUnmount(() => {
   term?.dispose()
 })
 </script>
-
-<style scoped>
-.term-box {
-  height: calc(100vh - 220px);
-  min-height: 400px;
-  background: #14181f;
-  border-radius: 6px;
-  padding: 8px;
-}
-.hint { color: #999; font-size: 12px; }
-</style>

@@ -1,56 +1,58 @@
 <template>
-  <el-card>
-    <el-tabs v-model="tab">
-      <el-tab-pane label="进程" name="procs">
-        <div class="toolbar">
-          <el-radio-group v-model="sortBy" size="small" @change="loadProcs">
-            <el-radio-button value="cpu">按 CPU 排序</el-radio-button>
-            <el-radio-button value="mem">按内存排序</el-radio-button>
-          </el-radio-group>
-          <el-switch v-model="auto" active-text="自动刷新(5s)" />
-          <el-button size="small" @click="loadProcs">刷新</el-button>
-        </div>
-        <el-table :data="procs" v-loading="pLoading" size="small" max-height="620">
-          <el-table-column prop="pid" label="PID" width="90" />
-          <el-table-column prop="name" label="进程名" min-width="200" />
-          <el-table-column label="CPU%" width="110"><template #default="{ row }">{{ row.cpu.toFixed(1) }}</template></el-table-column>
-          <el-table-column label="内存%" width="110"><template #default="{ row }">{{ row.mem_pct.toFixed(1) }}</template></el-table-column>
-          <el-table-column label="操作" width="170">
-            <template #default="{ row }">
-              <el-button size="small" type="warning" @click="kill(row, false)">结束</el-button>
-              <el-button size="small" type="danger" @click="kill(row, true)">强杀</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
+  <div class="wm-page">
+    <WmSectionCard title="进程与服务" description="实时列表与 systemd 单元控制">
+      <el-tabs v-model="tab">
+        <el-tab-pane label="进程" name="procs">
+          <WmToolbar>
+            <el-radio-group v-model="sortBy" size="small" @change="loadProcs">
+              <el-radio-button value="cpu">按 CPU 排序</el-radio-button>
+              <el-radio-button value="mem">按内存排序</el-radio-button>
+            </el-radio-group>
+            <el-switch v-model="auto" active-text="自动刷新(5s)" />
+            <el-button size="small" @click="loadProcs">刷新</el-button>
+            <template #note>共 {{ procs.length }} 个进程</template>
+          </WmToolbar>
+          <WmTable :data="procs" v-loading="pLoading" size="small" max-height="620" empty-title="暂无进程数据">
+            <el-table-column prop="pid" label="PID" width="100"><template #default="{ row }"><span class="wm-mono">{{ row.pid }}</span></template></el-table-column>
+            <el-table-column prop="name" label="进程名" min-width="220" />
+            <el-table-column label="CPU%" width="120"><template #default="{ row }"><span class="wm-mono" :class="{ hot: row.cpu > 60 }">{{ row.cpu.toFixed(1) }}</span></template></el-table-column>
+            <el-table-column label="内存%" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.mem_pct.toFixed(1) }}</span></template></el-table-column>
+            <el-table-column label="操作" width="180">
+              <template #default="{ row }">
+                <el-button size="small" type="warning" @click="kill(row, false)">结束</el-button>
+                <el-button size="small" type="danger" @click="kill(row, true)">强杀</el-button>
+              </template>
+            </el-table-column>
+          </WmTable>
+        </el-tab-pane>
 
-      <el-tab-pane label="systemd 服务" name="services">
-        <div class="toolbar">
-          <el-button size="small" @click="loadSvcs">刷新</el-button>
-        </div>
-        <el-table :data="svcs" v-loading="sLoading" size="small" max-height="620">
-          <el-table-column prop="unit" label="服务" min-width="220" />
-          <el-table-column prop="active" label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.active === 'active' ? 'success' : 'info'">{{ row.active }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="sub" label="子状态" width="100" />
-          <el-table-column prop="enabled" label="自启" width="100" />
-          <el-table-column prop="description" label="描述" min-width="220" />
-          <el-table-column label="操作" width="300">
-            <template #default="{ row }">
-              <el-button size="small" :disabled="row.active === 'active'" @click="svcAction(row, 'start')">启动</el-button>
-              <el-button size="small" :disabled="row.active !== 'active'" @click="svcAction(row, 'stop')">停止</el-button>
-              <el-button size="small" @click="svcAction(row, 'restart')">重启</el-button>
-              <el-button size="small" @click="svcAction(row, 'enable')">自启</el-button>
-              <el-button size="small" @click="svcAction(row, 'disable')">禁自启</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
-  </el-card>
+        <el-tab-pane label="systemd 服务" name="services">
+          <WmToolbar>
+            <el-button size="small" @click="loadSvcs">刷新</el-button>
+            <template #note>共 {{ svcs.length }} 个服务单元</template>
+          </WmToolbar>
+          <WmTable :data="svcs" v-loading="sLoading" size="small" max-height="620" empty-title="暂无服务数据">
+            <el-table-column prop="unit" label="服务" min-width="230"><template #default="{ row }"><span class="wm-mono">{{ row.unit }}</span></template></el-table-column>
+            <el-table-column prop="active" label="状态" width="110">
+              <template #default="{ row }"><WmStatusPill :label="row.active" :tone="row.active === 'active' ? 'success' : 'muted'" /></template>
+            </el-table-column>
+            <el-table-column prop="sub" label="子状态" width="110" />
+            <el-table-column prop="enabled" label="自启" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.enabled }}</span></template></el-table-column>
+            <el-table-column prop="description" label="描述" min-width="230" />
+            <el-table-column label="操作" width="300">
+              <template #default="{ row }">
+                <el-button size="small" :disabled="row.active === 'active'" @click="svcAction(row, 'start')">启动</el-button>
+                <el-button size="small" :disabled="row.active !== 'active'" @click="svcAction(row, 'stop')">停止</el-button>
+                <el-button size="small" @click="svcAction(row, 'restart')">重启</el-button>
+                <el-button size="small" @click="svcAction(row, 'enable')">自启</el-button>
+                <el-button size="small" @click="svcAction(row, 'disable')">禁自启</el-button>
+              </template>
+            </el-table-column>
+          </WmTable>
+        </el-tab-pane>
+      </el-tabs>
+    </WmSectionCard>
+  </div>
 </template>
 
 <script setup lang="ts">

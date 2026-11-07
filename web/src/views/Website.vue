@@ -1,30 +1,29 @@
 <template>
-  <div>
-    <el-card class="page-card">
-      <div class="toolbar">
-        <el-tag :type="nginx.installed ? 'success' : 'danger'" size="small">
-          Nginx {{ nginx.installed ? nginx.version || '已安装' : '未安装' }}
-        </el-tag>
+  <div class="wm-page">
+    <WmSectionCard title="站点列表" description="Nginx 配置在写入前执行 nginx -t 校验，失败自动回滚" flush>
+      <WmToolbar>
+        <WmStatusPill :label="nginx.installed ? 'Nginx 已安装' : 'Nginx 未安装'" :tone="nginx.installed ? 'success' : 'danger'" :pulse="!nginx.installed" />
+        <span v-if="nginx.installed && nginx.version" class="wm-mono wm-text-muted">{{ nginx.version }}</span>
         <el-button v-if="!nginx.installed" size="small" type="warning" :loading="installing" @click="installNginx">安装 Nginx</el-button>
         <el-button size="small" @click="reloadNginx">重载 Nginx</el-button>
         <el-button type="primary" size="small" @click="openCreate">创建站点</el-button>
         <el-button size="small" @click="load">刷新</el-button>
-      </div>
-      <el-table :data="sites" v-loading="loading">
-        <el-table-column label="站点" min-width="140">
-          <template #default="{ row }"><b>{{ row.site.name }}</b></template>
+      </WmToolbar>
+
+      <WmTable :data="sites" v-loading="loading" empty-title="还没有站点" empty-description="创建静态站、PHP 站或反向代理，域名与证书可随时绑定。">
+        <el-table-column label="站点" min-width="150"><template #default="{ row }"><b>{{ row.site.name }}</b></template></el-table-column>
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }"><WmStatusPill :label="typeLabel(row.site.type)" tone="neutral" :dot="false" outline /></template>
         </el-table-column>
-        <el-table-column label="类型" width="90">
-          <template #default="{ row }"><el-tag size="small">{{ typeLabel(row.site.type) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="域名" min-width="200"><template #default="{ row }">{{ row.site.domains }}</template></el-table-column>
-        <el-table-column label="SSL" width="70">
-          <template #default="{ row }"><el-tag v-if="row.site.ssl_cert" type="success" size="small">HTTPS</el-tag><span v-else>-</span></template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column label="域名" min-width="210"><template #default="{ row }"><span class="wm-mono">{{ row.site.domains }}</span></template></el-table-column>
+        <el-table-column label="SSL" width="90">
           <template #default="{ row }">
-            <el-switch :model-value="row.site.enabled && row.conf_exists" @change="toggle(row)" />
+            <WmStatusPill v-if="row.site.ssl_cert" label="HTTPS" tone="success" :dot="false" />
+            <span v-else class="wm-text-muted">—</span>
           </template>
+        </el-table-column>
+        <el-table-column label="启用" width="80">
+          <template #default="{ row }"><el-switch :model-value="row.site.enabled && row.conf_exists" @change="toggle(row)" /></template>
         </el-table-column>
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
@@ -34,8 +33,8 @@
             <el-button size="small" type="danger" @click="del(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
-    </el-card>
+      </WmTable>
+    </WmSectionCard>
 
     <el-dialog v-model="dlg" :title="form.id ? '编辑站点' : '创建站点'" width="680px">
       <el-form label-width="110px">
@@ -63,7 +62,7 @@
           <el-select v-model="form.ssl_cert" placeholder="选择已托管证书或留空" style="width: 100%" clearable>
             <el-option v-for="ct in certs" :key="ct.domain" :label="`${ct.domain}（至 ${ct.not_after?.slice(0, 10)}）`" :value="ct.domain" />
           </el-select>
-          <div class="hint" v-if="form.ssl_cert">将使用 /{{ certBase }} 路径下 fullchain.pem / privkey.pem</div>
+          <WmNotice v-if="form.ssl_cert" tone="neutral" class="wm-mt-2">将使用 <span class="wm-mono">{{ certBase }}</span> 路径下 fullchain.pem / privkey.pem</WmNotice>
         </el-form-item>
         <el-form-item v-if="form.ssl_cert" label="强制 HTTPS"><el-switch v-model="form.force_https" /></el-form-item>
       </el-form>
@@ -74,7 +73,7 @@
     </el-dialog>
 
     <el-dialog v-model="logDlg" :title="`日志 - ${logSite} (${logType})`" width="820px">
-      <pre class="pre-output">{{ logContent || '（空）' }}</pre>
+      <WmCodeBlock :content="logContent" :label="`${logSite} / ${logType}.log`" empty-text="（日志为空）" />
     </el-dialog>
   </div>
 </template>
@@ -217,8 +216,3 @@ watch(
 
 onMounted(load)
 </script>
-
-<style scoped>
-.loc-row { display: flex; gap: 8px; margin-bottom: 6px; }
-.hint { color: #999; font-size: 12px; margin-top: 4px; }
-</style>

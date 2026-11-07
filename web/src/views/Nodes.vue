@@ -1,30 +1,30 @@
 <template>
-  <div>
-    <el-card class="page-card" header="Agent 接入">
-      <div class="toolbar">
-        <el-input :model-value="agentCmd" readonly style="max-width: 640px" />
+  <div class="wm-page">
+    <WmSectionCard title="Agent 接入" description="通过 WebSocket 反连，被控端无需开放端口" marker>
+      <WmToolbar>
+        <el-input :model-value="agentCmd" readonly class="wm-agent-cmd" aria-label="Agent 接入命令" />
         <el-button @click="copyCmd">复制</el-button>
         <el-button v-if="auth.role === 'admin'" @click="regenToken" type="warning" plain>重置 Token</el-button>
         <el-button @click="load">刷新</el-button>
-      </div>
-      <div class="hint">
-        在目标服务器上下载对应架构的 webmblx-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。
-      </div>
-    </el-card>
+      </WmToolbar>
+      <WmNotice tone="neutral">在目标服务器下载对应架构的 webmblx-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。</WmNotice>
+    </WmSectionCard>
 
-    <el-card class="page-card" header="节点列表">
-      <el-table :data="nodes" v-loading="loading">
-        <el-table-column label="节点" min-width="120"><template #default="{ row }"><b>{{ row.node.name }}</b></template></el-table-column>
-        <el-table-column label="主机" min-width="140"><template #default="{ row }">{{ row.node.hostname }}</template></el-table-column>
+    <WmSectionCard title="节点列表" description="在线状态依据最近心跳判定" flush>
+      <WmToolbar>
+        <el-button size="small" @click="load">刷新</el-button>
+        <template #note>共 {{ nodes.length }} 个节点，其中 {{ nodes.filter((n) => n.online).length }} 个在线。</template>
+      </WmToolbar>
+      <WmTable :data="nodes" v-loading="loading" empty-title="还没有接入节点" empty-description="复制上方接入命令，在目标服务器启动 Agent 后即可在此看到节点。">
+        <el-table-column label="节点" min-width="130"><template #default="{ row }"><b>{{ row.node.name }}</b></template></el-table-column>
+        <el-table-column label="主机" min-width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.hostname }}</span></template></el-table-column>
         <el-table-column label="系统/架构" min-width="160"><template #default="{ row }">{{ row.node.os }} / {{ row.node.arch }}</template></el-table-column>
-        <el-table-column label="IP" width="130"><template #default="{ row }">{{ row.node.ip }}</template></el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.online ? 'success' : 'info'">{{ row.online ? '在线' : '离线' }}</el-tag>
-          </template>
+        <el-table-column label="IP" width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.ip }}</span></template></el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }"><WmStatusPill :label="row.online ? '在线' : '离线'" :tone="row.online ? 'success' : 'muted'" :pulse="row.online" /></template>
         </el-table-column>
-        <el-table-column label="最近心跳" width="165"><template #default="{ row }">{{ fmtTime(row.node.last_seen) }}</template></el-table-column>
-        <el-table-column label="Agent" width="80"><template #default="{ row }">{{ row.node.version }}</template></el-table-column>
+        <el-table-column label="最近心跳" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.node.last_seen) }}</span></template></el-table-column>
+        <el-table-column label="Agent" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.node.version }}</span></template></el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openMetrics(row)">指标</el-button>
@@ -32,22 +32,26 @@
             <el-button size="small" type="danger" v-if="auth.role === 'admin'" @click="del(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
-    </el-card>
+      </WmTable>
+    </WmSectionCard>
 
     <el-drawer v-model="mDlg" size="62%" :title="`节点指标 - ${mNode?.node?.name || ''}`">
-      <div class="toolbar">
+      <WmToolbar>
         <el-button size="small" @click="loadMetrics">刷新</el-button>
-        <span class="hint">近 1 小时（15s 采样，保留 3 天）</span>
-      </div>
-      <div ref="chartEl" style="height: 300px"></div>
-      <div ref="netEl" style="height: 240px; margin-top: 8px"></div>
+        <template #note>近 1 小时（15s 采样，保留 3 天）</template>
+      </WmToolbar>
+      <WmSectionCard title="CPU / 内存" dense quiet class="wm-mb-4">
+        <div ref="chartEl" class="wm-chart" style="height: 300px"></div>
+      </WmSectionCard>
+      <WmSectionCard title="网络流量" dense quiet>
+        <div ref="netEl" class="wm-chart" style="height: 240px"></div>
+      </WmSectionCard>
     </el-drawer>
 
     <el-dialog v-model="eDlg" :title="`远程命令 - ${eNode?.node?.name || ''}`" width="720px">
       <el-input v-model="eScript" type="textarea" :rows="6" placeholder="bash 命令，如：df -h" />
-      <div class="hint" style="margin: 8px 0">超时 {{ eTimeout }}s；命令经审计记录</div>
-      <pre class="pre-output" v-if="eResult">{{ eResult }}</pre>
+      <WmNotice tone="warning" class="wm-mt-2 wm-mb-4">超时 {{ eTimeout }}s；命令经审计记录，请确认执行内容。</WmNotice>
+      <WmCodeBlock v-if="eResult" :content="eResult" label="remote exec output" />
       <template #footer>
         <el-button @click="eDlg = false">关闭</el-button>
         <el-button type="primary" :loading="eRunning" @click="runExec">执行</el-button>
@@ -61,7 +65,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
-import { fmtBytes, fmtTime } from '../utils'
+import { fmtBytes, fmtTime, chartPalette } from '../utils'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()
@@ -85,11 +89,16 @@ const agentCmd = computed(() =>
   `./webmblx-agent -s ${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host} -t ${token.value || '<token>'} -name <节点名>`
 )
 
-const splitLine = { lineStyle: { color: 'rgba(128,140,160,0.18)' } }
-function grad(c1: string, c2: string) {
+function fade(hex: string, alpha: number) {
+  const h = hex.replace('#', '')
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const n = parseInt(full, 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+function grad(color: string, alpha: number) {
   return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-    { offset: 0, color: c1 },
-    { offset: 1, color: c2 }
+    { offset: 0, color: fade(color, alpha) },
+    { offset: 1, color: fade(color, 0.01) }
   ])
 }
 
@@ -142,28 +151,49 @@ async function loadMetrics() {
   if (!mNode.value) return
   const rows: any[] = (await api.get(`/nodes/${mNode.value.node.id}/metrics?limit=240`)) as any
   const hist = rows.map((r) => [new Date(r.time).getTime(), r])
+  const p = chartPalette()
+  const base = {
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: p.surface,
+      borderColor: p.line,
+      borderWidth: 1,
+      textStyle: { color: p.ink, fontSize: 12 },
+      axisPointer: { lineStyle: { color: p.line } }
+    },
+    legend: { top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: { color: p.muted, fontSize: 11 } },
+    xAxis: { type: 'time' as const, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: p.muted, fontSize: 10 } }
+  }
+
   cpuChart?.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['CPU %', '内存 %'], top: 0, right: 0 },
-    grid: { left: 45, right: 12, top: 32, bottom: 26 },
-    xAxis: { type: 'time', axisLine: { show: false } },
-    yAxis: { type: 'value', max: 100, splitLine },
+    ...base,
+    legend: { ...base.legend, data: ['CPU %', '内存 %'] },
+    grid: { left: 44, right: 12, top: 30, bottom: 24 },
+    yAxis: {
+      type: 'value' as const, max: 100,
+      axisLabel: { color: p.muted, fontSize: 10 },
+      splitLine: { lineStyle: { color: p.line, type: 'dashed' as const } }
+    },
     series: [
-      { name: 'CPU %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2, color: '#3d7fff' }, areaStyle: { color: grad('rgba(61,127,255,0.25)', 'rgba(61,127,255,0.01)') }, data: hist.map(([t, r]) => [t, +r.cpu.toFixed(1)]) },
-      { name: '内存 %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2, color: '#2eb86a' }, areaStyle: { color: grad('rgba(46,184,106,0.22)', 'rgba(46,184,106,0.01)') }, data: hist.map(([t, r]) => [t, +r.mem_pct.toFixed(1)]) }
+      { name: 'CPU %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.accent }, itemStyle: { color: p.accent }, areaStyle: { color: grad(p.accent, 0.24) }, data: hist.map(([t, r]) => [t, +r.cpu.toFixed(1)]) },
+      { name: '内存 %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.success }, itemStyle: { color: p.success }, areaStyle: { color: grad(p.success, 0.2) }, data: hist.map(([t, r]) => [t, +r.mem_pct.toFixed(1)]) }
     ]
-  }, true)
+  } as any, true)
   netChart?.setOption({
-    tooltip: { trigger: 'axis', valueFormatter: (v: number) => fmtBytes(v) + '/s' },
-    legend: { data: ['下载', '上传'], top: 0, right: 0 },
-    grid: { left: 64, right: 12, top: 32, bottom: 26 },
-    xAxis: { type: 'time', axisLine: { show: false } },
-    yAxis: { type: 'value', splitLine, axisLabel: { formatter: (v: number) => fmtBytes(v) } },
+    ...base,
+    tooltip: { ...base.tooltip, valueFormatter: (v: number) => fmtBytes(v) + '/s' },
+    legend: { ...base.legend, data: ['下载', '上传'] },
+    grid: { left: 64, right: 12, top: 30, bottom: 24 },
+    yAxis: {
+      type: 'value' as const,
+      axisLabel: { color: p.muted, fontSize: 10, formatter: (v: number) => fmtBytes(v) },
+      splitLine: { lineStyle: { color: p.line, type: 'dashed' as const } }
+    },
     series: [
-      { name: '下载', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2, color: '#3d7fff' }, areaStyle: { color: grad('rgba(61,127,255,0.2)', 'rgba(61,127,255,0.01)') }, data: hist.map(([t, r]) => [t, r.recv]) },
-      { name: '上传', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2, color: '#f59e0b' }, areaStyle: { color: grad('rgba(245,158,11,0.2)', 'rgba(245,158,11,0.01)') }, data: hist.map(([t, r]) => [t, r.sent]) }
+      { name: '下载', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.accent }, itemStyle: { color: p.accent }, areaStyle: { color: grad(p.accent, 0.2) }, data: hist.map(([t, r]) => [t, r.recv]) },
+      { name: '上传', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.warning }, itemStyle: { color: p.warning }, areaStyle: { color: grad(p.warning, 0.18) }, data: hist.map(([t, r]) => [t, r.sent]) }
     ]
-  }, true)
+  } as any, true)
 }
 
 function openExec(row: any) {
@@ -205,7 +235,3 @@ onBeforeUnmount(() => {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.hint { color: #999; font-size: 12px; }
-</style>

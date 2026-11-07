@@ -28,6 +28,24 @@ export function fmtCost(ms?: number | null): string {
   return `${(ms / 1000).toFixed(1)} s`
 }
 
+/**
+ * Resolve chart colors from the live design tokens so ECharts follows the
+ * active light / dark theme instead of hard-coded legacy hex values.
+ */
+export function chartPalette() {
+  const s = getComputedStyle(document.documentElement)
+  const read = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback
+  return {
+    accent: read('--wm-accent', '#4f5bd5'),
+    success: read('--wm-success', '#16845c'),
+    warning: read('--wm-warning', '#b9741b'),
+    muted: read('--wm-ink-3', '#8a94a3'),
+    line: read('--wm-line', '#e3e7ee'),
+    surface: read('--wm-surface', '#ffffff'),
+    ink: read('--wm-ink', '#141a23')
+  }
+}
+
 export function fmtTime(t?: string | number | null): string {
   if (!t) return '-'
   const d = new Date(t)

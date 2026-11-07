@@ -1,25 +1,26 @@
 <template>
-  <div>
-    <el-card class="page-card">
-      <div class="toolbar">
+  <div class="wm-page">
+    <WmSectionCard title="任务列表" description="任务定义持久化于面板数据库，重启后自动恢复调度" flush>
+      <WmToolbar>
         <el-button type="primary" @click="openCreate">新建任务</el-button>
         <el-button @click="load">刷新</el-button>
-        <span class="hint">内置调度引擎运行，任务不写入系统 crontab</span>
-      </div>
-      <el-table :data="tasks" v-loading="loading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="name" label="任务名称" min-width="140" />
-        <el-table-column label="类型" width="110">
-          <template #default="{ row }"><el-tag size="small">{{ typeLabel(row.type) }}</el-tag></template>
+        <template #note>内置调度引擎运行，任务不写入系统 crontab。</template>
+      </WmToolbar>
+
+      <WmTable :data="tasks" v-loading="loading" empty-title="还没有计划任务" empty-description="新建一条任务，按 cron 表达式或预设周期自动执行。">
+        <el-table-column prop="id" label="ID" width="60"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></el-table-column>
+        <el-table-column prop="name" label="任务名称" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></el-table-column>
+        <el-table-column label="类型" width="120">
+          <template #default="{ row }"><WmStatusPill :label="typeLabel(row.type)" tone="neutral" :dot="false" outline /></template>
         </el-table-column>
-        <el-table-column prop="spec" label="执行周期" width="130" />
+        <el-table-column prop="spec" label="执行周期" width="140"><template #default="{ row }"><span class="wm-mono">{{ row.spec }}</span></template></el-table-column>
         <el-table-column label="下次执行" width="170">
-          <template #default="{ row }">{{ row.enabled ? fmtTime(row.next_run) : '-' }}</template>
+          <template #default="{ row }"><span class="wm-mono">{{ row.enabled ? fmtTime(row.next_run) : '-' }}</span></template>
         </el-table-column>
-        <el-table-column label="上次状态" width="100">
+        <el-table-column label="上次状态" width="110">
           <template #default="{ row }">
-            <el-tag v-if="row.last_status" :type="statusType(row.last_status)" size="small">{{ row.last_status }}</el-tag>
-            <span v-else>-</span>
+            <WmStatusPill v-if="row.last_status" :label="row.last_status" :pulse="row.last_status === 'running'" />
+            <span v-else class="wm-text-muted">—</span>
           </template>
         </el-table-column>
         <el-table-column label="启用" width="80">
@@ -33,10 +34,11 @@
             <el-button size="small" type="danger" @click="del(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
-    </el-card>
+      </WmTable>
+    </WmSectionCard>
 
     <el-dialog v-model="dlg" :title="form.id ? '编辑任务' : '新建任务'" width="660px">
+      <WmNotice tone="neutral" class="wm-mb-4">周期支持 5 段 cron、带秒 6 段与 @daily 等描述符；同一任务默认防重叠执行。</WmNotice>
       <el-form label-width="100px">
         <el-form-item label="任务名称"><el-input v-model="form.name" placeholder="如：每日备份数据库" /></el-form-item>
         <el-form-item label="任务类型">
@@ -46,7 +48,7 @@
         </el-form-item>
         <el-form-item label="执行周期">
           <el-input v-model="form.spec" placeholder="分 时 日 月 周，如 */5 * * * *；支持 @daily 等" />
-          <div style="margin-top: 6px">
+          <div class="wm-tag-row">
             <el-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</el-tag>
           </div>
         </el-form-item>
@@ -75,7 +77,7 @@
           <el-form-item label="切割阈值(MB)"><el-input-number v-model="form.size_mb" :min="1" /></el-form-item>
           <el-form-item label="保留天数"><el-input-number v-model="form.keep_days" :min="1" /></el-form-item>
         </template>
-        <el-alert v-if="form.type === 'sys_update'" type="warning" :closable="false" title="将执行 apt-get upgrade / dnf upgrade 全量系统更新，建议安排在凌晨低峰期" />
+        <WmNotice v-if="form.type === 'sys_update'" tone="warning" title="请在低峰期执行" class="wm-mb-4">将执行 apt-get upgrade / dnf upgrade 全量系统更新。</WmNotice>
         <el-form-item label="超时(秒)"><el-input-number v-model="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></el-form-item>
         <el-form-item label="允许并发"><el-switch v-model="form.concurrent" /><span class="hint">关闭时上一次未结束则跳过本次</span></el-form-item>
         <el-form-item label="失败告警"><el-input-number v-model="form.notify_fail" :min="0" /><span class="hint">连续失败 N 次后告警，0=不告警</span></el-form-item>
@@ -87,27 +89,28 @@
     </el-dialog>
 
     <el-drawer v-model="logsDlg" size="62%" :title="`执行日志 - ${logsTask?.name || ''}`">
-      <div class="toolbar">
+      <WmNotice tone="neutral" class="wm-mb-4">每次执行记录状态、耗时、退出码与输出；历史保留 90 天后自动清理。</WmNotice>
+      <WmToolbar>
         <el-button size="small" type="warning" @click="stopRun">终止运行中实例</el-button>
         <el-button size="small" @click="loadLogs">刷新</el-button>
-      </div>
-      <el-table :data="logItems" v-loading="logsLoading" size="small">
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }"><el-tag :type="statusType(row.status)" size="small">{{ row.status }}</el-tag></template>
+      </WmToolbar>
+      <WmTable :data="logItems" v-loading="logsLoading" size="small" empty-title="暂无执行记录">
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }"><WmStatusPill :label="row.status" /></template>
         </el-table-column>
-        <el-table-column label="触发" width="70"><template #default="{ row }">{{ row.trigger }}</template></el-table-column>
-        <el-table-column label="开始时间" width="165"><template #default="{ row }">{{ fmtTime(row.start_at) }}</template></el-table-column>
-        <el-table-column label="耗时" width="90"><template #default="{ row }">{{ fmtCost(row.cost_ms) }}</template></el-table-column>
-        <el-table-column prop="exit_code" label="退出码" width="75" />
+        <el-table-column label="触发" width="80"><template #default="{ row }">{{ row.trigger }}</template></el-table-column>
+        <el-table-column label="开始时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.start_at) }}</span></template></el-table-column>
+        <el-table-column label="耗时" width="95"><template #default="{ row }"><span class="wm-mono">{{ fmtCost(row.cost_ms) }}</span></template></el-table-column>
+        <el-table-column prop="exit_code" label="退出码" width="80"><template #default="{ row }"><span class="wm-mono">{{ row.exit_code }}</span></template></el-table-column>
         <el-table-column label="操作" width="90">
           <template #default="{ row }"><el-button size="small" @click="viewLog(row)">输出</el-button></template>
         </el-table-column>
-      </el-table>
-      <el-pagination style="margin-top: 12px; justify-content: flex-end" layout="prev, pager, next, total" :total="logTotal" :page-size="logSize" v-model:current-page="logPage" @current-change="loadLogs" />
+      </WmTable>
+      <el-pagination layout="prev, pager, next, total" :total="logTotal" :page-size="logSize" v-model:current-page="logPage" @current-change="loadLogs" />
     </el-drawer>
 
     <el-dialog v-model="outDlg" title="任务输出" width="760px">
-      <pre class="pre-output">{{ outContent }}</pre>
+      <WmCodeBlock :content="outContent" label="task output" />
     </el-dialog>
   </div>
 </template>
@@ -269,8 +272,3 @@ async function stopRun() {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.preset { cursor: pointer; margin-right: 6px; }
-.hint { color: #999; font-size: 12px; margin-left: 8px; }
-</style>

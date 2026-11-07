@@ -1,33 +1,29 @@
 <template>
-  <div>
-    <el-card class="page-card">
-      <div class="toolbar">
+  <div class="wm-page">
+    <WmSectionCard title="用户列表" description="三角色 RBAC：admin 全部权限 · operator 可操作全部功能 · viewer 只读且禁用终端" flush>
+      <WmToolbar>
         <el-button type="primary" @click="openCreate">新建用户</el-button>
         <el-button @click="load">刷新</el-button>
-        <span class="hint">admin 全部权限 · operator 可操作全部功能（无用户管理）· viewer 只读且禁用终端</span>
-      </div>
-      <el-table :data="users" v-loading="loading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="username" label="用户名" min-width="140" />
-        <el-table-column label="角色" width="120">
-          <template #default="{ row }">
-            <el-tag size="small" :type="roleType(row.role)">{{ roleLabel(row.role) }}</el-tag>
-          </template>
+        <template #note>不能修改自身角色、禁用或删除自身，以保护最后一个可用管理员。</template>
+      </WmToolbar>
+      <WmTable :data="users" v-loading="loading" empty-title="暂无用户">
+        <el-table-column prop="id" label="ID" width="70"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></el-table-column>
+        <el-table-column prop="username" label="用户名" min-width="160"><template #default="{ row }"><b>{{ row.username }}</b></template></el-table-column>
+        <el-table-column label="角色" width="130">
+          <template #default="{ row }"><WmStatusPill :label="roleLabel(row.role)" :tone="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'info' : 'neutral'" :dot="false" /></template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.disabled ? 'danger' : 'success'">{{ row.disabled ? '已禁用' : '正常' }}</el-tag>
-          </template>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }"><WmStatusPill :label="row.disabled ? '已禁用' : '正常'" :tone="row.disabled ? 'danger' : 'success'" /></template>
         </el-table-column>
-        <el-table-column label="创建时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
+        <el-table-column label="创建时间" width="175"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.created_at) }}</span></template></el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="danger" :disabled="row.username === auth.username" @click="del(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
-    </el-card>
+      </WmTable>
+    </WmSectionCard>
 
     <el-dialog v-model="dlg" :title="form.id ? `编辑 - ${form.username}` : '新建用户'" width="480px">
       <el-form label-width="100px">
@@ -128,7 +124,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.hint { color: #999; font-size: 12px; }
-</style>

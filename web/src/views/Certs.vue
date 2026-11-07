@@ -1,37 +1,35 @@
 <template>
-  <div>
-    <el-card class="page-card">
-      <div class="toolbar">
+  <div class="wm-page">
+    <WmSectionCard title="证书列表" description="ACME 证书剩余 30 天内自动续期，到期前推送告警" flush>
+      <WmToolbar>
         <el-button type="primary" @click="issueDlg = true">Let's Encrypt 签发</el-button>
         <el-button @click="upDlg = true">上传证书</el-button>
         <el-button @click="load">刷新</el-button>
-        <span class="hint">签发使用 HTTP-01 校验，需 80 端口可达本服务器；ACME 证书剩余 30 天内自动续期</span>
-      </div>
-      <el-table :data="certs" v-loading="loading">
-        <el-table-column prop="domain" label="主域名" min-width="160" />
-        <el-table-column label="包含域名" min-width="240"><template #default="{ row }">{{ (row.domains || []).join(', ') }}</template></el-table-column>
-        <el-table-column label="到期时间" width="120"><template #default="{ row }">{{ row.not_after?.slice(0, 10) }}</template></el-table-column>
-        <el-table-column label="剩余" width="100">
+        <template #note>签发使用 HTTP-01 校验，需 80 端口可达本服务器。</template>
+      </WmToolbar>
+      <WmTable :data="certs" v-loading="loading" empty-title="还没有托管证书" empty-description="上传已有证书，或通过 Let's Encrypt 自动签发。">
+        <el-table-column prop="domain" label="主域名" min-width="170"><template #default="{ row }"><b class="wm-mono">{{ row.domain }}</b></template></el-table-column>
+        <el-table-column label="包含域名" min-width="250"><template #default="{ row }"><span class="wm-mono">{{ (row.domains || []).join(', ') }}</span></template></el-table-column>
+        <el-table-column label="到期时间" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.not_after?.slice(0, 10) }}</span></template></el-table-column>
+        <el-table-column label="剩余" width="110">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.days_left < 15 ? 'danger' : row.days_left < 30 ? 'warning' : 'success'">{{ row.days_left }} 天</el-tag>
+            <WmStatusPill :label="`${row.days_left} 天`" :tone="row.days_left < 15 ? 'danger' : row.days_left < 30 ? 'warning' : 'success'" />
           </template>
         </el-table-column>
-        <el-table-column label="来源" width="90">
-          <template #default="{ row }"><el-tag size="small" :type="row.source === 'acme' ? 'primary' : 'info'">{{ row.source }}</el-tag></template>
+        <el-table-column label="来源" width="100">
+          <template #default="{ row }"><WmStatusPill :label="row.source" :tone="row.source === 'acme' ? 'info' : 'neutral'" :dot="false" mono /></template>
         </el-table-column>
-        <el-table-column label="操作" width="90">
-          <template #default="{ row }">
-            <el-button size="small" type="danger" @click="del(row)">删除</el-button>
-          </template>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }"><el-button size="small" type="danger" @click="del(row)">删除</el-button></template>
         </el-table-column>
-      </el-table>
-    </el-card>
+      </WmTable>
+    </WmSectionCard>
 
     <el-dialog v-model="issueDlg" title="Let's Encrypt 签发" width="560px">
       <el-form label-width="110px">
         <el-form-item label="域名列表"><el-input v-model="issue.domains" placeholder="example.com, www.example.com" /></el-form-item>
         <el-form-item label="邮箱"><el-input v-model="issue.email" placeholder="用于 Let's Encrypt 账户注册" /></el-form-item>
-        <el-form-item label="测试环境"><el-switch v-model="issue.staging" /><span class="hint">staging 有速率限制宽松，验证流程可用后再切正式</span></el-form-item>
+        <el-form-item label="测试环境"><el-switch v-model="issue.staging" /><span class="hint">staging 速率限制宽松，验证流程可用后再切正式</span></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="issueDlg = false">取消</el-button>
@@ -40,6 +38,7 @@
     </el-dialog>
 
     <el-dialog v-model="upDlg" title="上传证书" width="640px">
+      <WmNotice tone="neutral" class="wm-mb-4">上传后将校验证书与私钥是否配对；fullchain 与私钥需同时提供。</WmNotice>
       <el-form label-width="90px">
         <el-form-item label="证书 PEM"><el-input v-model="up.cert" type="textarea" :rows="7" placeholder="-----BEGIN CERTIFICATE-----（fullchain）" /></el-form-item>
         <el-form-item label="私钥 PEM"><el-input v-model="up.key" type="textarea" :rows="5" placeholder="-----BEGIN PRIVATE KEY-----" /></el-form-item>
@@ -115,7 +114,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.hint { color: #999; font-size: 12px; }
-</style>

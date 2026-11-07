@@ -1,27 +1,29 @@
 <template>
-  <div>
-    <el-card class="page-card">
-      <div class="toolbar">
-        <el-tag :type="fw.tool === 'none' ? 'danger' : 'success'" size="small">{{ toolLabel }}</el-tag>
+  <div class="wm-page">
+    <WmSectionCard title="防火墙状态" description="统一抽象 ufw 与 firewalld，操作即时生效" marker>
+      <WmToolbar>
+        <WmStatusPill :label="toolLabel" :tone="fw.tool === 'none' ? 'danger' : 'success'" />
         <el-switch v-if="fw.tool !== 'none'" v-model="fw.enabled" active-text="启用防火墙" @change="switchFw" />
         <el-button size="small" @click="load">刷新</el-button>
-      </div>
-      <el-alert v-if="fw.tool === 'none'" type="warning" :closable="false" :title="fw.message || '未检测到 ufw 或 firewalld'" />
+      </WmToolbar>
+      <WmNotice v-if="fw.tool === 'none'" tone="warning" title="未检测到受支持的防火墙">
+        {{ fw.message || '当前系统未检测到 ufw 或 firewalld，端口规则功能不可用。' }}
+      </WmNotice>
       <template v-else>
-        <div class="toolbar" style="margin-top: 12px">
-          <el-input v-model="newPort" placeholder="如 8080/tcp" style="width: 200px" />
+        <WmNotice tone="warning" class="wm-mb-4">移除面板端口的放行规则可能导致失去远程访问，请先确认保留 SSH 与面板端口。</WmNotice>
+        <WmToolbar>
+          <el-input v-model="newPort" placeholder="如 8080/tcp 或 53/udp" style="width: 220px" @keyup.enter="addPort" />
           <el-button type="primary" @click="addPort">放行端口</el-button>
-        </div>
-        <el-table :data="fw.ports" size="small">
-          <el-table-column label="端口/协议" min-width="160"><template #default="{ row }">{{ row }}</template></el-table-column>
+          <template #note>格式：端口或端口段 / 协议，例如 8080/tcp、8000-8100/tcp。</template>
+        </WmToolbar>
+        <WmTable :data="fw.ports" size="small" empty-title="暂无放行规则" empty-description="在上方输入端口与协议后添加规则。">
+          <el-table-column label="端口/协议" min-width="180"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></el-table-column>
           <el-table-column label="操作" width="110">
-            <template #default="{ row }">
-              <el-button size="small" type="danger" @click="delPort(row)">移除</el-button>
-            </template>
+            <template #default="{ row }"><el-button size="small" type="danger" @click="delPort(row)">移除</el-button></template>
           </el-table-column>
-        </el-table>
+        </WmTable>
       </template>
-    </el-card>
+    </WmSectionCard>
   </div>
 </template>
 

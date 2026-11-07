@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>webmblx · Control Surface — 界面重设计交付读本</title>
+<style>
+/* ── Tokens (mirrors web/src/style.css) ─────────────────────────────── */
+:root{
+  --accent:#4f5bd5; --accent-hover:#5d68e2; --accent-active:#414cbb;
+  --accent-ink:#fff; --accent-soft:#eef0ff; --accent-line:#d9ddfa; --accent-ring:rgba(79,91,213,.18);
+  --ground:#f5f6f9; --surface:#fff; --surface-2:#fafbfd; --surface-3:#f0f2f6;
+  --ink:#141a23; --ink-2:#5a6675; --ink-3:#8a94a3;
+  --line:#e3e7ee; --line-strong:#d2d9e4;
+  --rail:#111620; --rail-2:#19212e; --rail-ink:#e9edf6; --rail-ink-2:#8d99ad; --rail-ink-3:#596579; --rail-line:rgba(255,255,255,.075);
+  --success:#16845c; --success-soft:#e7f5ee;
+  --warning:#b9741b; --warning-soft:#fcf2e4;
+  --danger:#cf443c; --danger-soft:#fdeceb;
+  --neutral:#6b7688; --neutral-soft:#eff1f5;
+  --r-xs:6px; --r-sm:8px; --r-md:10px; --r-lg:14px; --r-xl:18px;
+  --sh1:0 1px 2px rgba(16,24,40,.04);
+  --sh2:0 18px 40px -22px rgba(16,24,40,.34),0 2px 8px -3px rgba(16,24,40,.07);
+  --sh3:0 28px 70px -28px rgba(16,24,40,.4);
+  --dur:160ms; --dur2:240ms; --ease:cubic-bezier(.22,1,.36,1);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  --mono:"SFMono-Regular","JetBrains Mono","Cascadia Code",Consolas,"Liberation Mono",Menlo,monospace;
+  --pad:20px;
+}
+html.dark{
+  --accent:#8c96ff; --accent-hover:#a3abff; --accent-active:#747fe8;
+  --accent-ink:#0c1018; --accent-soft:#1d2440; --accent-line:#333c68; --accent-ring:rgba(140,150,255,.22);
+  --ground:#0d1119; --surface:#141a24; --surface-2:#19212d; --surface-3:#212b39;
+  --ink:#e9edf5; --ink-2:#a3aec0; --ink-3:#748096;
+  --line:#243040; --line-strong:#33415570;
+  --success:#46c58f; --success-soft:#112c24;
+  --warning:#e0a451; --warning-soft:#2e2415;
+  --danger:#f0736c; --danger-soft:#301c1d;
+  --neutral:#8b96a8; --neutral-soft:#1e2633;
+  --sh1:0 1px 2px rgba(0,0,0,.35); --sh2:0 18px 40px -22px rgba(0,0,0,.75),0 2px 8px -3px rgba(0,0,0,.4);
+  color-scheme:dark;
+}
+html.compact{--pad:12px}
+html.no-motion *,html.no-motion *::before,html.no-motion *::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--sans);font-size:14px;line-height:1.6;color:var(--ink);background:var(--ground);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4,p{margin:0}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+::selection{background:var(--accent-ring)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border:3px solid transparent;background-clip:padding-box;border-radius:999px}
+::-webkit-scrollbar-track{background:transparent}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+
+/* ── Document shell ─────────────────────────────────────────────────── */
+.doc{display:flex;min-height:100vh}
+.doc-rail{width:244px;flex:0 0 244px;background:var(--rail);color:var(--rail-ink);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;border-right:1px solid var(--rail-line)}
+.doc-brand{height:64px;flex:0 0 64px;display:flex;align-items:center;gap:11px;padding:0 18px;border-bottom:1px solid var(--rail-line)}
+.logo{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:15px;font-weight:800}
+html.dark .logo{color:var(--accent-ink)}
+.doc-brand b{font-size:15px;letter-spacing:-.02em}
+.doc-brand small{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--rail-ink-3)}
+.doc-nav{flex:1;overflow-y:auto;padding:16px 10px 24px}
+.doc-nav .grp{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--rail-ink-3);padding:12px 12px 6px}
+.doc-nav a{display:flex;gap:10px;align-items:center;height:34px;padding:0 12px;border-radius:var(--r-sm);font-size:12.5px;color:var(--rail-ink-2);transition:background var(--dur),color var(--dur)}
+.doc-nav a span:first-child{font-family:var(--mono);font-size:10px;opacity:.6;width:18px}
+.doc-nav a:hover{background:rgba(255,255,255,.055);color:var(--rail-ink)}
+.doc-nav a.active{background:var(--accent-ring);color:#c3c9ff;font-weight:650}
+.doc-foot{padding:14px 18px;border-top:1px solid var(--rail-line);color:var(--rail-ink-3);font-size:11px;line-height:1.7}
+.doc-main{flex:1;min-width:0}
+.doc-top{height:64px;display:flex;align-items:center;gap:14px;padding:0 32px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(14px);position:sticky;top:0;z-index:10}
+.doc-top .crumb{font-size:12px;color:var(--ink-3)}
+.doc-top .crumb b{color:var(--ink)}
+.doc-top .spacer{flex:1}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:10.5px;font-weight:650;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line)}
+.tag--muted{background:var(--surface-3);color:var(--ink-3);border-color:var(--line)}
+.doc-body{max-width:1180px;margin:0 auto;padding:40px 32px 120px}
+section{scroll-margin-top:88px;margin-bottom:64px}
+.sec-head{display:flex;align-items:baseline;gap:14px;padding-bottom:16px;margin-bottom:24px;border-bottom:1px solid var(--line)}
+.sec-head .idx{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700}
+.sec-head h2{font-size:25px;font-weight:700;letter-spacing:-.028em;line-height:1.25}
+.sec-head .sub{margin-left:auto;font-size:12px;color:var(--ink-3);text-align:right;text-wrap:pretty}
+.lead{font-size:14px;color:var(--ink-2);max-width:80ch;line-height:1.85;margin-bottom:24px;text-wrap:pretty}
+h3{font-size:14px;font-weight:650;margin:28px 0 12px;letter-spacing:-.01em}
+h3:first-child{margin-top:0}
+p.note{font-size:12.5px;color:var(--ink-3);line-height:1.8;text-wrap:pretty}
+
+/* ── Generic blocks ─────────────────────────────────────────────────── */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh1);overflow:hidden}
+.card-head{padding:14px var(--pad);border-bottom:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.card-head h4{font-size:13px;font-weight:650}
+.card-head small{font-size:11px;color:var(--ink-3)}
+.card-body{padding:var(--pad)}
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.spacer-sm{height:12px}
+.spacer-md{height:20px}
+.table{width:100%;border-collapse:collapse;font-size:12.5px}
+.table th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface-2);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.table td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--ink-2);vertical-align:top}
+.table tr:last-child td{border-bottom:0}
+.table td strong{color:var(--ink);font-weight:650}
+.table tbody tr:hover td{background:var(--accent-soft)}
+.code{font-family:var(--mono);font-size:11.5px;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:1px 5px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border-radius:999px;font-size:10.5px;font-weight:650;white-space:nowrap;border:1px solid transparent}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px}
+.pill--success{background:var(--success-soft);color:var(--success);border-color:color-mix(in srgb,var(--success) 14%,transparent)}
+.pill--warning{background:var(--warning-soft);color:var(--warning);border-color:color-mix(in srgb,var(--warning) 16%,transparent)}
+.pill--danger{background:var(--danger-soft);color:var(--danger);border-color:color-mix(in srgb,var(--danger) 14%,transparent)}
+.pill--info{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.pill--neutral{background:var(--neutral-soft);color:var(--neutral)}
+.pill--muted{background:var(--surface-3);color:var(--ink-3);border-color:var(--line)}
+
+/* ── Tokens display ─────────────────────────────────────────────────── */
+.swatch{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--surface);cursor:pointer;transition:transform var(--dur),box-shadow var(--dur)}
+.swatch:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
+.swatch__c{height:64px;border-bottom:1px solid var(--line)}
+.swatch__m{padding:9px 11px}
+.swatch__m b{display:block;font-size:11.5px;font-weight:650}
+.swatch__m span{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.type-row{display:flex;align-items:baseline;gap:18px;padding:11px 0;border-bottom:1px solid var(--line)}
+.type-row:last-child{border-bottom:0}
+.type-row .lbl{width:112px;flex:0 0 112px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.type-row .smp{color:var(--ink);text-wrap:pretty}
+.ts-hero{font-size:clamp(28px,3.4vw,42px);font-weight:700;letter-spacing:-.035em;line-height:1.15}
+.ts-h1{font-size:29px;font-weight:700;letter-spacing:-.028em;line-height:1.25}
+.ts-h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.ts-h3{font-size:15px;font-weight:650}
+.ts-body{font-size:14px}
+.ts-label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.ts-mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+.space-row{display:flex;align-items:center;gap:12px;padding:6px 0;font-size:11.5px;color:var(--ink-2)}
+.space-row b{font-family:var(--mono);width:44px;color:var(--ink-3);font-weight:500}
+.space-row i{display:block;height:12px;background:var(--accent);opacity:.75;border-radius:2px}
+.radius-row{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.radius-row div{text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.radius-row i{display:block;width:64px;height:44px;background:var(--accent-soft);border:1px solid var(--accent-line);margin-bottom:6px}
+
+/* ── Wireframe ──────────────────────────────────────────────────────── */
+.wire{background:var(--surface-2);border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:12px;display:flex;gap:10px;min-height:280px}
+.wire__rail{width:150px;flex:0 0 150px;background:var(--rail);border-radius:var(--r-sm);padding:10px;display:flex;flex-direction:column;gap:5px}
+.wire__rail .b{height:16px;background:var(--accent);border-radius:4px;margin-bottom:8px;opacity:.85}
+.wire__rail .g{font-size:8px;letter-spacing:.12em;color:var(--rail-ink-3);margin:7px 0 2px}
+.wire__rail .i{height:15px;border-radius:3px;background:rgba(255,255,255,.07);font-size:8px;color:var(--rail-ink-2);padding-left:5px;line-height:15px}
+.wire__rail .i.on{background:var(--accent-ring);color:#c3c9ff}
+.wire__main{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.wire__top{height:28px;flex:0 0 28px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xs);display:flex;align-items:center;padding:0 10px;gap:8px;font-size:9px;color:var(--ink-3)}
+.wire__top .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.wire__title{border-bottom:1px solid var(--line);padding:6px 2px 10px}
+.wire__title b{display:block;font-size:14px;letter-spacing:-.02em}
+.wire__title span{font-size:9px;color:var(--ink-3)}
+.wire__stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.wire__stats div{height:56px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px;font-size:9px;color:var(--ink-3)}
+.wire__stats b{display:block;font-size:17px;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.wire__panels{display:grid;grid-template-columns:1.4fr 1fr;gap:8px;flex:1}
+.wire__panels>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px;font-size:9px;color:var(--ink-3)}
+.wire__panels .bars{display:flex;align-items:flex-end;gap:5px;height:70%;margin-top:8px}
+.wire__panels .bars i{flex:1;background:var(--accent-soft);border-radius:2px 2px 0 0;border-top:2px solid var(--accent)}
+.wire--mobile{width:210px;min-height:340px;flex-direction:column;margin:0 auto}
+.wire--mobile .wire__rail{display:none}
+.wire--mobile .wire__stats{grid-template-columns:repeat(2,1fr)}
+.wire--mobile .wire__panels{grid-template-columns:1fr}
+.wire--mobile .wire__bottom{height:30px;flex:0 0 30px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:space-around;font-size:8px;color:var(--ink-3)}
+
+/* ── Component demo primitives ──────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 13px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);font-size:12.5px;font-weight:600;cursor:pointer;transition:all var(--dur) var(--ease);white-space:nowrap}
+.btn:hover{background:var(--surface-2);border-color:var(--accent-line);color:var(--accent)}
+.btn:active{transform:translateY(1px)}
+.btn--primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn--primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
+.btn--danger{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 22%,transparent);color:var(--danger)}
+.btn--danger:hover{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn--success{background:var(--success-soft);border-color:color-mix(in srgb,var(--success) 22%,transparent);color:var(--success)}
+.btn--warning{background:var(--warning-soft);border-color:color-mix(in srgb,var(--warning) 22%,transparent);color:var(--warning)}
+.btn--ghost{background:transparent;border-color:transparent;color:var(--accent)}
+.btn--sm{height:26px;padding:0 9px;font-size:11.5px}
+.btn.is-disabled,.btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none;box-shadow:none}
+.btn.is-focus{box-shadow:0 0 0 3px var(--accent-ring);border-color:var(--accent)}
+.btn.is-loading{pointer-events:none;opacity:.75}
+.spin{width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label{font-size:11px;font-weight:650;color:var(--ink-2)}
+.input{height:34px;padding:0 11px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font-size:12.5px;width:100%;transition:box-shadow var(--dur),border-color var(--dur)}
+.input::placeholder{color:var(--ink-3)}
+.input:hover{border-color:var(--ink-3)}
+.input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.input.is-error{border-color:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 14%,transparent)}
+.input:disabled{background:var(--surface-3);color:var(--ink-3);cursor:not-allowed}
+.field__msg{font-size:10.5px;color:var(--ink-3)}
+.field__msg--error{color:var(--danger)}
+.switch{width:36px;height:20px;border-radius:999px;background:var(--line-strong);position:relative;cursor:pointer;transition:background var(--dur);flex:0 0 36px}
+.switch i{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform var(--dur) var(--ease)}
+.switch.on{background:var(--accent)}
+.switch.on i{transform:translateX(16px)}
+.switch.disabled{opacity:.45;cursor:not-allowed}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh1);padding:16px var(--pad);min-height:128px;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.stat::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--accent);opacity:.45}
+.stat__top{display:flex;justify-content:space-between;align-items:flex-start}
+.stat__label{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.stat__icon{width:30px;height:30px;border-radius:var(--r-md);display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:14px}
+.stat--success .stat__icon{background:var(--success-soft);color:var(--success)}
+.stat--warning .stat__icon{background:var(--warning-soft);color:var(--warning)}
+.stat--danger .stat__icon{background:var(--danger-soft);color:var(--danger)}
+.stat__val{font-size:28px;font-weight:700;letter-spacing:-.035em;margin-top:10px;font-variant-numeric:tabular-nums}
+.stat__val small{font-size:13px;font-weight:500;color:var(--ink-3);margin-left:2px}
+.stat--danger .stat__val{color:var(--danger)}
+.stat__sub{font-size:10.5px;color:var(--ink-3);margin-top:5px;line-height:1.6}
+.stat__bar{height:5px;border-radius:999px;background:var(--surface-3);margin-top:auto;overflow:hidden}
+.stat__bar i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.stat--success .stat__bar i{background:var(--success)}
+.stat--danger .stat__bar i{background:var(--danger)}
+.stat__sk{background:var(--surface-3);border-radius:4px;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.notice{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:var(--r-md);border:1px solid var(--accent-line);background:var(--accent-soft);font-size:12px;line-height:1.65;color:var(--ink-2)}
+.notice b{display:block;color:var(--ink);font-size:12px}
+.notice__i{width:17px;height:17px;border-radius:5px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:11px;flex:0 0 17px;margin-top:1px}
+html.dark .notice__i{color:var(--accent-ink)}
+.notice--success{background:var(--success-soft);border-color:color-mix(in srgb,var(--success) 16%,transparent)}
+.notice--success .notice__i{background:var(--success)}
+.notice--warning{background:var(--warning-soft);border-color:color-mix(in srgb,var(--warning) 18%,transparent)}
+.notice--warning .notice__i{background:var(--warning)}
+.notice--danger{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 16%,transparent)}
+.notice--danger .notice__i{background:var(--danger)}
+.notice--neutral{background:var(--surface-2);border-color:var(--line)}
+.notice--neutral .notice__i{background:var(--neutral)}
+.page-head{border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:20px}
+.page-head h2{font-size:clamp(23px,2.2vw,29px);font-weight:700;letter-spacing:-.028em;margin-top:5px}
+.page-head p{font-size:12.5px;color:var(--ink-2);margin-top:6px;max-width:70ch;text-wrap:pretty}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:14px}
+.toolbar .note{font-size:11.5px;color:var(--ink-3);margin-left:auto}
+.dtable{width:100%;border-collapse:collapse;font-size:12px}
+.dtable th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface-2);padding:9px 12px;border-bottom:1px solid var(--line)}
+.dtable td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--ink-2)}
+.dtable tr:last-child td{border-bottom:0}
+.dtable tbody tr:hover td{background:var(--accent-soft)}
+.dtable td b{color:var(--ink);font-weight:650}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:32px 16px;color:var(--ink-3)}
+.empty__i{width:42px;height:42px;border-radius:var(--r-lg);background:var(--surface-3);border:1px solid var(--line);display:grid;place-items:center;font-size:19px;margin-bottom:10px}
+.empty b{font-size:13px;color:var(--ink)}
+.empty span{font-size:11.5px;margin-top:4px;max-width:42ch;line-height:1.6}
+.empty__act{margin-top:12px}
+.code-block{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:#101620}
+html.dark .code-block{background:#0a0f17}
+.code-block__bar{display:flex;justify-content:space-between;align-items:center;padding:7px 11px;background:rgba(255,255,255,.035);border-bottom:1px solid rgba(255,255,255,.07);font-family:var(--mono);font-size:10.5px;color:#8e9bb0}
+.code-block__bar button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#c9d3e2;border-radius:5px;padding:2px 8px;font-size:10.5px;cursor:pointer}
+.code-block pre{margin:0;padding:13px 15px;font-family:var(--mono);font-size:11.5px;line-height:1.75;color:#cfd8e6;white-space:pre-wrap;word-break:break-all}
+.dialog-mock{border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh3);overflow:hidden;background:var(--surface);max-width:420px}
+.dialog-mock__h{padding:13px 16px;border-bottom:1px solid var(--line);background:var(--surface-2);font-size:13px;font-weight:650;display:flex;justify-content:space-between}
+.dialog-mock__b{padding:16px}
+.dialog-mock__f{padding:12px 16px;border-top:1px solid var(--line);background:var(--surface-2);display:flex;justify-content:flex-end;gap:8px}
+.state-label{font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--ink-3);margin-bottom:7px;display:block}
+.demo-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.yes{color:var(--success);font-weight:700}
+.no{color:var(--ink-3)}
+.partial{color:var(--warning);font-weight:700}
+.state-cell{font-size:11px;text-align:center!important}
+
+/* ── Tweaks ─────────────────────────────────────────────────────────── */
+.tweaks-btn{position:fixed;right:20px;bottom:20px;z-index:60;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);box-shadow:var(--sh2);cursor:pointer;font-size:17px;display:grid;place-items:center;transition:transform var(--dur),color var(--dur)}
+.tweaks-btn:hover{transform:rotate(35deg);color:var(--accent)}
+.tweaks{position:fixed;right:20px;bottom:72px;z-index:60;width:250px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh3);padding:16px;display:none}
+.tweaks.open{display:block;animation:rise 240ms var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.tweaks h4{font-size:13px;font-weight:650;margin-bottom:3px}
+.tweaks p{font-size:10.5px;color:var(--ink-3);margin-bottom:14px}
+.tweaks__row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;font-size:11.5px;color:var(--ink-2)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
+.seg button{border:0;background:var(--surface);color:var(--ink-3);font-size:10.5px;padding:4px 9px;cursor:pointer;transition:background var(--dur),color var(--dur)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:650}
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+@media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.doc-rail{display:none}.doc-body{padding:28px 20px 100px}.doc-top{padding:0 20px}.grid-2{grid-template-columns:1fr}}
+@media(max-width:640px){.grid-4,.grid-3{grid-template-columns:1fr}.sec-head{flex-wrap:wrap}.sec-head .sub{width:100%;text-align:left;margin-left:0}.doc-top .crumb{display:none}.wire__stats{grid-template-columns:repeat(2,1fr)}.wire__panels{grid-template-columns:1fr}.type-row{flex-wrap:wrap;gap:6px}.type-row .lbl{width:100%;flex-basis:100%}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="doc">
+  <!-- Rail -->
+  <aside class="doc-rail">
+    <div class="doc-brand"><span class="logo">W</span><div><b>webmblx</b><small>control surface</small></div></div>
+    <nav class="doc-nav" id="nav">
+      <div class="grp">设计交付</div>
+      <a href="#s1" class="active"><span>01</span>设计读本</a>
+      <a href="#s2"><span>02</span>页面结构</a>
+      <a href="#s3"><span>03</span>设计令牌</a>
+      <a href="#s4"><span>04</span>组件清单</a>
+      <a href="#s5"><span>05</span>状态矩阵</a>
+      <a href="#s6"><span>06</span>组件与状态实景</a>
+      <a href="#s7"><span>07</span>响应式策略</a>
+      <a href="#s8"><span>08</span>交付清单</a>
+      <div class="grp">契约</div>
+      <a href="#s1"><span>→</span>保护清单</a>
+      <a href="#s2"><span>→</span>路由与信息结构</a>
+    </nav>
+    <div class="doc-foot">v0 读本 · 与 <span class="mono">web/src/style.css</span> 同源令牌<br />离线单页，无外部依赖</div>
+  </aside>
+
+  <div class="doc-main">
+    <div class="doc-top">
+      <div class="crumb"><b>webmblx</b> / 界面重设计 / 交付读本</div>
+      <div class="spacer"></div>
+      <span class="tag">Redesign · Overhaul</span>
+      <span class="tag tag--muted">双主题 · 桌面 + 移动</span>
+    </div>
+
+    <div class="doc-body">
+      <!-- 01 -->
+      <section id="s1">
+        <div class="sec-head"><span class="idx">01</span><h2>设计读本</h2><span class="sub">方向、五个刻度与变更边界</span></div>
+        <p class="lead">这是一台服务器的操作面，不是营销页。使用者要在几秒内判断「哪里异常、能做什么、刚才那一步是否生效」。因此重设计把预算全部投在<strong>信息层级、状态可读性与操作确定性</strong>上，而不是装饰。视觉锚点取 Linear 系「精密工具」：发丝线分隔、单一强调色、等宽数字、轻量动效，并适配为浅色优先的双主题。</p>
+
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h4>Design Read</h4><small>校准结果</small></div><div class="card-body">
+            <table class="table">
+              <tr><td><strong>产物</strong></td><td>服务器运维控制台（18 个页面 + 全局外壳）</td></tr>
+              <tr><td><strong>受众</strong></td><td>root / 运维管理员 / 只读观察者</td></tr>
+              <tr><td><strong>视觉语言</strong></td><td>精密工具 / 发丝线 + 单一靛蓝强调 + 等宽数字</td></tr>
+              <tr><td><strong>模式</strong></td><td>Redesign · Overhaul（保留功能与信息结构）</td></tr>
+              <tr><td><strong>约束</strong></td><td>单二进制离线部署（不引外链字体）、双主题、桌面 + 移动、Element Plus 基座</td></tr>
+            </table>
+          </div></div>
+          <div class="card"><div class="card-head"><h4>五个刻度 → 实际决策</h4><small>非装饰性评分</small></div><div class="card-body">
+            <table class="table">
+              <tr><td><strong>视觉变化 5</strong></td><td>稳定的导航 + 栅格脊柱；仅统计卡与模板卡做轻微非对称</td></tr>
+              <tr><td><strong>动效强度 3</strong></td><td>只做 hover / focus / 入场 / 状态切换，不做编排动画</td></tr>
+              <tr><td><strong>信息密度 8</strong></td><td>表格为主，靠分组标题、等宽数字与统一行高提升扫读效率</td></tr>
+              <tr><td><strong>资产依赖 2</strong></td><td>纯排版与数据驱动，无摄影/插画依赖</td></tr>
+              <tr><td><strong>品牌保真 6</strong></td><td>保留深色导航轨与全部导航文案；其余视觉语言重铸</td></tr>
+            </table>
+          </div></div>
+        </div>
+
+        <h3>变更前 / 变更后</h3>
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h4>Improve · 本次修复</h4></div><div class="card-body">
+            <table class="table">
+              <tr><td>页面缺少统一标题区，面包屑是唯一上下文</td><td><span class="pill pill--success"><i></i>已修复</span></td></tr>
+              <tr><td>工具条按钮与说明文字混排、层级不分</td><td><span class="pill pill--success"><i></i>已修复</span></td></tr>
+              <tr><td>表格无空态，加载态只有遮罩</td><td><span class="pill pill--success"><i></i>已修复</span></td></tr>
+              <tr><td>状态标签色彩语义不统一、无点状信号</td><td><span class="pill pill--success"><i></i>已修复</span></td></tr>
+              <tr><td>硬编码图表色不跟随主题</td><td><span class="pill pill--success"><i></i>已修复</span></td></tr>
+              <tr><td>移动端仅靠 Element Plus 断点，导航不可用</td><td><span class="pill pill--success"><i></i>已修复</span></td></tr>
+            </table>
+          </div></div>
+          <div class="card"><div class="card-head"><h4>Preserve · 保护契约</h4></div><div class="card-body">
+            <table class="table">
+              <tr><td>全部 18 条路由路径与导航文案</td><td><span class="pill pill--info"><i></i>未改动</span></td></tr>
+              <tr><td>所有 API 路径、请求参数、字段与提交行为</td><td><span class="pill pill--info"><i></i>未改动</span></td></tr>
+              <tr><td>表单字段顺序、校验、审计与 RBAC 逻辑</td><td><span class="pill pill--info"><i></i>未改动</span></td></tr>
+              <tr><td>深色导航轨、明暗双主题、<span class="code">wm_theme</span> 持久化键</td><td><span class="pill pill--info"><i></i>保留</span></td></tr>
+              <tr><td>页面数据列 / 信息块（无删减、无伪造数据）</td><td><span class="pill pill--info"><i></i>保留</span></td></tr>
+              <tr><td>回滚</td><td>Git 可整体回退；样式与视图改动彼此独立</td></tr>
+            </table>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 02 -->
+      <section id="s2">
+        <div class="sec-head"><span class="idx">02</span><h2>页面结构</h2><span class="sub">外壳、栅格与 18 个页面的信息架构</span></div>
+        <p class="lead">全局外壳由「深色导航轨 + 顶栏 + 内容区」三段构成；每个页面统一为 <span class="code">PageHeader → SectionCard(标题 / 描述 / 操作) → Toolbar → 内容</span>。桌面端导航轨可折叠为 68px 图标轨，移动端转为抽屉 + 底部快捷栏。</p>
+
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h4>桌面 ≥ 1280px</h4><small>232px 轨 / 60px 顶栏 / 1480px 内容上限</small></div><div class="card-body">
+            <div class="wire">
+              <div class="wire__rail">
+                <div class="b"></div>
+                <div class="g">01 概览</div><div class="i on">仪表盘</div>
+                <div class="g">02 站点与服务</div><div class="i">网站</div><div class="i">数据库</div><div class="i">应用商店</div><div class="i">终端</div>
+                <div class="g">03 系统运维</div><div class="i">计划任务</div><div class="i">告警策略</div><div class="i">文件管理</div><div class="i">进程管理</div><div class="i">节点管理</div>
+                <div class="g">04 面板</div><div class="i">审计日志</div><div class="i">系统设置</div>
+              </div>
+              <div class="wire__main">
+                <div class="wire__top"><span>≡</span><span>系统运维 / 仪表盘</span><span style="margin-left:auto" class="dot"></span><span>HTTPS 安全会话</span><span>◐</span><span>admin</span></div>
+                <div class="wire__title"><span class="eyebrow">概览</span><b>仪表盘</b><span>实时资源指标、运行概览与健康状态，每 3 秒自动刷新。</span></div>
+                <div class="wire__stats"><div>CPU 使用率<b class="num">23.4%</b></div><div>内存<b class="num">3.2 GB</b></div><div>1 分钟负载<b class="num">0.42</b></div><div>系统环境<b style="font-size:10px">Ubuntu 22.04</b></div></div>
+                <div class="wire__panels"><div>CPU / 内存走势<div class="bars"><i style="height:38%"></i><i style="height:55%"></i><i style="height:42%"></i><i style="height:70%"></i><i style="height:48%"></i><i style="height:62%"></i><i style="height:35%"></i><i style="height:58%"></i></div></div><div>网络流量<div class="bars"><i style="height:30%"></i><i style="height:64%"></i><i style="height:45%"></i><i style="height:80%"></i><i style="height:52%"></i></div></div></div>
+              </div>
+            </div>
+          </div></div>
+          <div class="card"><div class="card-head"><h4>移动 &lt; 900px</h4><small>抽屉导航 / 底部 4+1 标签 / 触控 ≥ 44px</small></div><div class="card-body">
+            <div class="wire wire--mobile">
+              <div class="wire__main">
+                <div class="wire__top"><span>☰</span><b style="font-size:10px;color:var(--ink)">仪表盘</b><span style="margin-left:auto">◐</span></div>
+                <div class="wire__title"><span class="eyebrow">概览</span><b style="font-size:12px">仪表盘</b><span>实时资源指标与健康状态</span></div>
+                <div class="wire__stats"><div>CPU<b class="num">23.4%</b></div><div>内存<b class="num">3.2GB</b></div><div>负载<b class="num">0.42</b></div><div>系统<b style="font-size:9px">22.04</b></div></div>
+                <div class="wire__panels"><div>CPU / 内存走势<div class="bars"><i style="height:38%"></i><i style="height:55%"></i><i style="height:42%"></i><i style="height:70%"></i></div></div></div>
+                <div class="wire__bottom"><span>仪表盘</span><span>网站</span><span>计划任务</span><span>文件</span><span>更多</span></div>
+              </div>
+            </div>
+          </div></div>
+        </div>
+
+        <h3>路由与页面树（路径 / 标签 / 分组均未改动）</h3>
+        <div class="card"><div class="card-body" style="padding:0">
+          <div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>导航分组</th><th>页面</th><th>路由</th><th>主要内容块</th><th>关键操作</th></tr></thead>
+            <tbody>
+              <tr><td><strong>01 概览</strong></td><td>仪表盘</td><td class="mono">/dashboard</td><td>4 指标卡 / 2 走势图 / 磁盘 / Top 进程</td><td>监控对象切换</td></tr>
+              <tr><td rowspan="4"><strong>02 站点与服务</strong></td><td>网站</td><td class="mono">/website</td><td>Nginx 状态 / 站点表 / 建站表单 / 日志</td><td>创建 · 编辑 · 启停 · 重载 · 删除</td></tr>
+              <tr><td>数据库</td><td class="mono">/databases</td><td>MySQL / PG 双标签 · 连接配置 · 库与用户表</td><td>建库 · 建用户 · 授权 · 测试连接</td></tr>
+              <tr><td>应用商店</td><td class="mono">/appstore</td><td>Docker 状态 / 模板卡 / 实例表 / 镜像源</td><td>部署 · 启停 · 日志 · 卸载</td></tr>
+              <tr><td>终端</td><td class="mono">/terminal</td><td>连接状态 / xterm 会话</td><td>重新连接</td></tr>
+              <tr><td rowspan="7"><strong>03 系统运维</strong></td><td>计划任务</td><td class="mono">/cron</td><td>任务表 / 建任务表单 / 执行日志抽屉 / 输出</td><td>新建 · 执行 · 启停 · 终止 · 删除</td></tr>
+              <tr><td>告警策略</td><td class="mono">/alerts</td><td>规则表 / 触发历史 / 规则表单</td><td>新建 · 编辑 · 启停 · 删除</td></tr>
+              <tr><td>文件管理</td><td class="mono">/files</td><td>路径栏 / 文件表 / 编辑器</td><td>跳转 · 上传 · 压缩 · 编辑 · 删除</td></tr>
+              <tr><td>进程管理</td><td class="mono">/proc</td><td>进程 / systemd 服务 双标签</td><td>排序 · 结束 / 强杀 · 服务控制</td></tr>
+              <tr><td>节点管理</td><td class="mono">/nodes</td><td>接入命令 / 节点表 / 指标抽屉 / 远程命令</td><td>复制 · 重置 Token · 指标 · 命令 · 删除</td></tr>
+              <tr><td>防火墙</td><td class="mono">/firewall</td><td>工具状态 / 端口规则表</td><td>开关 · 放行 · 移除</td></tr>
+              <tr><td>SSL 证书</td><td class="mono">/certs</td><td>证书表 / 签发 / 上传表单</td><td>签发 · 上传 · 删除</td></tr>
+              <tr><td rowspan="4"><strong>04 面板</strong></td><td>审计日志</td><td class="mono">/audit</td><td>筛选条 / 记录表 / 分页</td><td>按方法 · 路径 · 操作人查询</td></tr>
+              <tr><td>通知与存储</td><td class="mono">/notify</td><td>SMTP / Webhook / S3 三组配置</td><td>保存 · 测试发送 · 连通性测试</td></tr>
+              <tr><td>用户管理</td><td class="mono">/users</td><td>用户表 / 编辑表单</td><td>新建 · 编辑 · 禁用 · 删除</td></tr>
+              <tr><td>系统设置</td><td class="mono">/setting</td><td>面板信息 / 修改密码</td><td>修改密码</td></tr>
+              <tr><td><strong>独立页</strong></td><td>登录</td><td class="mono">/login</td><td>产品说明 / 认证表单 / 安全提示</td><td>登录</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div></div>
+      </section>
+
+      <!-- 03 -->
+      <section id="s3">
+        <div class="sec-head"><span class="idx">03</span><h2>设计令牌</h2><span class="sub">所有颜色 / 字号 / 间距均出自此处</span></div>
+        <p class="lead">强调色只有一支（靛蓝），语义色只在状态场景出现；浅色与深色共享同一套<strong>角色名</strong>，切换主题时只换值不换结构。点击色块可复制色值。</p>
+
+        <h3>色彩角色（浅色态）</h3>
+        <div class="grid-4" id="swatches">
+          <div class="swatch" data-hex="#4f5bd5"><div class="swatch__c" style="background:#4f5bd5"></div><div class="swatch__m"><b>Accent · 强调</b><span>#4F5BD5</span></div></div>
+          <div class="swatch" data-hex="#111620"><div class="swatch__c" style="background:#111620"></div><div class="swatch__m"><b>Rail · 导航轨</b><span>#111620</span></div></div>
+          <div class="swatch" data-hex="#f5f6f9"><div class="swatch__c" style="background:#f5f6f9"></div><div class="swatch__m"><b>Ground · 底色</b><span>#F5F6F9</span></div></div>
+          <div class="swatch" data-hex="#ffffff"><div class="swatch__c" style="background:#fff"></div><div class="swatch__m"><b>Surface · 卡面</b><span>#FFFFFF</span></div></div>
+          <div class="swatch" data-hex="#141a23"><div class="swatch__c" style="background:#141a23"></div><div class="swatch__m"><b>Ink · 主文字</b><span>#141A23</span></div></div>
+          <div class="swatch" data-hex="#e3e7ee"><div class="swatch__c" style="background:#e3e7ee"></div><div class="swatch__m"><b>Line · 发丝线</b><span>#E3E7EE</span></div></div>
+          <div class="swatch" data-hex="#16845c"><div class="swatch__c" style="background:#16845c"></div><div class="swatch__m"><b>Success · 正常</b><span>#16845C</span></div></div>
+          <div class="swatch" data-hex="#b9741b"><div class="swatch__c" style="background:#b9741b"></div><div class="swatch__m"><b>Warning · 注意</b><span>#B9741B</span></div></div>
+          <div class="swatch" data-hex="#cf443c"><div class="swatch__c" style="background:#cf443c"></div><div class="swatch__m"><b>Danger · 危险</b><span>#CF443C</span></div></div>
+          <div class="swatch" data-hex="#5a6675"><div class="swatch__c" style="background:#5a6675"></div><div class="swatch__m"><b>Ink-2 · 次文字</b><span>#5A6675</span></div></div>
+          <div class="swatch" data-hex="#8a94a3"><div class="swatch__c" style="background:#8a94a3"></div><div class="swatch__m"><b>Ink-3 · 弱文字</b><span>#8A94A3</span></div></div>
+          <div class="swatch" data-hex="#eef0ff"><div class="swatch__c" style="background:#eef0ff"></div><div class="swatch__m"><b>Accent-soft</b><span>#EEF0FF</span></div></div>
+        </div>
+        <p class="note" style="margin-top:12px">暗色态：Accent → <span class="code">#8C96FF</span>，Ground → <span class="code">#0D1119</span>，Surface → <span class="code">#141A24</span>，语义色同步提亮。导航轨在两个主题下都保持深色，作为产品识别锚点。</p>
+
+        <div class="grid-2" style="margin-top:28px">
+          <div class="card"><div class="card-head"><h4>字阶</h4><small>层级靠字号与字距，不靠颜色</small></div><div class="card-body">
+            <div class="type-row"><span class="lbl">display / 700</span><span class="smp ts-hero">42 / -0.035em</span></div>
+            <div class="type-row"><span class="lbl">h1 / 700</span><span class="smp ts-h1">页面标题 29px</span></div>
+            <div class="type-row"><span class="lbl">h2 / 650</span><span class="smp ts-h2">区块标题 20px</span></div>
+            <div class="type-row"><span class="lbl">h3 / 650</span><span class="smp ts-h3">卡片标题 15px</span></div>
+            <div class="type-row"><span class="lbl">body / 400</span><span class="smp ts-body">正文 14px · 行高 1.6</span></div>
+            <div class="type-row"><span class="lbl">eyebrow / 700</span><span class="smp ts-label">分组标签 11PX · 0.14EM</span></div>
+            <div class="type-row"><span class="lbl">mono / tabular</span><span class="smp ts-mono">12:04:38 · 3.2 GB · /var/log</span></div>
+          </div></div>
+          <div class="card"><div class="card-head"><h4>几何与节奏</h4><small>8pt 栅格 · 圆角 ≤ 18</small></div><div class="card-body">
+            <div class="eyebrow" style="margin-bottom:8px">间距阶梯</div>
+            <div class="space-row"><b>4px</b><i style="width:4px"></i><span>1 · 图标与文字间隙</span></div>
+            <div class="space-row"><b>8px</b><i style="width:8px"></i><span>2 · 控件间距</span></div>
+            <div class="space-row"><b>12px</b><i style="width:12px"></i><span>3 · 紧凑内边距</span></div>
+            <div class="space-row"><b>16px</b><i style="width:16px"></i><span>4 · 卡片间距 / 栅格 gutter</span></div>
+            <div class="space-row"><b>20px</b><i style="width:20px"></i><span>5 · 标准内边距</span></div>
+            <div class="space-row"><b>24px</b><i style="width:24px"></i><span>6 · 内容区留白</span></div>
+            <div class="space-row"><b>32px</b><i style="width:32px"></i><span>8 · 分组间距</span></div>
+            <div class="space-row"><b>48px</b><i style="width:48px"></i><span>12 · 章节间距</span></div>
+            <div class="eyebrow" style="margin:20px 0 10px">圆角策略</div>
+            <div class="radius-row"><div><i style="border-radius:6px"></i>6 / 按钮</div><div><i style="border-radius:8px"></i>8 / 输入</div><div><i style="border-radius:10px"></i>10 / 弹层</div><div><i style="border-radius:14px"></i>14 / 卡片</div><div><i style="border-radius:18px"></i>18 / 大面板</div></div>
+            <div class="eyebrow" style="margin:20px 0 8px">投影与动效</div>
+            <p class="note">仅两级发丝投影（<span class="code">sh1</span> 常驻 / <span class="code">sh2</span> hover / <span class="code">sh3</span> 弹层），禁用彩色光晕。hover/focus <span class="code">160ms ease-out</span>，布局 <span class="code">240ms cubic-bezier(.22,1,.36,1)</span>；全局遵循 <span class="code">prefers-reduced-motion</span>。</p>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 04 -->
+      <section id="s4">
+        <div class="sec-head"><span class="idx">04</span><h2>组件清单</h2><span class="sub">9 个全局共享组件 + 重皮基座</span></div>
+        <p class="lead">共享组件在 <span class="code">main.ts</span> 全局注册，业务视图无需 import 即可使用；因此本次重设计只替换模板结构，未触碰任何 <span class="code">&lt;script setup&gt;</span> 业务逻辑。</p>
+        <div class="card"><div class="card-body" style="padding:0"><div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>组件</th><th>职责</th><th>主要 Props</th><th>Slots</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td><strong>WmPageHeader</strong></td><td>页面标题区：分组眉标 / 标题 / 描述 / 右侧元信息</td><td class="mono">eyebrow, title, description</td><td>meta, actions</td><td>默认 · 无描述</td></tr>
+              <tr><td><strong>WmSectionCard</strong></td><td>内容分区：标题 + 描述 + 操作 + 正文 + 页脚</td><td class="mono">title, description, dense, flush, quiet, marker</td><td>actions, head-extra, footer, default</td><td>默认 · dense · flush · hover</td></tr>
+              <tr><td><strong>WmToolbar</strong></td><td>操作条：主动作组 / 尾动作组 / 说明文字，自动换行</td><td>—</td><td>default, end, note</td><td>默认 · 窄屏换行</td></tr>
+              <tr><td><strong>WmStatCard</strong></td><td>指标卡：标签 / 数值 / 单位 / 辅文 / 进度条</td><td class="mono">label, value, unit, sub, tone, progress, text, loading, icon</td><td>icon, value, sub</td><td>default · success/warning/danger · loading 骨架</td></tr>
+              <tr><td><strong>WmStatusPill</strong></td><td>状态徽标：语义点 + 文案，内置状态词表自动映射色调</td><td class="mono">label, tone, dot, pulse, outline, mono</td><td>default</td><td>success / warning / danger / info / neutral / muted · 脉冲</td></tr>
+              <tr><td><strong>WmEmptyState</strong></td><td>空态 / 错误态 / 离线态占位</td><td class="mono">title, description, compact, tone</td><td>description, action</td><td>empty · error · offline</td></tr>
+              <tr><td><strong>WmTable</strong></td><td>el-table 包装：统一表头、行高、hover、自动空态；透传全部属性与插槽</td><td class="mono">compact, emptyTitle, emptyDescription, emptyTone</td><td>全部透传 + empty</td><td>data · loading · empty · error · 只读</td></tr>
+              <tr><td><strong>WmNotice</strong></td><td>行内提示条：说明 / 警告 / 成功 / 危险</td><td class="mono">title, tone, closable</td><td>default, action</td><td>4 色调 · 可关闭</td></tr>
+              <tr><td><strong>WmCodeBlock</strong></td><td>输出/日志/命令：标题栏 + 复制 + 空内容态</td><td class="mono">content, label, emptyText</td><td>—</td><td>有内容 · 空 · 复制成功</td></tr>
+            </tbody>
+          </table>
+        </div></div></div>
+        <h3>Element Plus 基座重皮（统一覆盖）</h3>
+        <p class="note">Button（primary / default / danger / success / warning / 禁用 / loading）· Input / Textarea / Select / InputNumber · Switch · RadioButton · Tag · Table + Pagination · Tabs · Dialog / Drawer · Alert / Message / MessageBox · Descriptions · Progress · Dropdown · Link · Breadcrumb · Loading 遮罩 · 滚动条 · focus-visible 焦点环。图表通过 <span class="code">chartPalette()</span> 从 CSS 变量读取颜色，跟随主题切换。</p>
+      </section>
+
+      <!-- 05 -->
+      <section id="s5">
+        <div class="sec-head"><span class="idx">05</span><h2>状态矩阵</h2><span class="sub">每类交互元素的完整状态覆盖</span></div>
+        <p class="lead"><span class="yes">●</span> 已实现并可视化 · <span class="partial">◐</span> 条件适用 · <span class="no">—</span> 不适用。所有可交互元素均包含 <span class="code">:focus-visible</span> 焦点环与 <span class="code">prefers-reduced-motion</span> 降级。</p>
+        <div class="card"><div class="card-body" style="padding:0"><div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>组件 / 区域</th><th class="state-cell">默认</th><th class="state-cell">悬停</th><th class="state-cell">聚焦</th><th class="state-cell">按下</th><th class="state-cell">禁用</th><th class="state-cell">加载</th><th class="state-cell">空</th><th class="state-cell">错误</th><th class="state-cell">成功</th><th class="state-cell">离线/只读</th></tr></thead>
+            <tbody>
+              <tr><td><strong>导航项</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell partial">◐ 角色隐藏</td></tr>
+              <tr><td><strong>按钮</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell partial">◐ danger</td><td class="state-cell partial">◐ success</td><td class="state-cell yes">●</td></tr>
+              <tr><td><strong>输入 / 选择</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell yes">●</td><td class="state-cell partial">◐</td><td class="state-cell yes">● 占位</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell yes">● readonly</td></tr>
+              <tr><td><strong>开关 / 单选</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell yes">●</td></tr>
+              <tr><td><strong>数据表格</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">● 行</td><td class="state-cell yes">●</td><td class="state-cell partial">◐ 选中</td><td class="state-cell partial">◐ 行按钮</td><td class="state-cell yes">● 遮罩</td><td class="state-cell yes">● 空态</td><td class="state-cell yes">● 错误空态</td><td class="state-cell yes">●</td><td class="state-cell partial">◐ 只读列</td></tr>
+              <tr><td><strong>指标卡</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell yes">● 骨架</td><td class="state-cell yes">● "-"</td><td class="state-cell yes">● danger</td><td class="state-cell yes">● success</td><td class="state-cell no">—</td></tr>
+              <tr><td><strong>状态徽标</strong></td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell yes">● muted</td><td class="state-cell yes">● 脉冲</td><td class="state-cell no">—</td><td class="state-cell yes">● danger</td><td class="state-cell yes">● success</td><td class="state-cell yes">● 离线</td></tr>
+              <tr><td><strong>提示条</strong></td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell yes">● 关闭</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">● 可关闭</td></tr>
+              <tr><td><strong>对话框 / 抽屉</strong></td><td class="state-cell yes">●</td><td class="state-cell partial">◐</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell partial">◐ 提交禁用</td><td class="state-cell yes">● 提交中</td><td class="state-cell yes">● 表单空态</td><td class="state-cell yes">● 校验</td><td class="state-cell yes">● 消息</td><td class="state-cell no">—</td></tr>
+              <tr><td><strong>代码块 / 日志</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">● 复制</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell yes">● 复制禁用</td><td class="state-cell partial">◐</td><td class="state-cell yes">● 空输出</td><td class="state-cell yes">● stderr</td><td class="state-cell yes">● 已复制</td><td class="state-cell no">—</td></tr>
+              <tr><td><strong>页面 / 请求</strong></td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell partial">◐ viewer</td><td class="state-cell yes">● 骨架/遮罩</td><td class="state-cell yes">● 空态</td><td class="state-cell yes">● 消息</td><td class="state-cell yes">● 消息</td><td class="state-cell yes">● 401 跳转</td></tr>
+              <tr><td><strong>移动导航</strong></td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell yes">●</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell no">—</td><td class="state-cell yes">● 抽屉遮罩</td></tr>
+            </tbody>
+          </table>
+        </div></div></div>
+        <h3>状态反馈的三条规则</h3>
+        <div class="grid-3">
+          <div class="card"><div class="card-body"><span class="eyebrow">01 · 就地</span><p class="note" style="margin-top:8px">按钮 loading、输入框校验、表格遮罩都在触发位置反馈，不打断上下文。</p></div></div>
+          <div class="card"><div class="card-body"><span class="eyebrow">02 · 全局</span><p class="note" style="margin-top:8px">请求成功 / 失败由统一拦截器发出 Message；401 直接跳登录。</p></div></div>
+          <div class="card"><div class="card-body"><span class="eyebrow">03 · 可预期</span><p class="note" style="margin-top:8px">危险操作二次确认、禁用态给出原因、空态说明下一步能做什么。</p></div></div>
+        </div>
+      </section>
+
+      <!-- 06 -->
+      <section id="s6">
+        <div class="sec-head"><span class="idx">06</span><h2>组件与状态实景</h2><span class="sub">与设计令牌同源的可交互预览</span></div>
+        <p class="lead">以下示例使用本页同一套 CSS 变量渲染。右下角 <b>Tweaks</b> 可切换明暗主题、内容密度与动效开关，验证令牌在全组件上的一致性。</p>
+
+        <div class="stack">
+          <!-- Page header + section card -->
+          <div class="card"><div class="card-head"><h4>页面标题 + 分区卡 + 工具条</h4><small>WmPageHeader / WmSectionCard / WmToolbar</small></div><div class="card-body">
+            <div class="page-head"><span class="eyebrow">系统运维</span><h2>计划任务</h2><p>内置调度引擎，六类任务与完整执行历史。任务定义持久化于面板数据库，重启后自动恢复调度。</p></div>
+            <div class="card" style="box-shadow:none">
+              <div class="card-head"><h4>任务列表</h4><small>共 3 条</small></div>
+              <div class="card-body" style="padding-bottom:0">
+                <div class="toolbar">
+                  <button class="btn btn--primary">新建任务</button><button class="btn">刷新</button>
+                  <span class="note">内置调度引擎运行，任务不写入系统 crontab。</span>
+                </div>
+                <table class="dtable"><thead><tr><th>任务名称</th><th>类型</th><th>执行周期</th><th>状态</th><th>启用</th><th>操作</th></tr></thead><tbody>
+                  <tr><td><b>每日备份数据库</b></td><td><span class="pill pill--neutral">数据库备份</span></td><td class="mono">0 3 * * *</td><td><span class="pill pill--success"><i></i>success</span></td><td><span class="switch on"><i></i></span></td><td><button class="btn btn--sm">执行</button> <button class="btn btn--sm">日志</button></td></tr>
+                  <tr><td><b>日志切割</b></td><td><span class="pill pill--neutral">日志切割</span></td><td class="mono">0 0 * * 0</td><td><span class="pill pill--warning"><i></i>timeout</span></td><td><span class="switch on"><i></i></span></td><td><button class="btn btn--sm">执行</button> <button class="btn btn--sm">日志</button></td></tr>
+                  <tr><td><b>健康检查</b></td><td><span class="pill pill--neutral">访问 URL</span></td><td class="mono">*/5 * * * *</td><td><span class="pill pill--info"><i></i>running</span></td><td><span class="switch"><i></i></span></td><td><button class="btn btn--sm">执行</button> <button class="btn btn--sm">日志</button></td></tr>
+                </tbody></table>
+              </div>
+            </div>
+          </div></div>
+
+          <!-- Buttons -->
+          <div class="card"><div class="card-head"><h4>按钮状态</h4><small>default / hover / focus / active / disabled / loading</small></div><div class="card-body">
+            <div class="grid-2">
+              <div>
+                <span class="state-label">主操作 · 默认</span>
+                <div class="demo-row"><button class="btn btn--primary">新建任务</button><button class="btn btn--primary" style="background:var(--accent-hover);border-color:var(--accent-hover)">悬停</button><button class="btn btn--primary is-focus">聚焦</button><button class="btn btn--primary" style="transform:translateY(1px);background:var(--accent-active);border-color:var(--accent-active)">按下</button><button class="btn btn--primary is-disabled">禁用</button><button class="btn btn--primary is-loading"><span class="spin"></span>保存中</button></div>
+                <div class="spacer-md"></div>
+                <span class="state-label">次要 / 危险 / 幽灵</span>
+                <div class="demo-row"><button class="btn">刷新</button><button class="btn btn--danger">删除</button><button class="btn btn--success">启动</button><button class="btn btn--warning">停止</button><button class="btn btn--ghost">查看详情</button><button class="btn is-disabled">禁用</button></div>
+              </div>
+              <div>
+                <span class="state-label">尺寸</span>
+                <div class="demo-row"><button class="btn btn--primary btn--sm">小 26px</button><button class="btn btn--primary">标准 32px</button><button class="btn btn--primary" style="height:40px;padding:0 18px">大 40px</button></div>
+                <div class="spacer-md"></div>
+                <span class="state-label">危险操作反馈</span>
+                <div class="notice notice--warning"><span class="notice__i">!</span><div><b>确认删除任务？</b>执行历史将一并删除，此操作不可撤销。</div></div>
+              </div>
+            </div>
+          </div></div>
+
+          <!-- Inputs -->
+          <div class="card"><div class="card-head"><h4>输入控件状态</h4><small>input / select / switch / 校验 / 禁用 / 只读</small></div><div class="card-body">
+            <div class="grid-3">
+              <div class="field"><label>任务名称 · 默认</label><input class="input" placeholder="如：每日备份数据库" /><span class="field__msg">2–32 个字符</span></div>
+              <div class="field"><label>聚焦态</label><input class="input" value="每日备份数据库" style="border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)" /><span class="field__msg">焦点环 3px，键盘可达</span></div>
+              <div class="field"><label>校验错误</label><input class="input is-error" value="bad name!" /><span class="field__msg field__msg--error">名称只能包含字母、数字与下划线</span></div>
+              <div class="field"><label>禁用</label><input class="input" value="站点标识不可修改" disabled /><span class="field__msg">编辑态字段锁定</span></div>
+              <div class="field"><label>只读 · 接入命令</label><input class="input mono" value="./webmblx-agent -s wss://… -t …" readonly /><span class="field__msg">点击「复制」写入剪贴板</span></div>
+              <div class="field"><label>下拉选择</label><select class="input"><option>Shell 脚本</option><option>目录备份</option><option>数据库备份</option></select><span class="field__msg">选中项使用强调色描边</span></div>
+            </div>
+            <div class="spacer-md"></div>
+            <div class="demo-row" style="gap:20px">
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span class="switch on"><i></i></span>启用</div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span class="switch"><i></i></span>停用</div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span class="switch disabled"><i></i></span>禁用（只读角色）</div>
+              <div class="seg"><button class="on">按 CPU 排序</button><button>按内存排序</button></div>
+            </div>
+          </div></div>
+
+          <!-- Stat cards -->
+          <div class="card"><div class="card-head"><h4>指标卡</h4><small>数值 / 进度 / 语义色 / 加载骨架</small></div><div class="card-body">
+            <div class="grid-4">
+              <div class="stat"><div class="stat__top"><span class="stat__label">CPU 使用率</span><span class="stat__icon">▤</span></div><div class="stat__val num">23.4<small>%</small></div><div class="stat__sub">阈值 85%</div><div class="stat__bar" style="margin-top:12px"><i style="width:23.4%"></i></div></div>
+              <div class="stat stat--success"><div class="stat__top"><span class="stat__label">内存</span><span class="stat__icon">▦</span></div><div class="stat__val num">3.2<small>GB</small></div><div class="stat__sub">共 8.0 GB · 使用率 40.1%</div><div class="stat__bar" style="margin-top:12px"><i style="width:40.1%"></i></div></div>
+              <div class="stat stat--warning"><div class="stat__top"><span class="stat__label">1 分钟负载</span><span class="stat__icon">◭</span></div><div class="stat__val num">0.42</div><div class="stat__sub">网络 ↓ 1.2 MB/s · ↑ 340 KB/s</div><div class="stat__bar" style="margin-top:12px"><i style="width:42%;background:var(--warning)"></i></div></div>
+              <div class="stat stat--danger"><div class="stat__top"><span class="stat__label">CPU 使用率 · 告警</span><span class="stat__icon">!</span></div><div class="stat__val num">92.8<small>%</small></div><div class="stat__sub">超过阈值 85%</div><div class="stat__bar" style="margin-top:12px"><i style="width:92.8%"></i></div></div>
+            </div>
+            <div class="spacer-md"></div>
+            <span class="state-label">加载中 · 骨架占位</span>
+            <div class="grid-4"><div class="stat"><div class="stat__sk" style="width:52%;height:11px"></div><div class="stat__sk" style="width:64%;height:28px;margin-top:14px"></div><div class="stat__sk" style="width:88%;height:10px;margin-top:12px"></div></div></div>
+          </div></div>
+
+          <!-- Pills + notices -->
+          <div class="grid-2">
+            <div class="card"><div class="card-head"><h4>状态徽标</h4><small>语义点 + 文案</small></div><div class="card-body">
+              <span class="state-label">运行 / 结果状态</span>
+              <div class="demo-row"><span class="pill pill--success"><i></i>在线</span><span class="pill pill--success"><i></i>success</span><span class="pill pill--info"><i></i>running</span><span class="pill pill--warning"><i></i>timeout</span><span class="pill pill--danger"><i></i>failed</span><span class="pill pill--muted"><i></i>离线</span></div>
+              <div class="spacer-md"></div><span class="state-label">分类 / 元信息</span>
+              <div class="demo-row"><span class="pill pill--neutral">Shell 脚本</span><span class="pill pill--neutral">原生</span><span class="pill pill--info">HTTPS</span><span class="pill pill--danger">admin</span><span class="pill pill--muted">只读</span><span class="pill pill--info mono">POST</span></div>
+              <div class="spacer-md"></div><span class="state-label">脉冲（进行中 / 在线心跳）</span>
+              <div class="demo-row"><span class="pill pill--success" style="animation:pulse 2s ease-in-out infinite"><i></i>在线</span><span class="pill pill--info"><i></i>运行中</span></div>
+            </div></div>
+            <div class="card"><div class="card-head"><h4>提示条</h4><small>说明 / 成功 / 警告 / 危险</small></div><div class="card-body stack" style="gap:10px">
+              <div class="notice"><span class="notice__i">i</span><div><b>远程节点仅采集基础指标</b>磁盘与进程信息请通过「节点管理 → 命令」或终端获取。</div></div>
+              <div class="notice notice--success"><span class="notice__i">✓</span><div><b>已保存</b>Nginx 配置校验通过并已重载。</div></div>
+              <div class="notice notice--warning"><span class="notice__i">!</span><div><b>请在低峰期执行</b>将执行全量系统更新，可能影响线上服务。</div></div>
+              <div class="notice notice--danger"><span class="notice__i">×</span><div><b>连接失败</b>请检查目标主机与凭据后重试。</div></div>
+              <div class="notice notice--neutral"><span class="notice__i">i</span><div>周期支持 5 段 cron、带秒 6 段与 @daily 描述符。</div></div>
+            </div></div>
+          </div>
+
+          <!-- Table states -->
+          <div class="card"><div class="card-head"><h4>表格状态</h4><small>有数据 / 空 / 加载 / 错误</small></div><div class="card-body">
+            <div class="grid-2">
+              <div>
+                <span class="state-label">有数据 · 行 hover / 选中</span>
+                <div class="card" style="box-shadow:none;overflow:hidden"><table class="dtable"><thead><tr><th>节点</th><th>状态</th><th>最近心跳</th><th>操作</th></tr></thead><tbody>
+                  <tr style="background:var(--accent-soft)"><td><b>web-01</b></td><td><span class="pill pill--success"><i></i>在线</span></td><td class="mono">12:04:38</td><td><button class="btn btn--sm">指标</button></td></tr>
+                  <tr><td><b>web-02</b></td><td><span class="pill pill--muted"><i></i>离线</span></td><td class="mono">11:58:02</td><td><button class="btn btn--sm" disabled>指标</button></td></tr>
+                </tbody></table></div>
+              </div>
+              <div>
+                <span class="state-label">空态 · 说明下一步</span>
+                <div class="card" style="box-shadow:none"><div class="empty"><div class="empty__i">▤</div><b>还没有计划任务</b><span>新建一条任务，按 cron 表达式或预设周期自动执行。</span><div class="empty__act"><button class="btn btn--primary btn--sm">新建任务</button></div></div></div>
+              </div>
+              <div>
+                <span class="state-label">加载态 · 遮罩 + 骨架</span>
+                <div class="card" style="box-shadow:none;position:relative"><table class="dtable"><thead><tr><th>任务名称</th><th>周期</th></tr></thead><tbody><tr><td><span class="stat__sk" style="display:inline-block;width:120px;height:12px"></span></td><td><span class="stat__sk" style="display:inline-block;width:80px;height:12px"></span></td></tr><tr><td><span class="stat__sk" style="display:inline-block;width:90px;height:12px"></span></td><td><span class="stat__sk" style="display:inline-block;width:70px;height:12px"></span></td></tr></tbody></table><div style="position:absolute;inset:0;background:color-mix(in srgb,var(--surface) 72%,transparent);display:grid;place-items:center;font-size:11px;color:var(--accent)"><span class="spin" style="width:16px;height:16px;margin-right:8px;display:inline-block;vertical-align:-3px"></span>加载中…</div></div>
+              </div>
+              <div>
+                <span class="state-label">错误态 · 可重试</span>
+                <div class="card" style="box-shadow:none"><div class="empty" style="color:var(--danger)"><div class="empty__i" style="background:var(--danger-soft);color:var(--danger);border-color:transparent">!</div><b style="color:var(--ink)">数据加载失败</b><span>与面板的连接中断，请检查网络后重试。</span><div class="empty__act"><button class="btn btn--sm">重新加载</button></div></div></div>
+              </div>
+            </div>
+          </div></div>
+
+          <!-- Dialog + code -->
+          <div class="grid-2">
+            <div class="card"><div class="card-head"><h4>对话框 / 抽屉</h4><small>标题栏 · 表单 · 页脚动作</small></div><div class="card-body">
+              <div class="dialog-mock">
+                <div class="dialog-mock__h"><span>新建告警规则</span><span style="color:var(--ink-3)">×</span></div>
+                <div class="dialog-mock__b stack" style="gap:12px">
+                  <div class="field"><label>规则名称</label><input class="input" value="CPU 过载" /></div>
+                  <div class="field"><label>监控指标</label><select class="input"><option>CPU 使用率(%)</option></select></div>
+                  <div class="field"><label>触发条件</label><div style="display:flex;gap:8px"><select class="input" style="width:96px"><option>大于 &gt;</option></select><input class="input" value="90.0" /></div></div>
+                  <div class="notice notice--neutral" style="font-size:11px"><span class="notice__i">i</span><div>每 30 秒评估一次，触发后按冷却时间去重。</div></div>
+                </div>
+                <div class="dialog-mock__f"><button class="btn">取消</button><button class="btn btn--primary is-loading"><span class="spin"></span>保存中</button></div>
+              </div>
+            </div></div>
+            <div class="card"><div class="card-head"><h4>代码块 / 日志 / 空态</h4><small>WmCodeBlock · WmEmptyState</small></div><div class="card-body stack">
+              <div class="code-block"><div class="code-block__bar"><span>task output</span><button>复制</button></div><pre>$ tar -czf /tmp/backup.tar.gz /data
+$ upload to s3://backups/2026-11-07.tar.gz
+[done] exit 0 · 12.4s</pre></div>
+              <div class="code-block"><div class="code-block__bar"><span>error.log</span><button disabled style="opacity:.45">复制</button></div><pre style="color:#6d7a8e">（日志为空）</pre></div>
+              <div class="card" style="box-shadow:none"><div class="empty"><div class="empty__i">▢</div><b>暂无执行记录</b><span>任务首次执行后，这里会展示状态、耗时与输出。</span></div></div>
+            </div></div>
+          </div>
+
+          <!-- Login -->
+          <div class="card"><div class="card-head"><h4>登录页</h4><small>独立页面 · 深色画布 + 双栏</small></div><div class="card-body" style="background:var(--rail);border-radius:0 0 var(--r-lg) var(--r-lg)">
+            <div style="max-width:760px;margin:0 auto;display:grid;grid-template-columns:1fr 300px;border:1px solid rgba(255,255,255,.12);border-radius:16px;overflow:hidden;background:rgba(255,255,255,.045)">
+              <div style="padding:30px 28px;border-right:1px solid rgba(255,255,255,.09)">
+                <div style="display:flex;align-items:center;gap:10px"><span class="logo">W</span><b style="color:#fff">webmblx</b></div>
+                <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:-.03em;line-height:1.3;margin-top:34px">一台服务器，<br />一个清晰的操作面。</div>
+                <p style="color:rgba(255,255,255,.5);font-size:11.5px;line-height:1.8;margin-top:10px;max-width:30ch">站点、任务、证书、进程与节点集中管理；每一次写操作都留有审计记录。</p>
+                <div style="color:rgba(255,255,255,.35);font-family:var(--mono);font-size:10px;margin-top:28px">webmblx / control surface</div>
+              </div>
+              <div style="padding:28px 24px;background:rgba(10,14,22,.42)">
+                <div class="eyebrow" style="color:rgba(255,255,255,.4)">secure access</div>
+                <div style="color:#fff;font-size:18px;font-weight:700;margin:6px 0 3px">登录面板</div>
+                <div style="color:rgba(255,255,255,.45);font-size:11px;margin-bottom:18px">请使用管理员分配的账号继续</div>
+                <div class="stack mono" style="gap:10px;color:rgba(255,255,255,.4);font-size:11px"><div style="height:36px;border:1px solid rgba(255,255,255,.13);border-radius:8px;padding:9px 11px;background:rgba(255,255,255,.06)">用户名</div><div style="height:36px;border:1px solid rgba(255,255,255,.13);border-radius:8px;padding:9px 11px;background:rgba(255,255,255,.06)">••••••••</div></div>
+                <button class="btn btn--primary" style="width:100%;margin-top:14px;letter-spacing:.1em">登 录</button>
+                <div style="color:rgba(255,255,255,.35);font-size:10px;line-height:1.7;margin-top:16px;border-top:1px solid rgba(255,255,255,.09);padding-top:12px">安全入口保护已启用<br />会话与全部写操作均被记录</div>
+              </div>
+            </div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 07 -->
+      <section id="s7">
+        <div class="sec-head"><span class="idx">07</span><h2>响应式策略</h2><span class="sub">三档断点 · 触控目标 ≥ 44px</span></div>
+        <div class="grid-3">
+          <div class="card"><div class="card-head"><h4>≥ 1280px</h4><small>完整双栏</small></div><div class="card-body"><p class="note">232px 导航轨（可折叠 68px）；统计卡 4 列；走势图 1.4 : 1；内容上限 1480px 居中；工具条单行。</p></div></div>
+          <div class="card"><div class="card-head"><h4>900 – 1279px</h4><small>紧凑桌面 / 平板</small></div><div class="card-body"><p class="note">统计卡 2 列；内容留白收窄；导航轨保留但建议折叠；表格允许横向滚动并固定操作列。</p></div></div>
+          <div class="card"><div class="card-head"><h4>&lt; 900px</h4><small>移动</small></div><div class="card-body"><p class="note">导航轨转抽屉（264px）+ 遮罩；底部 4+1 快捷标签；所有栅格单列；标题区纵向堆叠；会话胶囊隐藏。</p></div></div>
+        </div>
+        <div class="spacer-md"></div>
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h4>断点实现</h4><small>web/src/style.css</small></div><div class="card-body">
+            <div class="code-block"><div class="code-block__bar"><span>media queries</span><button>复制</button></div><pre>@media (max-width: 1279px) { /* 收窄留白，统计卡 2 列 */ }
+@media (max-width: 900px)  { /* 抽屉导航 + 底部栏 + 单列栅格 */ }
+@media (max-width: 640px)  { /* 触控 44px / 弹窗满宽 / 隐藏面包屑 */ }
+@media (prefers-reduced-motion: reduce) { /* 关闭全部动效 */ }</pre></div>
+          </div></div>
+          <div class="card"><div class="card-head"><h4>可访问性</h4><small>键盘 / 对比度 / 语义</small></div><div class="card-body">
+            <table class="table">
+              <tr><td><strong>焦点</strong></td><td>全局 <span class="code">:focus-visible</span> 2px 强调色描边，导航项内收</td></tr>
+              <tr><td><strong>语义</strong></td><td>导航用 <span class="code">&lt;nav&gt;</span> + <span class="code">aria-current</span>；提示条 <span class="code">role="status"</span>；进度条 <span class="code">role="progressbar"</span></td></tr>
+              <tr><td><strong>触控</strong></td><td>底部栏项 ≥ 44px；图标按钮 34px（桌面）/ 44px（移动）</td></tr>
+              <tr><td><strong>动效</strong></td><td><span class="code">prefers-reduced-motion</span> 全局降级，脉冲与入场动画同步关闭</td></tr>
+              <tr><td><strong>安全区</strong></td><td><span class="code">viewport-fit=cover</span> + <span class="code">env(safe-area-inset-bottom)</span></td></tr>
+            </table>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 08 -->
+      <section id="s8">
+        <div class="sec-head"><span class="idx">08</span><h2>交付清单</h2><span class="sub">改动文件与验证结果</span></div>
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h4>新增</h4></div><div class="card-body"><div style="overflow-x:auto"><table class="table">
+            <tr><td class="mono">web/src/components/</td><td>9 个共享组件 + 注册表 <span class="code">index.ts</span></td></tr>
+            <tr><td class="mono">design-system.html</td><td>本读本（页面结构 / 组件清单 / 状态矩阵 / 实景预览）</td></tr>
+          </table></div></div></div>
+          <div class="card"><div class="card-head"><h4>修改</h4></div><div class="card-body"><div style="overflow-x:auto"><table class="table">
+            <tr><td class="mono">web/src/style.css</td><td>令牌层 + Element Plus 全域重皮 + 布局 + 响应式</td></tr>
+            <tr><td class="mono">web/src/layouts/MainLayout.vue</td><td>导航轨 / 顶栏 / 页面标题 / 移动抽屉与底部栏</td></tr>
+            <tr><td class="mono">web/src/router/index.ts</td><td>补充 group / desc 元信息（路径与标题不变）</td></tr>
+            <tr><td class="mono">web/src/main.ts · index.html</td><td>全局组件注册、首屏主题防闪</td></tr>
+            <tr><td class="mono">web/src/utils.ts</td><td><span class="code">chartPalette()</span> 图表主题取色</td></tr>
+            <tr><td class="mono">web/src/views/*.vue</td><td>18 个页面模板统一重排；脚本逻辑逐字保留</td></tr>
+          </table></div></div></div>
+        </div>
+        <div class="spacer-md"></div>
+        <div class="notice notice--success"><span class="notice__i">✓</span><div><b>构建验证</b><span class="mono">npm run build</span> 通过（2290 modules，全部页面与组件编译成功）；<span class="mono">go build ./...</span> 验证嵌入产物可用。运行方式：<span class="mono">cd web &amp;&amp; npm run dev</span>，或 <span class="mono">make linux</span> 生成单二进制。</div></div>
+        <p class="note" style="margin-top:16px">说明：本读本是设计方向的 v0 校准稿，示例数据仅用于演示组件状态，不来自真实面板；产品页面中的数值全部由既有接口返回，未添加任何虚构内容。</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- Tweaks -->
+<button class="tweaks-btn" id="tweaksBtn" title="Tweaks" aria-label="打开 Tweaks">✳</button>
+<div class="tweaks" id="tweaks" role="dialog" aria-label="Tweaks">
+  <h4>Tweaks</h4><p>实时调整设计参数，检查令牌一致性</p>
+  <div class="tweaks__row"><span>外观</span><span class="seg" id="segTheme"><button data-v="light" class="on">亮色</button><button data-v="dark">暗色</button></span></div>
+  <div class="tweaks__row"><span>内容密度</span><span class="seg" id="segDensity"><button data-v="normal" class="on">标准</button><button data-v="compact">紧凑</button></span></div>
+  <div class="tweaks__row"><span>动效</span><span class="seg" id="segMotion"><button data-v="on" class="on">开启</button><button data-v="off">关闭</button></span></div>
+  <p style="margin:6px 0 0">当前：<span class="mono" id="tweakState">light / normal / on</span></p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement, state={theme:'light',density:'normal',motion:'on'};
+  function sync(){
+    root.classList.toggle('dark',state.theme==='dark');
+    root.classList.toggle('compact',state.density==='compact');
+    root.classList.toggle('no-motion',state.motion==='off');
+    document.getElementById('tweakState').textContent=state.theme+' / '+state.density+' / '+state.motion;
+  }
+  function wire(id,key){
+    document.getElementById(id).addEventListener('click',function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      state[key]=b.dataset.v;
+      [].forEach.call(this.querySelectorAll('button'),function(x){x.classList.toggle('on',x===b)});
+      sync();
+    });
+  }
+  wire('segTheme','theme'); wire('segDensity','density'); wire('segMotion','motion');
+  var btn=document.getElementById('tweaksBtn'), panel=document.getElementById('tweaks');
+  btn.addEventListener('click',function(){panel.classList.toggle('open')});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')panel.classList.remove('open')});
+
+  // Copy a token value on click
+  document.getElementById('swatches').addEventListener('click',function(e){
+    var s=e.target.closest('.swatch'); if(!s) return;
+    var hex=s.dataset.hex, label=s.querySelector('span');
+    navigator.clipboard && navigator.clipboard.writeText(hex).then(function(){
+      var old=label.textContent; label.textContent='已复制 '+hex;
+      setTimeout(function(){label.textContent=old},1000);
+    });
+  });
+
+  // Active section highlight
+  var links=[].slice.call(document.querySelectorAll('.doc-nav a[href^="#s"]'));
+  var obs=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(!en.isIntersecting) return;
+      links.forEach(function(a){ if(a.getAttribute('href')==='#'+en.target.id && a.querySelector('span').textContent.length===2) a.classList.add('active'); else if(a.querySelector('span').textContent.length===2) a.classList.remove('active'); });
+    });
+  },{rootMargin:'-90px 0px -70% 0px'});
+  document.querySelectorAll('section[id]').forEach(function(s){obs.observe(s)});
+  sync();
+})();
+</script>
+</body>
+</html>

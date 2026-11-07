@@ -227,6 +227,237 @@ volumes:
 		},
 	},
 	{
+		Key: "postgresql", Name: "PostgreSQL 16", Desc: "关系型数据库（容器）", Kind: "compose",
+		Params: []Param{
+			{Key: "port", Label: "宿主机端口", Def: "5432", Required: true},
+			{Key: "postgres_pass", Label: "postgres 密码", Required: true},
+		},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portParam(p, "5432")
+			if err != nil {
+				return "", err
+			}
+			pass, err := required(p, "postgres_pass", "postgres 密码")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  postgres:
+    image: postgres:16
+    ports:
+      - %q:5432
+    environment:
+      POSTGRES_PASSWORD: %s
+    volumes:
+      - ./data:/var/lib/postgresql/data
+    restart: always
+`, port, yamlStr(pass)), nil
+		},
+	},
+	{
+		Key: "mongodb", Name: "MongoDB 7", Desc: "文档数据库（容器）", Kind: "compose",
+		Params: []Param{
+			{Key: "port", Label: "宿主机端口", Def: "27017", Required: true},
+			{Key: "root_user", Label: "root 用户", Def: "admin", Required: true},
+			{Key: "root_pass", Label: "root 密码", Required: true},
+		},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portParam(p, "27017")
+			if err != nil {
+				return "", err
+			}
+			user, err := required(p, "root_user", "root 用户")
+			if err != nil {
+				return "", err
+			}
+			pass, err := required(p, "root_pass", "root 密码")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - %q:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: %s
+      MONGO_INITDB_ROOT_PASSWORD: %s
+    volumes:
+      - ./data:/data/db
+    restart: always
+`, port, yamlStr(user), yamlStr(pass)), nil
+		},
+	},
+	{
+		Key: "memcached", Name: "Memcached", Desc: "内存缓存（容器）", Kind: "compose",
+		Params: []Param{
+			{Key: "port", Label: "宿主机端口", Def: "11211", Required: true},
+			{Key: "memory", Label: "内存上限(MB)", Def: "64", Required: true},
+		},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portParam(p, "11211")
+			if err != nil {
+				return "", err
+			}
+			mem, err := portParam(map[string]string{"port": p["memory"]}, "64")
+			if err != nil {
+				return "", fmt.Errorf("内存上限非法: %s", p["memory"])
+			}
+			return fmt.Sprintf(`services:
+  memcached:
+    image: memcached:alpine
+    ports:
+      - %q:11211
+    command: ["-m", "%s"]
+    restart: always
+`, port, mem), nil
+		},
+	},
+	{
+		Key: "rabbitmq", Name: "RabbitMQ", Desc: "消息队列（含管理界面，容器）", Kind: "compose",
+		Params: []Param{
+			{Key: "amqp_port", Label: "AMQP 端口", Def: "5672", Required: true},
+			{Key: "mgmt_port", Label: "管理界面端口", Def: "15672", Required: true},
+			{Key: "user", Label: "默认用户", Def: "admin", Required: true},
+			{Key: "pass", Label: "默认密码", Required: true},
+		},
+		Gen: func(p map[string]string) (string, error) {
+			amqp, err := portOf(p, "amqp_port", "5672")
+			if err != nil {
+				return "", err
+			}
+			mgmt, err := portOf(p, "mgmt_port", "15672")
+			if err != nil {
+				return "", err
+			}
+			user, err := required(p, "user", "默认用户")
+			if err != nil {
+				return "", err
+			}
+			pass, err := required(p, "pass", "默认密码")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - %q:5672
+      - %q:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: %s
+      RABBITMQ_DEFAULT_PASS: %s
+    volumes:
+      - ./data:/var/lib/rabbitmq
+    restart: always
+`, amqp, mgmt, yamlStr(user), yamlStr(pass)), nil
+		},
+	},
+	{
+		Key: "portainer", Name: "Portainer CE", Desc: "容器可视化管理（容器）", Kind: "compose",
+		Params: []Param{{Key: "port", Label: "HTTPS 端口", Def: "9443", Required: true}},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portOf(p, "port", "9443")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports:
+      - %q:9443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    restart: always
+`, port), nil
+		},
+	},
+	{
+		Key: "uptime-kuma", Name: "Uptime Kuma", Desc: "站点可用性监控（容器）", Kind: "compose",
+		Params: []Param{{Key: "port", Label: "访问端口", Def: "3001", Required: true}},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portOf(p, "port", "3001")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    ports:
+      - %q:3001
+    volumes:
+      - ./data:/app/data
+    restart: always
+`, port), nil
+		},
+	},
+	{
+		Key: "phpmyadmin", Name: "phpMyAdmin", Desc: "MySQL Web 管理工具（容器）", Kind: "compose",
+		Params: []Param{
+			{Key: "port", Label: "访问端口", Def: "8081", Required: true},
+			{Key: "pma_host", Label: "MySQL 地址", Def: "host.docker.internal", Required: true},
+		},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portOf(p, "port", "8081")
+			if err != nil {
+				return "", err
+			}
+			host, err := required(p, "pma_host", "MySQL 地址")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  phpmyadmin:
+    image: phpmyadmin:latest
+    ports:
+      - %q:80
+    environment:
+      PMA_HOST: %s
+      PMA_ARBITRARY: "1"
+    restart: always
+`, port, yamlStr(host)), nil
+		},
+	},
+	{
+		Key: "grafana", Name: "Grafana", Desc: "可视化监控面板（容器）", Kind: "compose",
+		Params: []Param{{Key: "port", Label: "访问端口", Def: "3000", Required: true}},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portOf(p, "port", "3000")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - %q:3000
+    volumes:
+      - ./data:/var/lib/grafana
+    restart: always
+`, port), nil
+		},
+	},
+	{
+		Key: "vaultwarden", Name: "Vaultwarden", Desc: "密码管理器（Bitwarden 兼容，容器）", Kind: "compose",
+		Params: []Param{{Key: "port", Label: "访问端口", Def: "8222", Required: true}},
+		Gen: func(p map[string]string) (string, error) {
+			port, err := portOf(p, "port", "8222")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    ports:
+      - %q:80
+    volumes:
+      - ./data:/data
+    restart: always
+`, port), nil
+		},
+	},
+	{
 		Key: "caddy", Name: "Caddy", Desc: "Web 服务器，自动 HTTPS（原生 v2.8.4）", Kind: "native",
 		Params: []Param{{Key: "port", Label: "HTTP 端口", Def: "2015", Required: true}},
 		Native: &NativeSpec{
@@ -341,9 +572,11 @@ func (m *Module) Start() error {
 	return m.db.AutoMigrate(&AppInst{})
 }
 
-func (m *Module) Register(api gin.IRouter) {
+func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g := api.Group("/apps")
-	g.GET("/templates", listTemplates)
+	g.GET("/templates", m.listTemplates)
+	g.GET("/mirrors", listMirrors)
+	g.GET("/source", m.getSource)
 	g.GET("/docker/status", dockerStatus)
 	g.POST("/docker/install", installDocker)
 	g.GET("/docker/mirrors", m.getMirrors)
@@ -355,6 +588,7 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/:id/restart", m.restart)
 	g.GET("/:id/logs", m.logs)
 	g.POST("/:id/uninstall", m.uninstall)
+	admin.POST("/apps/source", m.setSource)
 }
 
 // ---- Docker 镜像源（daemon.json）管理 ----
@@ -591,22 +825,26 @@ func installDocker(c *gin.Context) {
 
 // ---- 路由处理 ----
 
-func listTemplates(c *gin.Context) {
-	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO
+func (m *Module) listTemplates(c *gin.Context) {
+	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO；合并远程应用源（内置优先去重）
 	out := make([]gin.H, 0, len(templates))
 	for _, t := range templates {
-		out = append(out, gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params})
+		out = append(out, gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin"})
+	}
+	for _, d := range m.remoteCatalog() {
+		dup := false
+		for _, t := range templates {
+			if t.Key == d.Key {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		out = append(out, gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version})
 	}
 	core.OK(c, out)
-}
-
-func findTemplate(key string) *Template {
-	for i := range templates {
-		if templates[i].Key == key {
-			return &templates[i]
-		}
-	}
-	return nil
 }
 
 func (m *Module) list(c *gin.Context) {
@@ -646,6 +884,7 @@ func (m *Module) install(c *gin.Context) {
 	var req struct {
 		AppKey string            `json:"app_key" binding:"required"`
 		Name   string            `json:"name" binding:"required"`
+		Mirror string            `json:"mirror"`
 		Params map[string]string `json:"params"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -656,7 +895,7 @@ func (m *Module) install(c *gin.Context) {
 		core.Err(c, 400, "实例名非法（小写字母数字短横线，3-40 位）")
 		return
 	}
-	tpl := findTemplate(req.AppKey)
+	tpl := m.findTemplate(req.AppKey)
 	if tpl == nil {
 		core.Err(c, 404, "模板不存在")
 		return
@@ -669,21 +908,22 @@ func (m *Module) install(c *gin.Context) {
 	}
 	p := orParams(req.Params)
 
+	mirror, mirrorNote := resolveMirror(req.Mirror, tpl.Kind)
 	var status string
 	if tpl.Kind == "native" {
-		s, err := m.installNative(tpl, req.Name, p)
+		s, err := m.installNative(tpl, req.Name, p, mirror)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
 		}
-		status = s
+		status = s + "，镜像源: " + mirrorNote
 	} else {
-		s, err := m.installCompose(tpl, req.Name, p)
+		s, err := m.installCompose(tpl, req.Name, p, mirror)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
 		}
-		status = s
+		status = s + "，镜像源: " + mirrorNote
 	}
 
 	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
@@ -700,10 +940,13 @@ func (m *Module) install(c *gin.Context) {
 
 // ---- compose 安装 ----
 
-func (m *Module) installCompose(tpl *Template, name string, p map[string]string) (string, error) {
+func (m *Module) installCompose(tpl *Template, name string, p map[string]string, mirror MirrorDef) (string, error) {
 	content, err := tpl.Gen(p)
 	if err != nil {
 		return "", err
+	}
+	if mirror.Docker != "" {
+		content = applyDockerMirror(content, mirror.Docker)
 	}
 	dir := m.dir(name)
 	if err := os.MkdirAll(filepath.Join(dir, "conf"), 0o755); err != nil {
@@ -730,7 +973,7 @@ func (m *Module) installCompose(tpl *Template, name string, p map[string]string)
 
 // ---- native 安装 ----
 
-func (m *Module) installNative(tpl *Template, name string, p map[string]string) (string, error) {
+func (m *Module) installNative(tpl *Template, name string, p map[string]string, mirror MirrorDef) (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("原生应用部署仅支持在 Linux 服务器上执行")
 	}
@@ -740,6 +983,8 @@ func (m *Module) installNative(tpl *Template, name string, p map[string]string) 
 	if !ok {
 		return "", fmt.Errorf("模板暂不支持架构 %s", arch)
 	}
+	rawURL = substitute(rawURL, p)
+	rawURL = applyGitHubMirror(rawURL, mirror.GitHub)
 	dir := m.nativeDir(name)
 	_ = os.MkdirAll(dir, 0o755)
 	fail := func(err error) error {
