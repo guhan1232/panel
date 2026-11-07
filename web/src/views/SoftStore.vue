@@ -67,6 +67,12 @@
               <el-option v-for="o in registryOptions" :key="o.id" :label="o.name" :value="o.id" />
             </el-select>
           </template>
+          <template v-if="rtLang?.key === 'python'">
+            <span class="hint">pypi源</span>
+            <el-select v-model="pypiIndex" placeholder="未设置" style="width: 240px" :loading="pypiLoading" @change="savePypi">
+              <el-option v-for="o in pypiOptions" :key="o.id" :label="o.name" :value="o.id" />
+            </el-select>
+          </template>
           <template v-if="rtInstalled.length && rtLang?.key === 'nodejs'">
             <span class="hint">命令行版本</span>
             <el-select v-model="defaultInstId" style="width: 160px" @change="setDefaultById">
@@ -193,6 +199,17 @@ const registryOptions = [
   { id: 'https://mirrors.cloud.tencent.com/npm/', name: '腾讯云镜像' },
   { id: 'https://mirrors.huaweicloud.com/repository/npm/', name: '华为云镜像' }
 ]
+const pypiOptions = [
+  { id: 'https://pypi.tuna.tsinghua.edu.cn/simple/', name: '清华大学镜像（社区首选）' },
+  { id: 'https://mirrors.aliyun.com/pypi/simple/', name: '阿里云镜像' },
+  { id: 'https://pypi.mirrors.ustc.edu.cn/simple/', name: '中科大镜像' },
+  { id: 'https://repo.huaweicloud.com/repository/pypi/simple/', name: '华为云镜像' },
+  { id: 'https://mirrors.cloud.tencent.com/pypi/simple/', name: '腾讯云镜像' },
+  { id: 'https://pypi.doubanio.com/simple/', name: '豆瓣镜像' },
+  { id: 'https://pypi.org/simple/', name: 'PyPI 官方' }
+]
+const pypiIndex = ref('')
+const pypiLoading = ref(false)
 const defaultInstId = computed(() => {
   const d = rtInstalled.value.find((i) => i.is_default)
   return d ? d.id : undefined
@@ -228,6 +245,7 @@ function openRt(r: any) {
   rtDlg.value = true
   loadVersions()
   if (r.key === 'nodejs') loadRegistry()
+  if (r.key === 'python') loadPypi()
 }
 
 async function loadRegistry() {
@@ -243,6 +261,21 @@ async function loadRegistry() {
 async function saveRegistry(val: string) {
   await api.post('/runtimes/nodejs/registry', { registry: val })
   ElMessage.success('npm registry 已设置')
+}
+
+async function loadPypi() {
+  pypiLoading.value = true
+  try {
+    const d: any = await api.get('/runtimes/python/pypi')
+    pypiIndex.value = d.index_url || ''
+  } finally {
+    pypiLoading.value = false
+  }
+}
+
+async function savePypi(val: string) {
+  await api.post('/runtimes/python/pypi', { index_url: val })
+  ElMessage.success('pip 源已设置，pip install 将走该镜像')
 }
 
 async function setDefaultById(id: number) {

@@ -541,6 +541,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/:lang/versions", m.versions)
 	g.GET("/:lang/registry", m.getRegistry)
 	g.POST("/:lang/registry", m.setRegistry)
+	g.GET("/:lang/pypi", m.getPypi)
+	g.POST("/:lang/pypi", m.setPypi)
 	g.POST("/:lang/install", m.install)
 	g.POST("/:lang/set-default", m.setDefault)
 	g.DELETE("/:id", m.remove)
@@ -956,4 +958,50 @@ func findInTree(root, name string) (string, error) {
 		return "", err
 	}
 	return found, nil
+}
+// pythonPipPath 默认 python 实例的 pip3 路径（无默认实例返回空）。
+func (m *Module) pythonPipPath() string {
+	var inst RuntimeInst
+	if err := m.db.Where("lang = ? AND is_default = ?", "python", true).First(&inst).Error; err != nil {
+		return ""
+	}
+	return filepath.Join(inst.Dir, "python", "bin", "pip3")
+}
+
+func (m *Module) getPypi(c *gin.Context) {
+	indexURL := ""
+	if pip := m.pythonPipPath(); pip != "" {
+		if out, code, err := execx.Run("runtime", 60*time.Second, pip, "config", "get", "global.index-url"); err == nil && code == 0 {
+			out = strings.TrimSpace(out)
+			if strings.HasPrefix(out, "http://") || strings.HasPrefix(out, "https://") {
+				indexURL = out
+			}
+		}
+	}
+	core.OK(c, gin.H{"index_url": indexURL})
+}
+
+func (m *Module) setPypi(c *gin.Context) {
+	var req struct {
+		IndexURL string `json:"index_url" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if !strings.HasPrefix(req.IndexURL, "http://") && !strings.HasPrefix(req.IndexURL, "https://") {
+		core.Err(c, 400, "pypi 源需以 http(s):// 开头")
+		return
+	}
+	pip := m.pythonPipPath()
+	if pip == "" {
+		core.Err(c, 400, "未找到默认 Python（请先安装并设为默认）")
+		return
+	}
+	if out, code, err := execx.Run("runtime", 60*time.Second, pip, "config", "set", "global.index-url", req.IndexURL); err != nil {
+		core.Err(c, 500, fmt.Sprintf("设置失败(exit %d): %s", code, out))
+		return
+	}
+	slog.Info("pip index-url 已设置", "url", req.IndexURL, "by", c.GetString("user"))
+	core.OK(c, gin.H{"index_url": req.IndexURL})
 }

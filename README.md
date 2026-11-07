@@ -62,6 +62,12 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 | 📥 软件商店源 | 下载源可选：官方直连 / GitHub 加速（ghfast、gh-proxy）/ **阿里云 / 腾讯云 / 清华 / 中科大镜像站**；镜像站未收录的软件自动置灰对应源；新增工具类安装（Node.js 20 LTS、Golang 1.23 四大镜像站真实收录，解压后软链 /usr/local/bin，非 systemd 服务） |
 | 🐳 Docker 容器管理 | 13 个容器模板（Nginx/MySQL/Redis/WordPress/PG/Mongo/Memcached/RabbitMQ/Portainer/Kuma/phpMyAdmin/Grafana/Vaultwarden），部署时可选拉取代理源；daemon.json 镜像加速**自行配置**（自动备份/回滚） |
 
+### v0.14 Python pypi 源管理
+
+| 模块 | 说明 |
+|---|---|
+| 🐍 pypi 源 | Python 运行时抽屉新增 pypi 源选择：清华/阿里云/中科大/华为云/腾讯云/豆瓣/PyPI 官方，经实例自带 pip3 写入 `global.index-url`（pip install 即走所选镜像），读取回显当前生效值 |
+
 ### v0.11 运行时版本管理器（宝塔式）
 
 | 模块 | 说明 |
