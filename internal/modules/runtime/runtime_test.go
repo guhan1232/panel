@@ -1,6 +1,9 @@
 package rtm
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseNodeIndex(t *testing.T) {
 	data := []byte(`[
@@ -51,5 +54,21 @@ func TestBinsFor(t *testing.T) {
 	j := binsFor("openjdk", "17.0.12+7", "x64")
 	if j[0].Rel != "jdk-17.0.12+7/bin/java" {
 		t.Errorf("openjdk bins 错误: %+v", j)
+	}
+}
+
+func TestParseToolchainList(t *testing.T) {
+	list := `v0.0.1-go1.2.2.linux-386
+v0.0.1-go1.23.4.linux-amd64
+v0.0.1-go1.27.3.linux-amd64
+v0.0.1-go1.27.3.linux-arm64
+v0.0.1-go1.27.3.darwin-amd64
+v0.0.1-go1.24rc1.linux-amd64`
+	out := parseToolchainList(list, "amd64")
+	if len(out) != 2 {
+		t.Fatalf("应保留 2 个(过滤他平台+rc), got %d", len(out))
+	}
+	if out[0].Version != "1.27.3" || !strings.HasSuffix(out[0].URL, "/v0.0.1-go1.27.3.linux-amd64.zip") {
+		t.Errorf("解析错误: %+v", out[0])
 	}
 }

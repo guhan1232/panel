@@ -123,6 +123,7 @@ var nodeSources = []sourceDef{
 
 var goSources = []sourceDef{
 	{ID: "official", Name: "官方 go.dev"},
+	{ID: "goproxy", Name: "七牛 Goproxy 中国", Base: "https://goproxy.cn"},
 	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com/golang"},
 	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com/golang"},
 	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn/golang"},
@@ -215,6 +216,12 @@ func resolveNode(version, source, goarch, vendor string) (string, error) {
 func listGo(source, goarch, vendor string) ([]runtimeVersion, error) {
 	out := []runtimeVersion{}
 	switch source {
+	case "goproxy":
+		data, err := httpGet("https://goproxy.cn/golang.org/toolchain/@v/list", 30*time.Second, httpLimit)
+		if err != nil {
+			return nil, err
+		}
+		return parseToolchainList(string(data), goarch), nil
 	case "official":
 		data, err := httpGet("https://go.dev/dl/?mode=json&include=all", 30*time.Second, httpLimit)
 		if err != nil {
@@ -269,6 +276,9 @@ func listGo(source, goarch, vendor string) ([]runtimeVersion, error) {
 
 func resolveGo(version, source, goarch, vendor string) (string, error) {
 	switch source {
+	case "goproxy":
+		// Go 1.21+ 工具链以 golang.org/toolchain 模块发布（zip 格式）
+		return "https://goproxy.cn/golang.org/toolchain/@v/v0.0.1-go" + version + ".linux-" + goarch + ".zip", nil
 	case "official", "":
 		return "https://go.dev/dl/go" + version + ".linux-" + goarch + ".tar.gz", nil
 	default:
@@ -721,14 +731,23 @@ func (m *Module) installRuntime(lang, version, source string) ([]string, error) 
 		return nil, fail(fmt.Errorf("下载失败(exit %d): %s", code, url))
 	}
 	defer os.Remove(local)
-	if err := untar(local, dir); err != nil {
+	if strings.HasSuffix(url, ".zip") {
+		if err := archive.UnZip(local, dir); err != nil {
+			return nil, fail(fmt.Errorf("解压失败: %w", err))
+		}
+	} else if err := untar(local, dir); err != nil {
 		return nil, fail(fmt.Errorf("解压失败: %w", err))
 	}
 	links := []string{}
 	for _, b := range binsFor(lang, version, vendor) {
 		target := filepath.Join(dir, filepath.FromSlash(b.Rel))
 		if _, err := os.Stat(target); err != nil {
-			return nil, fail(fmt.Errorf("解压包内未找到 %s", b.Rel))
+			// zip 顶层目录结构不同（如 goproxy 工具链包），按文件名在解压树中探索
+			found, ferr := findInTree(dir, filepath.Base(b.Rel))
+			if ferr != nil {
+				return nil, fail(fmt.Errorf("解压包内未找到 %s", b.Rel))
+			}
+			target = found
 		}
 		_ = os.Chmod(target, 0o755)
 		link := filepath.Join("/usr/local/bin", b.Link)
@@ -891,4 +910,50 @@ func (m *Module) setRegistry(c *gin.Context) {
 	}
 	slog.Info("npm registry 已设置", "registry", req.Registry, "by", c.GetString("user"))
 	core.OK(c, gin.H{"registry": req.Registry})
+}
+// parseToolchainList 解析 goproxy toolchain @v/list（纯函数，仅保留 linux-arch 条目）。
+func parseToolchainList(list string, goarch string) []runtimeVersion {
+	suffix := ".linux-" + goarch
+	out := []runtimeVersion{}
+	for _, line := range strings.Split(list, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasSuffix(line, suffix) {
+			continue
+		}
+		// v0.0.1-go1.23.4.linux-amd64 → 1.23.4
+		body := strings.TrimSuffix(strings.TrimPrefix(line, "v0.0.1-go"), suffix)
+		if !cleanGoVerRe.MatchString(body) {
+			continue
+		}
+		out = append(out, runtimeVersion{Version: body, URL: "https://goproxy.cn/golang.org/toolchain/@v/" + line + ".zip"})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := versionNums(out[i].Version), versionNums(out[j].Version)
+		for k := 0; k < 3; k++ {
+			if a[k] != b[k] {
+				return a[k] > b[k]
+			}
+		}
+		return false
+	})
+	return out
+}
+
+// findInTree 在解压树中按文件名查找第一个匹配文件。
+func findInTree(root, name string) (string, error) {
+	var found string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && d.Name() == name {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if found == "" {
+		return "", err
+	}
+	return found, nil
 }
