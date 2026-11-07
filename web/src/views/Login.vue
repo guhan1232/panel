@@ -1,16 +1,23 @@
 <template>
   <div class="login-bg">
-    <el-card class="login-card">
-      <h2 style="text-align: center; margin: 8px 0 24px">⬢ webmblx 面板</h2>
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <el-card class="login-card" shadow="never">
+      <div class="login-brand">
+        <span class="logo-mark">⬢</span>
+        <h2>webmblx</h2>
+      </div>
+      <div class="login-tagline">Linux 服务器管理面板</div>
       <el-form @submit.prevent="submit">
         <el-form-item>
-          <el-input v-model="username" placeholder="用户名" size="large" :prefix-icon="User" />
+          <el-input v-model="username" placeholder="用户名" size="large" :prefix-icon="User" autocomplete="username" />
         </el-form-item>
         <el-form-item>
-          <el-input v-model="password" type="password" placeholder="密码" size="large" :prefix-icon="Lock" show-password @keyup.enter="submit" />
+          <el-input v-model="password" type="password" placeholder="密码" size="large" :prefix-icon="Lock" show-password autocomplete="current-password" @keyup.enter="submit" />
         </el-form-item>
-        <el-button type="primary" size="large" style="width: 100%" :loading="loading" native-type="submit">登 录</el-button>
+        <el-button type="primary" size="large" style="width: 100%; letter-spacing: 6px" :loading="loading" native-type="submit">登 录</el-button>
       </el-form>
+      <div class="login-foot">安全入口保护已启用 · 会话与操作全程审计</div>
     </el-card>
   </div>
 </template>
@@ -44,12 +51,10 @@ async function submit() {
 </script>
 
 <style scoped>
-.login-bg {
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #1d2530 0%, #2b3a4e 60%, #35506b 100%);
+.login-foot {
+  margin-top: 18px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
 }
-.login-card { width: 380px; border-radius: 10px; }
 </style>
