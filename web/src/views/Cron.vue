@@ -60,6 +60,22 @@
         <el-form-item v-if="form.type === 'visit_url'" label="访问 URL">
           <el-input v-model="form.url" placeholder="https://example.com/health（非 2xx/3xx 视为失败）" />
         </el-form-item>
+        <template v-if="form.type === 'backup_db'">
+          <el-form-item label="数据库类型">
+            <el-radio-group v-model="form.db_engine">
+              <el-radio-button value="mysql">MySQL</el-radio-button>
+              <el-radio-button value="pg">PostgreSQL</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="数据库名"><el-input v-model="form.db_name" placeholder="mydb" /></el-form-item>
+          <el-form-item label="保留份数"><el-input-number v-model="form.keep" :min="0" /><span class="hint">连接凭据使用「数据库」页面保存的配置</span></el-form-item>
+        </template>
+        <template v-if="form.type === 'log_rotate'">
+          <el-form-item label="日志匹配"><el-input v-model="form.pattern" placeholder="/var/log/nginx/*.log（不含空格）" /></el-form-item>
+          <el-form-item label="切割阈值(MB)"><el-input-number v-model="form.size_mb" :min="1" /></el-form-item>
+          <el-form-item label="保留天数"><el-input-number v-model="form.keep_days" :min="1" /></el-form-item>
+        </template>
+        <el-alert v-if="form.type === 'sys_update'" type="warning" :closable="false" title="将执行 apt-get upgrade / dnf upgrade 全量系统更新，建议安排在凌晨低峰期" />
         <el-form-item label="超时(秒)"><el-input-number v-model="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></el-form-item>
         <el-form-item label="允许并发"><el-switch v-model="form.concurrent" /><span class="hint">关闭时上一次未结束则跳过本次</span></el-form-item>
         <el-form-item label="失败告警"><el-input-number v-model="form.notify_fail" :min="0" /><span class="hint">连续失败 N 次后告警，0=不告警</span></el-form-item>
@@ -102,7 +118,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { fmtTime, fmtCost } from '../utils'
 
-const typeMap: Record<string, string> = { shell: 'Shell 脚本', backup_dir: '目录备份', visit_url: '访问 URL' }
+const typeMap: Record<string, string> = {
+  shell: 'Shell 脚本', backup_dir: '目录备份', visit_url: '访问 URL',
+  backup_db: '数据库备份', log_rotate: '日志切割', sys_update: '系统更新'
+}
 const typeLabel = (t: string) => typeMap[t] || t
 
 const presets = [
@@ -124,7 +143,7 @@ const loading = ref(false)
 const dlg = ref(false)
 const saving = ref(false)
 
-const emptyForm = () => ({ id: 0, name: '', type: 'shell', spec: '*/5 * * * *', command: '', source: '', keep: 1, url: '', timeout_sec: 0, concurrent: false, notify_fail: 0 })
+const emptyForm = () => ({ id: 0, name: '', type: 'shell', spec: '*/5 * * * *', command: '', source: '', keep: 1, url: '', db_engine: 'mysql', db_name: '', pattern: '', size_mb: 50, keep_days: 30, timeout_sec: 0, concurrent: false, notify_fail: 0 })
 const form = reactive(emptyForm())
 
 async function load() {
@@ -151,6 +170,11 @@ function openEdit(row: any) {
     form.source = p.source || ''
     form.keep = p.keep ?? 1
     form.url = p.url || ''
+    form.db_engine = p.engine || 'mysql'
+    form.db_name = p.database || ''
+    form.pattern = p.pattern || ''
+    form.size_mb = p.size_mb || 50
+    form.keep_days = p.keep_days || 30
   } catch {
     /* ignore */
   }
@@ -162,6 +186,8 @@ function payload() {
   if (form.type === 'shell') base.command = form.command
   else if (form.type === 'backup_dir') base.params = JSON.stringify({ source: form.source, keep: form.keep })
   else if (form.type === 'visit_url') base.params = JSON.stringify({ url: form.url })
+  else if (form.type === 'backup_db') base.params = JSON.stringify({ engine: form.db_engine, database: form.db_name, keep: form.keep })
+  else if (form.type === 'log_rotate') base.params = JSON.stringify({ pattern: form.pattern, size_mb: form.size_mb, keep_days: form.keep_days })
   return base
 }
 

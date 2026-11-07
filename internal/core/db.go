@@ -11,7 +11,30 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.1.0"
+const Version = "0.2.0"
+
+// Setting 表的保留键（各模块共享的 JSON 配置）。
+const (
+	KNotifyEmail   = "notify_email_json"
+	KNotifyWebhook = "notify_webhook_json"
+	KMysqlCfg      = "dbmgr_mysql_json"
+	KPgCfg         = "dbmgr_pg_json"
+	KS3Cfg         = "objectstore_s3_json"
+)
+
+// GetSetting 读取一个 KV 配置（不存在返回空串）。
+func GetSetting(db *gorm.DB, key string) string {
+	var s Setting
+	if err := db.Where("`key` = ?", key).First(&s).Error; err != nil {
+		return ""
+	}
+	return s.Value
+}
+
+// SetSetting 写入一个 KV 配置。
+func SetSetting(db *gorm.DB, key, value string) error {
+	return db.Save(&Setting{Key: key, Value: value}).Error
+}
 
 type User struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`

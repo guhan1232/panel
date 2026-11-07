@@ -3,6 +3,7 @@ package audit
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,4 +42,39 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 			c.Error(err)
 		}
 	}
+}
+
+// Module 审计查询 API。
+type Module struct{ db *gorm.DB }
+
+func New(db *gorm.DB) *Module { return &Module{db: db} }
+
+func (m *Module) Register(api gin.IRouter) {
+	api.GET("/audit/list", m.list)
+}
+
+func (m *Module) list(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	qry := m.db.Model(&core.AuditLog{})
+	if method := c.Query("method"); method != "" {
+		qry = qry.Where("method = ?", method)
+	}
+	if q := c.Query("q"); q != "" {
+		qry = qry.Where("path LIKE ?", "%"+q+"%")
+	}
+	if u := c.Query("username"); u != "" {
+		qry = qry.Where("username = ?", u)
+	}
+	var total int64
+	qry.Count(&total)
+	var items []core.AuditLog
+	qry.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&items)
+	core.OK(c, gin.H{"total": total, "items": items})
 }

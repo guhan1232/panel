@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,11 +26,18 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/archive"
 	"cnb.cool/hanyuxin/panel/internal/core"
 	"cnb.cool/hanyuxin/panel/internal/execx"
+	"cnb.cool/hanyuxin/panel/internal/notify"
+	"cnb.cool/hanyuxin/panel/internal/objectstore"
 )
 
 var parser = cron.NewParser(cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
-var allowedTypes = map[string]bool{"shell": true, "backup_dir": true, "visit_url": true}
+var allowedTypes = map[string]bool{
+	"shell": true, "backup_dir": true, "visit_url": true,
+	"backup_db": true, "log_rotate": true, "sys_update": true,
+}
+
+var dbIdentRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 var nameSanitizer = regexp.MustCompile(`[^A-Za-z0-9\x{4e00}-\x{9fa5}_-]+`)
 
@@ -217,9 +225,10 @@ func (m *Module) run(id uint, trigger string) {
 		var nt Task
 		m.db.First(&nt, id)
 		if nt.NotifyFail > 0 && nt.FailStreak >= nt.NotifyFail {
-			// TODO(P1): 接入通知模块（邮件/IM Webhook）
-			slog.Warn("计划任务连续失败，达到告警阈值（通知渠道待接入）",
-				"task", nt.Name, "status", log.Status, "streak", nt.FailStreak)
+			slog.Warn("计划任务连续失败，已触发告警通知", "task", nt.Name, "status", log.Status, "streak", nt.FailStreak)
+			content := fmt.Sprintf("任务「%s」(ID %d) 已连续失败 %d 次\n最近状态: %s\n耗时: %dms\n触发方式: %s\n输出:\n%s",
+				nt.Name, nt.ID, nt.FailStreak, log.Status, log.CostMS, trigger, log.Output)
+			go notify.Send(m.db, "计划任务失败告警: "+nt.Name, content)
 		}
 	}
 }
@@ -238,6 +247,21 @@ func (m *Module) execute(ctx context.Context, t *Task) (exit int, err error, out
 		if err != nil {
 			exit = 1
 		}
+	case "backup_db":
+		output, err = m.runBackupDB(ctx, t)
+		if err != nil {
+			exit = 1
+		}
+	case "log_rotate":
+		output, err = m.runLogRotate(ctx, t)
+		if err != nil {
+			exit = 1
+		}
+	case "sys_update":
+		output, err = m.runSysUpdate(ctx, t)
+		if err != nil {
+			exit = 1
+		}
 	default:
 		err = fmt.Errorf("未知任务类型: %s", t.Type)
 	}
@@ -247,6 +271,7 @@ func (m *Module) execute(ctx context.Context, t *Task) (exit int, err error, out
 type backupParams struct {
 	Source string `json:"source"`
 	Keep   int    `json:"keep"`
+	Remote bool   `json:"remote"` // 同时上传到对象存储
 }
 
 func (m *Module) runBackupDir(ctx context.Context, t *Task) (string, error) {
@@ -271,6 +296,18 @@ func (m *Module) runBackupDir(ctx context.Context, t *Task) (string, error) {
 		return "", err
 	}
 	msg := "备份完成: " + out
+	if p.Remote {
+		cfg := objectstore.Get(m.db)
+		if cfg.Enabled {
+			obj, uerr := objectstore.Upload(ctx, cfg, out, filepath.Base(out))
+			if uerr != nil {
+				return "", fmt.Errorf("上传对象存储失败: %w", uerr)
+			}
+			msg += "\n已上传: s3://" + cfg.Bucket + "/" + obj
+		} else {
+			msg += "\n对象存储未启用，仅保留本地副本"
+		}
+	}
 	if p.Keep > 0 {
 		pattern := filepath.Join(outDir, sanitizeName(t.Name)+"-*.tar.gz")
 		files, _ := filepath.Glob(pattern)
@@ -311,6 +348,144 @@ func (m *Module) runVisitURL(ctx context.Context, t *Task) (string, error) {
 		return fmt.Sprintf("HTTP %d", resp.StatusCode), fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return fmt.Sprintf("HTTP %d，健康检查通过", resp.StatusCode), nil
+}
+
+// shQuote shell 单引号安全包裹。
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+type backupDBParams struct {
+	Engine   string `json:"engine"` // mysql | pg
+	Database string `json:"database"`
+	Keep     int    `json:"keep"`
+}
+
+func (m *Module) runBackupDB(ctx context.Context, t *Task) (string, error) {
+	var p backupDBParams
+	if err := json.Unmarshal([]byte(orDefault(t.Params)), &p); err != nil {
+		return "", fmt.Errorf("参数解析失败: %w", err)
+	}
+	if p.Engine != "mysql" && p.Engine != "pg" {
+		return "", errors.New("engine 需为 mysql 或 pg")
+	}
+	if !dbIdentRe.MatchString(p.Database) {
+		return "", fmt.Errorf("数据库名非法: %s", p.Database)
+	}
+	outDir := filepath.Join(m.dataDir, "backups")
+	_ = os.MkdirAll(outDir, 0o755)
+	out := filepath.Join(outDir, fmt.Sprintf("db-%s-%s-%s.sql.gz", p.Engine, p.Database, time.Now().Format("20060102-150405")))
+
+	var script string
+	if p.Engine == "mysql" {
+		var cfg struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+		}
+		_ = json.Unmarshal([]byte(core.GetSetting(m.db, core.KMysqlCfg)), &cfg)
+		if cfg.Host == "" {
+			cfg.Host = "127.0.0.1"
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 3306
+		}
+		if cfg.User == "" {
+			cfg.User = "root"
+		}
+		script = fmt.Sprintf("set -o pipefail\nexport MYSQL_PWD=%s\nmysqldump -h %s -P %d -u %s --single-transaction --routines --databases %s | gzip > %s\n",
+			shQuote(cfg.Password), shQuote(cfg.Host), cfg.Port, shQuote(cfg.User), shQuote(p.Database), shQuote(out))
+	} else {
+		var cfg struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+			SSLMode  string `json:"ssl_mode"`
+		}
+		_ = json.Unmarshal([]byte(core.GetSetting(m.db, core.KPgCfg)), &cfg)
+		if cfg.Host == "" {
+			cfg.Host = "127.0.0.1"
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 5432
+		}
+		if cfg.SSLMode == "" {
+			cfg.SSLMode = "disable"
+		}
+		script = fmt.Sprintf("set -o pipefail\nexport PGPASSWORD=%s\nexport PGSSLMODE=%s\npg_dump -h %s -p %d -U %s -d %s | gzip > %s\n",
+			shQuote(cfg.Password), shQuote(cfg.SSLMode), shQuote(cfg.Host), cfg.Port, shQuote(cfg.User), shQuote(p.Database), shQuote(out))
+	}
+	output, _, err := execx.RunShellContext(ctx, fmt.Sprintf("task:%d", t.ID), script)
+	if err != nil {
+		return output, err
+	}
+	msg := "备份完成: " + out
+	if p.Keep > 0 {
+		pattern := filepath.Join(outDir, fmt.Sprintf("db-%s-%s-*.sql.gz", p.Engine, p.Database))
+		files, _ := filepath.Glob(pattern)
+		if len(files) > p.Keep {
+			for _, f := range files[:len(files)-p.Keep] {
+				if os.Remove(f) == nil {
+					msg += "\n清理旧备份: " + f
+				}
+			}
+		}
+	}
+	return msg, nil
+}
+
+type logRotateParams struct {
+	Pattern  string `json:"pattern"`  // 如 /var/log/nginx/*.log
+	SizeMB   int    `json:"size_mb"`  // 超过该大小切割，默认 50
+	KeepDays int    `json:"keep_days"` // 压缩包保留天数，默认 30
+}
+
+func (m *Module) runLogRotate(ctx context.Context, t *Task) (string, error) {
+	var p logRotateParams
+	if err := json.Unmarshal([]byte(orDefault(t.Params)), &p); err != nil {
+		return "", fmt.Errorf("参数解析失败: %w", err)
+	}
+	if p.Pattern == "" || strings.ContainsAny(p.Pattern, "'\"\n") || strings.Contains(p.Pattern, " ") {
+		return "", errors.New("pattern 非法（不含空格与引号的 glob 路径）")
+	}
+	if p.SizeMB <= 0 {
+		p.SizeMB = 50
+	}
+	if p.KeepDays <= 0 {
+		p.KeepDays = 30
+	}
+	script := fmt.Sprintf(`set -e
+SIZE=$((%d*1024*1024))
+for f in %s; do
+  [ -f "$f" ] || continue
+  s=$(stat -c%%s "$f" 2>/dev/null || echo 0)
+  if [ "$s" -ge "$SIZE" ]; then
+    gzip -c "$f" > "$f.$(date +%%Y%%m%%d%%H%%M%%S).gz" && : > "$f" && echo "rotated: $f"
+  fi
+done
+find %s -name "*.gz" -mtime +%d -delete 2>/dev/null || true
+echo "日志切割任务完成"`, p.SizeMB, p.Pattern, shQuote(filepath.Dir(p.Pattern)), p.KeepDays)
+	output, _, err := execx.RunShellContext(ctx, fmt.Sprintf("task:%d", t.ID), script)
+	return output, err
+}
+
+var sysUpdateScript = `set -e
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
+elif command -v dnf >/dev/null 2>&1; then
+  dnf -y upgrade
+elif command -v yum >/dev/null 2>&1; then
+  yum -y update
+else
+  echo "未找到 apt-get/dnf/yum"; exit 1
+fi
+echo "系统更新完成"`
+
+func (m *Module) runSysUpdate(ctx context.Context, t *Task) (string, error) {
+	output, _, err := execx.RunShellContext(ctx, fmt.Sprintf("task:%d", t.ID), sysUpdateScript)
+	return output, err
 }
 
 // ---- 路由处理 ----

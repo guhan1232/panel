@@ -20,12 +20,18 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/auth"
 	"cnb.cool/hanyuxin/panel/internal/config"
 	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/modules/cert"
 	"cnb.cool/hanyuxin/panel/internal/modules/cron"
 	"cnb.cool/hanyuxin/panel/internal/modules/dashboard"
+	"cnb.cool/hanyuxin/panel/internal/modules/dbmgr"
 	"cnb.cool/hanyuxin/panel/internal/modules/filem"
+	"cnb.cool/hanyuxin/panel/internal/modules/firewall"
 	"cnb.cool/hanyuxin/panel/internal/modules/proc"
 	"cnb.cool/hanyuxin/panel/internal/modules/setting"
 	"cnb.cool/hanyuxin/panel/internal/modules/term"
+	"cnb.cool/hanyuxin/panel/internal/modules/website"
+	"cnb.cool/hanyuxin/panel/internal/notify"
+	"cnb.cool/hanyuxin/panel/internal/objectstore"
 	"cnb.cool/hanyuxin/panel/internal/selfcert"
 	webui "cnb.cool/hanyuxin/panel"
 )
@@ -77,6 +83,22 @@ func main() {
 	term.Register(protected)
 	proc.Register(protected)
 	setting.New(db, cfg).Register(protected)
+
+	// P1 模块
+	auditMod := audit.New(db)
+	auditMod.Register(protected)
+	notify.New(db).Register(protected)
+	objectstore.New(db).Register(protected)
+	firewall.Register(protected)
+	websiteMod := website.New(db)
+	if err := websiteMod.Start(); err != nil {
+		slog.Error("网站模块启动失败", "err", err)
+	}
+	websiteMod.Register(protected)
+	certMod := cert.New(db, cfg.DataDir)
+	certMod.Register(protected)
+	certMod.Start()
+	dbmgr.New(db).Register(protected)
 
 	// SPA 静态资源（嵌入前端）
 	spaFS := webui.FS()

@@ -4,10 +4,16 @@
       <div class="logo">⬢ webmblx</div>
       <el-menu :default-active="$route.path" router background-color="#1d2530" text-color="#aeb9c9" active-text-color="#409eff" style="border-right: none">
         <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>仪表盘</el-menu-item>
+        <el-menu-item index="/website"><el-icon><Connection /></el-icon>网站</el-menu-item>
+        <el-menu-item index="/databases"><el-icon><Coin /></el-icon>数据库</el-menu-item>
+        <el-menu-item index="/firewall"><el-icon><Lock /></el-icon>防火墙</el-menu-item>
+        <el-menu-item index="/certs"><el-icon><Stamp /></el-icon>SSL 证书</el-menu-item>
         <el-menu-item index="/cron"><el-icon><Timer /></el-icon>计划任务</el-menu-item>
         <el-menu-item index="/files"><el-icon><Folder /></el-icon>文件管理</el-menu-item>
         <el-menu-item index="/terminal"><el-icon><Monitor /></el-icon>终端</el-menu-item>
         <el-menu-item index="/proc"><el-icon><Cpu /></el-icon>进程管理</el-menu-item>
+        <el-menu-item index="/audit"><el-icon><Document /></el-icon>审计日志</el-menu-item>
+        <el-menu-item index="/notify"><el-icon><Bell /></el-icon>通知与存储</el-menu-item>
         <el-menu-item index="/setting"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
       </el-menu>
     </el-aside>
@@ -32,7 +38,7 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Odometer, Timer, Folder, Monitor, Cpu, Setting, User } from '@element-plus/icons-vue'
+import { Odometer, Timer, Folder, Monitor, Cpu, Setting, User, Connection, Coin, Lock, Stamp, Document, Bell } from '@element-plus/icons-vue'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()
