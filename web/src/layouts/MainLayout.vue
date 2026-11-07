@@ -28,6 +28,7 @@
           <el-menu-item index="/alerts"><el-icon><Warning /></el-icon><template #title>告警策略</template></el-menu-item>
           <el-menu-item index="/files"><el-icon><Folder /></el-icon><template #title>文件管理</template></el-menu-item>
           <el-menu-item index="/proc"><el-icon><Cpu /></el-icon><template #title>进程管理</template></el-menu-item>
+          <el-menu-item index="/nodes"><el-icon><Share /></el-icon><template #title>节点管理</template></el-menu-item>
           <el-menu-item index="/firewall"><el-icon><Lock /></el-icon><template #title>防火墙</template></el-menu-item>
           <el-menu-item index="/certs"><el-icon><Stamp /></el-icon><template #title>SSL 证书</template></el-menu-item>
 
@@ -91,7 +92,7 @@ import { useRouter } from 'vue-router'
 import {
   Odometer, Connection, Coin, Shop, Monitor, Timer, Warning, Folder, Cpu,
   Lock, Stamp, Document, Bell, Setting, User, Expand, Fold, Sunny, Moon,
-  ArrowDown, SwitchButton, Avatar
+  ArrowDown, SwitchButton, Avatar, Share
 } from '@element-plus/icons-vue'
 import { useAuth } from '../stores/auth'
 import { useTheme } from '../stores/theme'

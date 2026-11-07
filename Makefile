@@ -15,8 +15,14 @@ linux: build-web
 linux-arm64: build-web
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/webmblx-arm64 ./cmd/server
 
-release: linux linux-arm64
-	cd bin && tar -czf webmblx-linux-amd64.tar.gz webmblx && tar -czf webmblx-linux-arm64.tar.gz webmblx-arm64
+release: linux linux-arm64 agent agent-arm64
+	cd bin && tar -czf webmblx-linux-amd64.tar.gz webmblx webmblx-agent && tar -czf webmblx-linux-arm64.tar.gz webmblx-arm64 webmblx-agent-arm64
+
+agent: build-web
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/webmblx-agent ./cmd/agent
+
+agent-arm64: build-web
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/webmblx-agent-arm64 ./cmd/agent
 
 vet:
 	go vet ./...

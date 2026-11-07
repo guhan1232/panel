@@ -19,6 +19,7 @@ const router = createRouter({
         { path: 'files', component: () => import('../views/Files.vue'), meta: { title: '文件管理' } },
         { path: 'terminal', component: () => import('../views/Terminal.vue'), meta: { title: '终端' } },
         { path: 'proc', component: () => import('../views/Proc.vue'), meta: { title: '进程管理' } },
+        { path: 'nodes', component: () => import('../views/Nodes.vue'), meta: { title: '节点管理' } },
         { path: 'audit', component: () => import('../views/Audit.vue'), meta: { title: '审计日志' } },
         { path: 'alerts', component: () => import('../views/Alerts.vue'), meta: { title: '告警策略' } },
         { path: 'appstore', component: () => import('../views/Appstore.vue'), meta: { title: '应用商店' } },

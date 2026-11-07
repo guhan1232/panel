@@ -28,6 +28,7 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/modules/dbmgr"
 	"cnb.cool/hanyuxin/panel/internal/modules/filem"
 	"cnb.cool/hanyuxin/panel/internal/modules/firewall"
+	"cnb.cool/hanyuxin/panel/internal/modules/node"
 	"cnb.cool/hanyuxin/panel/internal/modules/proc"
 	"cnb.cool/hanyuxin/panel/internal/modules/setting"
 	"cnb.cool/hanyuxin/panel/internal/modules/term"
@@ -107,6 +108,19 @@ func main() {
 	certMod.Register(protected)
 	certMod.Start()
 	dbmgr.New(db).Register(protected)
+
+	// 多节点（Agent 反连走独立端点，token 鉴权；管理面走会话权限）
+	nodeMod := node.New(db)
+	if err := nodeMod.Start(); err != nil {
+		slog.Error("节点模块启动失败", "err", err)
+		os.Exit(1)
+	}
+	r.GET("/api/ws/agent", nodeMod.HandleAgent)
+	nodeMod.Register(
+		protected,
+		protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator)),
+		protected.Group("", authSvc.RequireAdmin()),
+	)
 
 	// P2 模块
 	dash := dashboard.New()
