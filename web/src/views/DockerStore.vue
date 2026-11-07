@@ -1,6 +1,6 @@
 <template>
   <div class="wm-page">
-    <WmSectionCard title="环境与应用" description="原生应用由 systemd 托管，容器应用由 Docker Compose 编排" flush>
+    <WmSectionCard title="Docker 容器管理" description="容器化应用一键部署（Docker Compose 编排），Docker 镜像加速源自行配置" flush>
       <WmToolbar>
         <WmStatusPill
           :label="docker.installed ? (docker.compose ? 'Docker 就绪' : '缺少 compose 插件') : 'Docker 未安装'"
@@ -8,45 +8,40 @@
         />
         <el-button v-if="!docker.installed" size="small" type="warning" :loading="installing" @click="installDocker">一键安装 Docker</el-button>
         <el-button size="small" @click="openMirrors">镜像源配置</el-button>
-        <el-button v-if="auth.role === 'admin'" size="small" @click="openSource">应用源配置</el-button>
         <el-button size="small" @click="load">刷新</el-button>
-        <template #note>原生应用日志走 journalctl；容器模板需要 Docker 与 compose 插件。安装时可选择镜像源加速。</template>
+        <template #note>容器模板需要 Docker 与 compose 插件；镜像加速走 daemon.json（自行配置，修改前自动备份）。</template>
       </WmToolbar>
 
       <div class="wm-section-block">
         <div class="wm-section-block__head">
-          <span class="wm-eyebrow">可用模板</span>
-          <span class="wm-text-muted">内置 {{ builtinCount }} · 镜像源 {{ remoteCount }} · 共 {{ templates.length }} 个</span>
+          <span class="wm-eyebrow">容器模板</span>
+          <span class="wm-text-muted">内置 {{ builtinCount }} · 镜像源 {{ remoteCount }} 个</span>
         </div>
         <div class="wm-tpl-grid" v-if="templates.length">
           <article v-for="t in templates" :key="t.key" class="wm-tpl-card">
             <div class="wm-tpl-card__top">
               <h3 class="wm-tpl-card__name">{{ t.name }}</h3>
               <div class="wm-tpl-card__pills">
-                <WmStatusPill :label="t.kind === 'native' ? '原生' : '容器'" :tone="t.kind === 'native' ? 'warning' : 'info'" :dot="false" />
                 <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
               </div>
             </div>
             <p class="wm-tpl-card__desc">{{ t.desc }}<template v-if="t.version"> · v{{ t.version }}</template></p>
             <el-button size="small" type="primary" class="wm-tpl-card__btn"
-              :disabled="t.kind === 'compose' && (!docker.installed || !docker.compose)"
+              :disabled="!docker.installed || !docker.compose"
               @click="openInstall(t)">部署</el-button>
           </article>
         </div>
-        <WmEmptyState v-else compact title="模板加载中" description="正在从面板读取应用模板清单。" />
+        <WmEmptyState v-else compact title="加载中" description="正在读取容器模板清单。" />
       </div>
 
       <div class="wm-section-block wm-section-block--table">
         <div class="wm-section-block__head">
-          <span class="wm-eyebrow">已部署应用</span>
+          <span class="wm-eyebrow">已部署容器</span>
           <span class="wm-text-muted">{{ apps.length }} 个实例</span>
         </div>
         <WmTable :data="apps" v-loading="loading" empty-title="还没有部署应用" empty-description="从上方模板中选择一个，填写实例名称即可部署。">
           <el-table-column label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></el-table-column>
           <el-table-column label="应用" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></el-table-column>
-          <el-table-column label="形态" width="90">
-            <template #default="{ row }"><WmStatusPill :label="row.app.kind === 'native' ? '原生' : '容器'" :tone="row.app.kind === 'native' ? 'warning' : 'info'" :dot="false" outline /></template>
-          </el-table-column>
           <el-table-column label="状态" min-width="240"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></el-table-column>
           <el-table-column label="部署时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></el-table-column>
           <el-table-column label="操作" width="310" fixed="right">
@@ -62,14 +57,14 @@
       </div>
     </WmSectionCard>
 
-    <el-dialog v-model="dlg" :title="`部署 ${cur?.name || ''}`" width="520px">
+    <el-dialog v-model="dlg" :title="`部署 ${cur?.name || ''}`" width="560px">
       <el-form label-width="130px">
         <el-form-item label="实例名称"><el-input v-model="instName" placeholder="如 my-redis" /></el-form-item>
         <el-form-item label="镜像源">
           <el-select v-model="instMirror" style="width: 100%">
-            <el-option v-for="m in mirrors" :key="m.id" :label="m.name" :value="m.id" />
+            <el-option v-for="m in dockerMirrors" :key="m.id" :label="m.name" :value="m.id" />
           </el-select>
-          <div class="hint">容器模板经所选源代理拉取镜像；原生模板经 GitHub 加速下载发行包；「自动」按应用类型选第一个可用加速源</div>
+          <div class="hint">部署时将 YAML 中的镜像改写为所选代理仓库拉取；也可在「镜像源配置」里设置全局 daemon.json 加速</div>
         </el-form-item>
         <el-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
           <el-input v-model="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
@@ -85,24 +80,7 @@
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
     </el-dialog>
 
-    <el-dialog v-model="srcDlg" title="应用源配置（远程模板目录）" width="620px">
-      <el-form label-width="90px">
-        <el-form-item label="目录 URL">
-          <el-input v-model="srcUrl" placeholder="https://.../catalog.json（清空并保存即清除应用源）" />
-        </el-form-item>
-      </el-form>
-      <WmNotice tone="info" title="清单格式">
-        JSON 数组，每项为声明式应用定义（compose 文本或原生二进制描述），格式参考仓库 <span class="wm-mono">docs/catalog.example.json</span>。
-        最多 50 个应用、单文件 1MB；拉取后合并进模板列表（key 与内置重复时内置优先）。远程清单由管理员提供，请确保来源可信。
-      </WmNotice>
-      <template #footer>
-        <el-button @click="srcDlg = false">取消</el-button>
-        <el-button type="danger" plain @click="clearSource">清除应用源</el-button>
-        <el-button type="primary" :loading="srcSaving" @click="saveSource">保存并拉取</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="mirrorDlg" title="Docker 镜像源配置" width="680px">
+    <el-dialog v-model="mirrorDlg" title="Docker 镜像源配置（daemon.json）" width="680px">
       <WmNotice v-if="mirrorInfo.docker_installed === false" tone="warning" title="尚未检测到 Docker" class="wm-mb-4">可先编辑配置文件，安装 Docker 后生效。</WmNotice>
       <el-form label-width="110px">
         <el-form-item label="加速镜像源">
@@ -148,7 +126,6 @@ const deploying = ref(false)
 const cur = ref<any>(null)
 const instName = ref('')
 const instMirror = ref('auto')
-const mirrors = ref<any[]>([])
 const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
 const logName = ref('')
@@ -156,36 +133,6 @@ const logContent = ref('')
 
 const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
 const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
-
-const srcDlg = ref(false)
-const srcUrl = ref('')
-const srcSaving = ref(false)
-
-async function openSource() {
-  const d: any = await api.get('/apps/source')
-  srcUrl.value = d.url || ''
-  srcDlg.value = true
-}
-
-async function saveSource() {
-  srcSaving.value = true
-  try {
-    const d: any = await api.post('/apps/source', { url: srcUrl.value.trim() }, { timeout: 60000 })
-    ElMessage.success(`应用源已保存，拉取到 ${d.count} 个应用`)
-    srcDlg.value = false
-    load()
-  } finally {
-    srcSaving.value = false
-  }
-}
-
-async function clearSource() {
-  await api.post('/apps/source', { url: '' })
-  ElMessage.success('应用源已清除')
-  srcUrl.value = ''
-  srcDlg.value = false
-  load()
-}
 
 const mirrorPresets = [
   'https://docker.m.daocloud.io',
@@ -199,6 +146,29 @@ const mirrorDlg = ref(false)
 const mirrorSaving = ref(false)
 const mirrorInfo = ref<any>({})
 const mirrorForm = reactive({ registry_mirrors: '', insecure_registries: '' })
+
+const dockerMirrors = computed(() => [
+  { id: 'auto', name: '自动（优先加速源）' },
+  { id: 'off', name: '官方直连' },
+  ...mirrorsList.value.filter((m: any) => m.docker)
+])
+const mirrorsList = ref<any[]>([])
+
+async function load() {
+  loading.value = true
+  try {
+    docker.value = await api.get('/apps/docker/status')
+    templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind === 'compose')
+    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind !== 'native')
+    try {
+      mirrorsList.value = (await api.get('/apps/mirrors')) as any
+    } catch {
+      mirrorsList.value = []
+    }
+  } finally {
+    loading.value = false
+  }
+}
 
 async function openMirrors() {
   mirrorInfo.value = await api.get('/apps/docker/mirrors')
@@ -234,22 +204,6 @@ async function saveMirrors() {
     mirrorDlg.value = false
   } finally {
     mirrorSaving.value = false
-  }
-}
-
-async function load() {
-  loading.value = true
-  try {
-    docker.value = await api.get('/apps/docker/status')
-    templates.value = (await api.get('/apps/templates')) as any
-    apps.value = (await api.get('/apps')) as any
-    try {
-      mirrors.value = (await api.get('/apps/mirrors')) as any
-    } catch {
-      mirrors.value = []
-    }
-  } finally {
-    loading.value = false
   }
 }
 
@@ -336,10 +290,27 @@ onMounted(load)
   gap: 4px;
   align-items: center;
 }
+.mono {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 .hint {
   color: var(--wm-text-2, #8492a6);
   font-size: 12px;
   line-height: 1.7;
   margin-top: 4px;
+}
+.presets {
+  margin-top: 8px;
+  line-height: 2;
+}
+.preset-tag {
+  cursor: pointer;
+  margin-right: 6px;
+}
+.live-mirrors {
+  line-height: 1.8;
 }
 </style>

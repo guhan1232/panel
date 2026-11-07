@@ -150,7 +150,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Odometer, Connection, Coin, Shop, Monitor, Timer, Warning, Folder, Cpu,
   Lock, Stamp, Document, Bell, Setting, Expand, Fold, Sunny, Moon,
-  ArrowDown, SwitchButton, Avatar, Share, Menu, MoreFilled
+  ArrowDown, SwitchButton, Avatar, Share, Menu, MoreFilled, Box
 } from '@element-plus/icons-vue'
 import { useAuth } from '../stores/auth'
 import { useTheme } from '../stores/theme'
@@ -178,7 +178,8 @@ const navGroups = computed(() => [
     items: [
       { path: '/website', label: '网站', icon: Connection },
       { path: '/databases', label: '数据库', icon: Coin },
-      { path: '/appstore', label: '应用商店', icon: Shop },
+      { path: '/softstore', label: '软件商店', icon: Shop },
+      { path: '/dockerstore', label: 'Docker 容器管理', icon: Box },
       ...(auth.role !== 'viewer' ? [{ path: '/terminal', label: '终端', icon: Monitor }] : [])
     ]
   },

@@ -37,12 +37,20 @@ type Param struct {
 type NativeSpec struct {
 	URLs      map[string]string                       // arch(amd64/arm64) → 下载地址（tar.gz 或裸二进制）
 	Archive   bool                                    // 是否为 tar.gz 压缩包
-	InArchive string                                  // 压缩包内二进制相对路径，{arch} 会被替换
+	InArchive string                                  // 压缩包内二进制相对路径，{arch}=goarch，{vendor_arch}=厂商命名
 	Binary    string                                  // 目标二进制文件名
 	Args      func(p map[string]string) []string      // ExecStart 参数
 	Env       func(p map[string]string) map[string]string
 	Files     func(name string, p map[string]string) map[string]string // 附加配置文件（相对安装目录）
 	Dirs      []string                                // 需预创建的子目录（如 www/data）
+
+	// Tool=true 表示工具类（如 Node.js/Go 工具链）：解压后软链到 /usr/local/bin，
+	// 不创建 systemd 服务；false 为服务类，systemd 托管。
+	Tool bool
+	// ArchAlias 厂商架构命名映射（如 amd64→x64，Node.js 使用），仅用于 {vendor_arch} 占位符
+	ArchAlias map[string]string
+	// MirrorPaths 大镜像站收录路径：源ID → 架构 → 相对镜像站根的路径（或完整 URL）
+	MirrorPaths map[string]map[string]string
 }
 
 // Template 应用模板。
@@ -61,7 +69,9 @@ type AppInst struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"uniqueIndex;size:40" json:"name"`
 	AppKey    string    `gorm:"size:32" json:"app_key"`
-	Kind      string    `gorm:"size:16" json:"kind"` // compose | native（历史空值按 compose）
+	Kind      string    `gorm:"size:16" json:"kind"`   // compose | native（历史空值按 compose）
+	Tool      bool      `json:"tool"`                  // native 工具类（无 systemd 服务）
+	Binary    string    `gorm:"size:64" json:"binary"` // native 二进制名（卸载软链用）
 	Params    string    `gorm:"type:text" json:"params"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -458,6 +468,42 @@ volumes:
 		},
 	},
 	{
+		Key: "nodejs", Name: "Node.js 20 LTS", Desc: "JavaScript 运行时（工具类；阿里云/腾讯/清华/中科大镜像站收录）", Kind: "native",
+		Params: []Param{},
+		Native: &NativeSpec{
+			Tool:      true,
+			ArchAlias: map[string]string{"amd64": "x64"},
+			URLs: map[string]string{
+				"amd64": "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz",
+				"arm64": "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-arm64.tar.gz",
+			},
+			MirrorPaths: map[string]map[string]string{
+				"aliyun":  {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
+				"tencent": {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
+				"tuna":    {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
+				"ustc":    {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
+			},
+			Archive: true, InArchive: "node-v20.18.1-linux-{vendor_arch}/bin/node", Binary: "node",
+		},
+	},
+	{
+		Key: "golang", Name: "Golang 1.23", Desc: "Go 编译工具链（工具类；阿里云/腾讯/中科大镜像站收录）", Kind: "native",
+		Params: []Param{},
+		Native: &NativeSpec{
+			Tool: true,
+			URLs: map[string]string{
+				"amd64": "https://go.dev/dl/go1.23.4.linux-amd64.tar.gz",
+				"arm64": "https://go.dev/dl/go1.23.4.linux-arm64.tar.gz",
+			},
+			MirrorPaths: map[string]map[string]string{
+				"aliyun":  {"amd64": "golang/go1.23.4.linux-amd64.tar.gz", "arm64": "golang/go1.23.4.linux-arm64.tar.gz"},
+				"tencent": {"amd64": "golang/go1.23.4.linux-amd64.tar.gz", "arm64": "golang/go1.23.4.linux-arm64.tar.gz"},
+				"ustc":    {"amd64": "golang/go1.23.4.linux-amd64.tar.gz", "arm64": "golang/go1.23.4.linux-arm64.tar.gz"},
+			},
+			Archive: true, InArchive: "go/bin/go", Binary: "go",
+		},
+	},
+	{
 		Key: "caddy", Name: "Caddy", Desc: "Web 服务器，自动 HTTPS（原生 v2.8.4）", Kind: "native",
 		Params: []Param{{Key: "port", Label: "HTTP 端口", Def: "2015", Required: true}},
 		Native: &NativeSpec{
@@ -576,6 +622,7 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g := api.Group("/apps")
 	g.GET("/templates", m.listTemplates)
 	g.GET("/mirrors", listMirrors)
+	g.GET("/soft-sources", listSoftSources)
 	g.GET("/source", m.getSource)
 	g.GET("/docker/status", dockerStatus)
 	g.POST("/docker/install", installDocker)
@@ -829,7 +876,12 @@ func (m *Module) listTemplates(c *gin.Context) {
 	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO；合并远程应用源（内置优先去重）
 	out := make([]gin.H, 0, len(templates))
 	for _, t := range templates {
-		out = append(out, gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin"})
+		item := gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin"}
+		if t.Kind == "native" && t.Native != nil {
+			item["soft_sources"] = supportedSoftSources(t.Native.URLs, t.Native.MirrorPaths)
+			item["tool"] = t.Native.Tool
+		}
+		out = append(out, item)
 	}
 	for _, d := range m.remoteCatalog() {
 		dup := false
@@ -842,9 +894,38 @@ func (m *Module) listTemplates(c *gin.Context) {
 		if dup {
 			continue
 		}
-		out = append(out, gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version})
+		item := gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version}
+		if d.Kind == "native" && d.Native != nil {
+			item["soft_sources"] = supportedSoftSources(d.Native.URLs, d.Native.MirrorPaths)
+			item["tool"] = d.Native.Tool
+		}
+		out = append(out, item)
 	}
 	core.OK(c, out)
+}
+
+// supportedSoftSources 计算原生应用可用的软件源 ID（官方/自动恒可用，其余按发布渠道与镜像站收录判断）。
+func supportedSoftSources(urls map[string]string, mirrorPaths map[string]map[string]string) []string {
+	ids := []string{"auto", "official"}
+	isGitHub := false
+	for _, u := range urls {
+		if strings.Contains(u, "github.com/") {
+			isGitHub = true
+			break
+		}
+	}
+	for _, s := range softwareSources {
+		if s.GitHub != "" {
+			if isGitHub {
+				ids = append(ids, s.ID)
+			}
+			continue
+		}
+		if s.Base != "" && mirrorPaths[s.ID] != nil {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
 }
 
 func (m *Module) list(c *gin.Context) {
@@ -859,6 +940,9 @@ func (m *Module) list(c *gin.Context) {
 }
 
 func (m *Module) statusText(r *AppInst) string {
+	if r.Kind == "native" && r.Tool {
+		return "已安装（工具类）"
+	}
 	if r.Kind == "native" {
 		out, _, err := execx.Run("appstore", 10*time.Second, "systemctl", "is-active", m.unitName(r.Name))
 		state := strings.TrimSpace(out)
@@ -908,16 +992,21 @@ func (m *Module) install(c *gin.Context) {
 	}
 	p := orParams(req.Params)
 
-	mirror, mirrorNote := resolveMirror(req.Mirror, tpl.Kind)
 	var status string
+	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
 	if tpl.Kind == "native" {
-		s, err := m.installNative(tpl, req.Name, p, mirror)
+		s, err := m.installNative(tpl, req.Name, p, req.Mirror)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
 		}
-		status = s + "，镜像源: " + mirrorNote
+		status = s
+		if tpl.Native != nil && tpl.Native.Tool {
+			row.Tool = true
+			row.Binary = tpl.Native.Binary
+		}
 	} else {
+		mirror, mirrorNote := resolveMirror(req.Mirror, "compose")
 		s, err := m.installCompose(tpl, req.Name, p, mirror)
 		if err != nil {
 			core.Err(c, 500, err.Error())
@@ -925,8 +1014,6 @@ func (m *Module) install(c *gin.Context) {
 		}
 		status = s + "，镜像源: " + mirrorNote
 	}
-
-	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
 	if data, jerr := json.Marshal(req.Params); jerr == nil {
 		row.Params = string(data)
 	}
@@ -973,18 +1060,16 @@ func (m *Module) installCompose(tpl *Template, name string, p map[string]string,
 
 // ---- native 安装 ----
 
-func (m *Module) installNative(tpl *Template, name string, p map[string]string, mirror MirrorDef) (string, error) {
+func (m *Module) installNative(tpl *Template, name string, p map[string]string, srcID string) (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("原生应用部署仅支持在 Linux 服务器上执行")
 	}
 	spec := tpl.Native
 	arch := runtime.GOARCH
-	rawURL, ok := spec.URLs[arch]
-	if !ok {
-		return "", fmt.Errorf("模板暂不支持架构 %s", arch)
+	rawURL, sourceNote, err := resolveNativeURL(spec.URLs, spec.MirrorPaths, arch, srcID, p)
+	if err != nil {
+		return "", err
 	}
-	rawURL = substitute(rawURL, p)
-	rawURL = applyGitHubMirror(rawURL, mirror.GitHub)
 	dir := m.nativeDir(name)
 	_ = os.MkdirAll(dir, 0o755)
 	fail := func(err error) error {
@@ -998,16 +1083,23 @@ func (m *Module) installNative(tpl *Template, name string, p map[string]string, 
 		return "", fail(fmt.Errorf("下载失败(exit %d): %s", code, rawURL))
 	}
 
-	// 2. 解压或直接使用
+	// 2. 解压或直接使用（{arch}=goarch，{vendor_arch}=厂商命名，如 Node.js 的 x64）
+	alias := arch
+	if spec.ArchAlias != nil {
+		if a := spec.ArchAlias[arch]; a != "" {
+			alias = a
+		}
+	}
 	var dst string
 	if spec.Archive {
 		if err := archive.UnTarGz(local, dir); err != nil {
 			return "", fail(fmt.Errorf("解压失败: %w", err))
 		}
 		_ = os.Remove(local)
-		src := filepath.Join(dir, strings.ReplaceAll(spec.InArchive, "{arch}", arch))
+		inArchive := strings.ReplaceAll(strings.ReplaceAll(spec.InArchive, "{arch}", arch), "{vendor_arch}", alias)
+		src := filepath.Join(dir, inArchive)
 		if _, err := os.Stat(src); err != nil {
-			return "", fail(fmt.Errorf("压缩包内未找到 %s", spec.InArchive))
+			return "", fail(fmt.Errorf("压缩包内未找到 %s", inArchive))
 		}
 		dst = filepath.Join(dir, spec.Binary)
 		_ = os.Remove(dst)
@@ -1038,6 +1130,16 @@ func (m *Module) installNative(tpl *Template, name string, p map[string]string, 
 		}
 	}
 
+	// 3.5 工具类：软链到 /usr/local/bin 即完成，不创建 systemd 服务
+	if spec.Tool {
+		link := filepath.Join("/usr/local/bin", spec.Binary)
+		_ = os.Remove(link)
+		if err := os.Symlink(dst, link); err != nil {
+			return "", fail(fmt.Errorf("创建软链失败: %w", err))
+		}
+		return fmt.Sprintf("工具已安装: %s → /usr/local/bin/%s（下载源: %s）", dst, spec.Binary, sourceNote), nil
+	}
+
 	// 4. systemd 单元
 	unit := buildUnit(tpl, name, dir, dst, spec, p)
 	unitPath := filepath.Join("/etc/systemd/system", m.unitName(name)+".service")
@@ -1059,7 +1161,7 @@ func (m *Module) installNative(tpl *Template, name string, p map[string]string, 
 		logs, _, _ := execx.Run("appstore", 15*time.Second, "journalctl", "-u", m.unitName(name), "-n", "30", "--no-pager")
 		return "", fail(fmt.Errorf("服务未进入 active 状态（当前 %s），最近日志:\n%s", state, tailOf(logs)))
 	}
-	return fmt.Sprintf("服务已启动（%s，目录 %s）", m.unitName(name), dir), nil
+	return fmt.Sprintf("服务已启动（%s，目录 %s，下载源: %s）", m.unitName(name), dir, sourceNote), nil
 }
 
 func buildUnit(tpl *Template, name, dir, binary string, spec *NativeSpec, p map[string]string) string {
@@ -1184,9 +1286,15 @@ func (m *Module) uninstall(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	if r.Kind == "native" {
-		_, _, _ = execx.Run("appstore", 60*time.Second, "systemctl", "disable", "--now", m.unitName(r.Name))
-		_ = os.Remove(filepath.Join("/etc/systemd/system", m.unitName(r.Name)+".service"))
-		_, _, _ = execx.Run("appstore", 30*time.Second, "systemctl", "daemon-reload")
+		if r.Tool {
+			if r.Binary != "" {
+				_ = os.Remove(filepath.Join("/usr/local/bin", r.Binary))
+			}
+		} else {
+			_, _, _ = execx.Run("appstore", 60*time.Second, "systemctl", "disable", "--now", m.unitName(r.Name))
+			_ = os.Remove(filepath.Join("/etc/systemd/system", m.unitName(r.Name)+".service"))
+			_, _, _ = execx.Run("appstore", 30*time.Second, "systemctl", "daemon-reload")
+		}
 	} else {
 		_, _, _ = execx.Run("appstore", 10*time.Minute, "docker", composeArgs(m.composeFile(r.Name), "down")...)
 	}

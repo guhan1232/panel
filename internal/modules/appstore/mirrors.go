@@ -4,6 +4,7 @@
 package appstore
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -126,4 +127,83 @@ func applyGitHubMirror(rawURL, ghProxy string) string {
 
 func listMirrors(c *gin.Context) {
 	core.OK(c, mirrors)
+}
+
+// ---- 软件商店源（原生二进制下载通道）----
+
+// SoftwareSource 软件商店下载源：GitHub 加速前缀或大镜像站根地址。
+type SoftwareSource struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// GitHub 加速前缀（ghproxy 风格），与 Base 互斥
+	GitHub string `json:"github,omitempty"`
+	// 镜像站根地址（如 https://mirrors.aliyun.com），命中模板 MirrorPaths 时使用
+	Base string `json:"base,omitempty"`
+	Desc string `json:"desc"`
+}
+
+var softwareSources = []SoftwareSource{
+	{ID: "auto", Name: "自动（GitHub 加速优先）", Desc: "GitHub 发布走加速，其余官方直连"},
+	{ID: "official", Name: "官方直连", Desc: "不经任何加速"},
+	{ID: "ghfast", Name: "GitHub 加速 ghfast", GitHub: "https://ghfast.top", Desc: "GitHub Release 下载加速"},
+	{ID: "ghproxy", Name: "GitHub 加速 gh-proxy", GitHub: "https://gh-proxy.com", Desc: "GitHub Release 下载加速"},
+	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com", Desc: "mirrors.aliyun.com"},
+	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com", Desc: "mirrors.cloud.tencent.com"},
+	{ID: "tuna", Name: "清华大学镜像站", Base: "https://mirrors.tuna.tsinghua.edu.cn", Desc: "mirrors.tuna.tsinghua.edu.cn"},
+	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn", Desc: "mirrors.ustc.edu.cn"},
+}
+
+func listSoftSources(c *gin.Context) {
+	core.OK(c, softwareSources)
+}
+
+// resolveNativeURL 按软件源解析原生应用下载地址。
+//   - auto：GitHub 发布走加速前缀，其余官方直连
+//   - ghfast/ghproxy：GitHub 加速前缀（非 GitHub 发布报错）
+//   - aliyun/tencent/tuna/ustc：查模板 MirrorPaths[源ID][架构]，未收录报错
+func resolveNativeURL(urls map[string]string, mirrorPaths map[string]map[string]string, arch, srcID string, p map[string]string) (string, string, error) {
+	raw := substitute(urls[arch], p)
+	if raw == "" {
+		return "", "", fmt.Errorf("模板不支持架构 %s", arch)
+	}
+	switch srcID {
+	case "", "auto":
+		for _, s := range softwareSources {
+			if s.GitHub != "" && strings.Contains(raw, "github.com/") {
+				return applyGitHubMirror(raw, s.GitHub), "自动 → " + s.Name, nil
+			}
+		}
+		return raw, "官方直连", nil
+	case "official":
+		return raw, "官方直连", nil
+	case "ghfast", "ghproxy":
+		for _, s := range softwareSources {
+			if s.ID == srcID {
+				if !strings.Contains(raw, "github.com/") {
+					return "", "", fmt.Errorf("该应用不从 GitHub 发布，请选择官方直连或镜像站")
+				}
+				return applyGitHubMirror(raw, s.GitHub), s.Name, nil
+			}
+		}
+		return "", "", fmt.Errorf("未知软件源: %s", srcID)
+	default:
+		for _, s := range softwareSources {
+			if s.ID == srcID && s.Base != "" {
+			paths, ok := mirrorPaths[srcID]
+			if !ok {
+				return "", "", fmt.Errorf("%s 未收录此软件（该源无对应目录），请改用 GitHub 加速或官方直连", s.Name)
+			}
+			u, ok := paths[arch]
+			if !ok || u == "" {
+				return "", "", fmt.Errorf("%s 未收录架构 %s 的此软件", s.Name, arch)
+			}
+			u = substitute(u, p)
+			if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+				u = strings.TrimRight(s.Base, "/") + "/" + strings.TrimLeft(u, "/")
+			}
+			return u, s.Name, nil
+			}
+		}
+		return "", "", fmt.Errorf("未知软件源: %s", srcID)
+	}
 }

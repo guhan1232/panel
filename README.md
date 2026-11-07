@@ -54,6 +54,14 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 |---|---|
 | 👥 用户与角色 | 三角色：**admin**（全部权限）/ **operator**（可操作全部功能，无用户管理）/ **viewer**（只读：GET 放行、写操作 403、Web 终端禁用）；用户管理页支持增删改、禁用、重置密码；防自锁（不能改自己角色/禁用/删除自己）与最后可用 admin 保护；禁用/删除即时踢掉全部会话；审计日志记录操作人角色 |
 
+### v0.10 商店拆分 · 软件商店 + Docker 容器管理
+
+| 模块 | 说明 |
+|---|---|
+| 🏪 商店拆分 | 原「应用商店」拆为 **软件商店**（原生二进制）与 **Docker 容器管理**（容器编排）两个独立页面 |
+| 📥 软件商店源 | 下载源可选：官方直连 / GitHub 加速（ghfast、gh-proxy）/ **阿里云 / 腾讯云 / 清华 / 中科大镜像站**；镜像站未收录的软件自动置灰对应源；新增工具类安装（Node.js 20 LTS、Golang 1.23 四大镜像站真实收录，解压后软链 /usr/local/bin，非 systemd 服务） |
+| 🐳 Docker 容器管理 | 13 个容器模板（Nginx/MySQL/Redis/WordPress/PG/Mongo/Memcached/RabbitMQ/Portainer/Kuma/phpMyAdmin/Grafana/Vaultwarden），部署时可选拉取代理源；daemon.json 镜像加速**自行配置**（自动备份/回滚） |
+
 ### v0.8 多节点 Agent
 
 | 模块 | 说明 |

@@ -1,6 +1,9 @@
 package appstore
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestProxyImage(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -71,5 +74,55 @@ func TestResolveMirror(t *testing.T) {
 	}
 	if m, _ := resolveMirror("nonexistent", "native"); m.Name != "官方直连" {
 		t.Errorf("未知 ID 应回退官方直连, got %+v", m)
+	}
+}
+
+func TestResolveNativeURL(t *testing.T) {
+	urls := map[string]string{
+		"amd64": "https://github.com/x/y/releases/download/v1/y-v1-linux-amd64.tar.gz",
+	}
+	mirrorPaths := map[string]map[string]string{
+		"aliyun": {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz"},
+	}
+	p := map[string]string{}
+
+	// auto + GitHub → 加速前缀
+	u, note, err := resolveNativeURL(urls, mirrorPaths, "amd64", "auto", p)
+	if err != nil || !strings.HasPrefix(u, "https://ghfast.top/https://github.com/") || note == "" {
+		t.Errorf("auto github: u=%q note=%q err=%v", u, note, err)
+	}
+	// official
+	u, _, err = resolveNativeURL(urls, mirrorPaths, "amd64", "official", p)
+	if err != nil || !strings.HasPrefix(u, "https://github.com/") {
+		t.Errorf("official: u=%q err=%v", u, err)
+	}
+	// ghfast 指定
+	u, _, err = resolveNativeURL(urls, mirrorPaths, "amd64", "ghfast", p)
+	if err != nil || !strings.HasPrefix(u, "https://ghfast.top/") {
+		t.Errorf("ghfast: u=%q err=%v", u, err)
+	}
+	// 镜像站命中（注意 node 的 x64 命名由 MirrorPaths 值本身承载）
+	nodeURLs := map[string]string{"amd64": "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz"}
+	u, note, err = resolveNativeURL(nodeURLs, mirrorPaths, "amd64", "aliyun", p)
+	if err != nil || u != "https://mirrors.aliyun.com/nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz" {
+		t.Errorf("aliyun: u=%q err=%v", u, err)
+	}
+	_ = note
+	// 未收录镜像站
+	if _, _, err = resolveNativeURL(urls, mirrorPaths, "amd64", "tuna", p); err == nil {
+		t.Errorf("tuna 未收录应报错")
+	}
+	// 镜像站无该架构
+	if _, _, err = resolveNativeURL(nodeURLs, map[string]map[string]string{"aliyun": {"arm64": "x"}}, "amd64", "aliyun", p); err == nil {
+		t.Errorf("无架构应报错")
+	}
+	// 非 GitHub 应用选 GitHub 加速 → 报错
+	if _, _, err = resolveNativeURL(map[string]string{"amd64": "https://dl.min.io/a"}, nil, "amd64", "ghfast", p); err == nil {
+		t.Errorf("非 GitHub 选加速应报错")
+	}
+	// 参数替换
+	if u, _, _ = resolveNativeURL(map[string]string{"amd64": "https://mirrors.aliyun.com/golang/go{{ver}}.tar.gz"},
+		map[string]map[string]string{"aliyun": {"amd64": "golang/go{{ver}}.tar.gz"}}, "amd64", "aliyun", map[string]string{"ver": "1.23.4"}); u != "https://mirrors.aliyun.com/golang/go1.23.4.tar.gz" {
+		t.Errorf("参数替换失败: %q", u)
 	}
 }
