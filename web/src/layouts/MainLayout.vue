@@ -13,6 +13,8 @@
         <el-menu-item index="/terminal"><el-icon><Monitor /></el-icon>终端</el-menu-item>
         <el-menu-item index="/proc"><el-icon><Cpu /></el-icon>进程管理</el-menu-item>
         <el-menu-item index="/audit"><el-icon><Document /></el-icon>审计日志</el-menu-item>
+        <el-menu-item index="/alerts"><el-icon><Warning /></el-icon>告警策略</el-menu-item>
+        <el-menu-item index="/appstore"><el-icon><Shop /></el-icon>应用商店</el-menu-item>
         <el-menu-item index="/notify"><el-icon><Bell /></el-icon>通知与存储</el-menu-item>
         <el-menu-item index="/setting"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
       </el-menu>
@@ -38,7 +40,7 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Odometer, Timer, Folder, Monitor, Cpu, Setting, User, Connection, Coin, Lock, Stamp, Document, Bell } from '@element-plus/icons-vue'
+import { Odometer, Timer, Folder, Monitor, Cpu, Setting, User, Connection, Coin, Lock, Stamp, Document, Bell, Warning, Shop } from '@element-plus/icons-vue'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()

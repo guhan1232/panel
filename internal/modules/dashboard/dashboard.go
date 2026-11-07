@@ -168,6 +168,19 @@ func lastOf(h []Sample) Sample {
 	return h[len(h)-1]
 }
 
+// Current 暴露最新一次采样指标（供告警引擎等模块消费）：
+// 返回 CPU%、内存%、磁盘（/ 挂载点）%、1 分钟负载。
+func (m *Module) Current() (cpuPct, memPct, diskPct, load1 float64) {
+	m.mu.Lock()
+	s := lastOf(m.history)
+	m.mu.Unlock()
+	cpuPct, memPct, load1 = s.CPU, s.MemPct, s.Load1
+	if u, err := disk.Usage("/"); err == nil && u.Total > 0 {
+		diskPct = u.UsedPercent
+	}
+	return
+}
+
 func (m *Module) topProcesses() []ProcInfo {
 	procs, err := process.Processes()
 	if err != nil {

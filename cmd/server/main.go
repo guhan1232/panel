@@ -20,6 +20,8 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/auth"
 	"cnb.cool/hanyuxin/panel/internal/config"
 	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/modules/alert"
+	"cnb.cool/hanyuxin/panel/internal/modules/appstore"
 	"cnb.cool/hanyuxin/panel/internal/modules/cert"
 	"cnb.cool/hanyuxin/panel/internal/modules/cron"
 	"cnb.cool/hanyuxin/panel/internal/modules/dashboard"
@@ -72,7 +74,6 @@ func main() {
 	authSvc.Register(api)
 	protected := api.Group("", authSvc.Middleware(), audit.Middleware(db))
 
-	dashboard.New().Register(protected)
 	cronMod := cron.New(db, cfg.DataDir)
 	if err := cronMod.Start(); err != nil {
 		slog.Error("计划任务模块启动失败", "err", err)
@@ -99,6 +100,16 @@ func main() {
 	certMod.Register(protected)
 	certMod.Start()
 	dbmgr.New(db).Register(protected)
+
+	// P2 模块
+	dash := dashboard.New()
+	dash.Register(protected)
+	alertMod := alert.New(db, dash)
+	if err := alertMod.Start(); err != nil {
+		slog.Error("告警模块启动失败", "err", err)
+	}
+	alertMod.Register(protected)
+	appstore.New(db, cfg.DataDir).Register(protected)
 
 	// SPA 静态资源（嵌入前端）
 	spaFS := webui.FS()
