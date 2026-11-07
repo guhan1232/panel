@@ -28,6 +28,58 @@
         <WmEmptyState v-else compact title="加载中" description="正在读取软件清单。" />
       </div>
 
+      <div class="wm-section-block">
+        <div class="wm-section-block__head">
+          <span class="wm-eyebrow">运行时环境</span>
+          <span class="wm-text-muted">编程语言多版本共存，安装后软链 /usr/local/bin</span>
+        </div>
+        <div class="wm-tpl-grid">
+          <article v-for="r in runtimes" :key="r.key" class="wm-tpl-card">
+            <div class="wm-tpl-card__top">
+              <h3 class="wm-tpl-card__name">{{ r.name }}</h3>
+              <WmStatusPill :label="`${r.installed.length} 个版本`" tone="info" :dot="false" />
+            </div>
+            <p class="wm-tpl-card__desc">{{ r.desc }}</p>
+            <div class="rt-chips" v-if="r.installed.length">
+              <el-tag v-for="i in r.installed" :key="i.id" size="small" :type="i.is_default ? 'success' : 'info'">{{ i.version }}{{ i.is_default ? ' · 默认' : '' }}</el-tag>
+            </div>
+            <el-button size="small" type="primary" class="wm-tpl-card__btn" @click="openRt(r)">安装 / 管理版本</el-button>
+          </article>
+        </div>
+      </div>
+
+      <el-drawer v-model="rtDlg" size="62%" :title="`运行时版本 - ${rtLang?.name || ''}`">
+        <div class="toolbar">
+          <el-select v-model="rtSource" style="width: 220px" @change="loadVersions">
+            <el-option v-for="s in rtLang?.sources || []" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+          <el-input v-model="rtFilter" placeholder="版本过滤" style="width: 180px" clearable />
+          <el-button size="small" @click="loadVersions">刷新清单</el-button>
+          <span class="hint">共 {{ filteredVersions.length }} 个版本</span>
+        </div>
+        <el-table :data="filteredVersions" v-loading="rtLoading" size="small" max-height="380">
+          <el-table-column label="版本" width="150">
+            <template #default="{ row }"><b>{{ row.version }}</b> <el-tag v-if="row.lts" size="small" type="success">LTS</el-tag></template>
+          </el-table-column>
+          <el-table-column label="发布日期" width="120"><template #default="{ row }">{{ row.date || '-' }}</template></el-table-column>
+          <el-table-column label="操作" width="110">
+            <template #default="{ row }"><el-button size="small" type="primary" :loading="installingVer === row.version" @click="installVer(row)">安装</el-button></template>
+          </el-table-column>
+        </el-table>
+        <h4 style="margin: 16px 0 8px">已安装</h4>
+        <el-table :data="rtInstalled" size="small">
+          <el-table-column prop="version" label="版本" width="170" />
+          <el-table-column label="默认" width="80"><template #default="{ row }"><el-tag v-if="row.is_default" size="small" type="success">默认</el-tag><span v-else>-</span></template></el-table-column>
+          <el-table-column label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
+          <el-table-column label="操作" width="180">
+            <template #default="{ row }">
+              <el-button size="small" :disabled="row.is_default" @click="setDefault(row)">设为默认</el-button>
+              <el-button size="small" type="danger" @click="rmRuntime(row)">卸载</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-drawer>
+
       <div class="wm-section-block wm-section-block--table">
         <div class="wm-section-block__head">
           <span class="wm-eyebrow">已安装软件</span>
@@ -103,11 +155,86 @@ const logName = ref('')
 const logContent = ref('')
 
 const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
+
+const runtimes = ref<any[]>([])
+const rtDlg = ref(false)
+const rtLang = ref<any>(null)
+const rtSource = ref('')
+const rtVersions = ref<any[]>([])
+const rtFilter = ref('')
+const rtLoading = ref(false)
+const installingVer = ref('')
+const rtInstalled = computed(() => rtLang.value?.installed || [])
+const filteredVersions = computed(() => {
+  const f = rtFilter.value.trim().toLowerCase()
+  if (!f) return rtVersions.value
+  return rtVersions.value.filter((v) => v.version.toLowerCase().includes(f))
+})
+
+async function loadRuntimes() {
+  try {
+    runtimes.value = (await api.get('/runtimes')) as any
+  } catch {
+    runtimes.value = []
+  }
+}
+
+function openRt(r: any) {
+  rtLang.value = r
+  rtSource.value = r.sources?.[0]?.id || ''
+  rtVersions.value = []
+  rtFilter.value = ''
+  rtDlg.value = true
+  loadVersions()
+}
+
+async function loadVersions() {
+  if (!rtLang.value) return
+  rtLoading.value = true
+  try {
+    rtVersions.value = (await api.get(`/runtimes/${rtLang.value.key}/versions`, { params: { source: rtSource.value }, timeout: 60000 })) as any
+  } finally {
+    rtLoading.value = false
+  }
+}
+
+async function installVer(row: any) {
+  installingVer.value = row.version
+  try {
+    const d: any = await api.post(`/runtimes/${rtLang.value.key}/install`, { version: row.version, source: rtSource.value }, { timeout: 900000 })
+    ElMessage.success('安装完成，软链: ' + (d.links || []).join(', '))
+    loadRuntimes()
+  } finally {
+    installingVer.value = ''
+  }
+}
+
+async function setDefault(row: any) {
+  await api.post(`/runtimes/${rtLang.value.key}/set-default`, { instance_id: row.id })
+  ElMessage.success('已设为默认')
+  loadRuntimes()
+  if (rtDlg.value && rtLang.value) {
+    const cur = runtimes.value.find((r) => r.key === rtLang.value.key)
+    if (cur) rtLang.value = cur
+  }
+}
+
+async function rmRuntime(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认卸载 ${rtLang.value?.name || ''} ${row.version}？对应软链将移除。`, '卸载运行时', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.delete(`/runtimes/${row.id}`)
+  ElMessage.success('已卸载')
+  loadRuntimes()
+}
 const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
 
 async function load() {
   loading.value = true
   try {
+    loadRuntimes()
     templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind === 'native')
     apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind === 'native')
     sources.value = (await api.get('/apps/soft-sources')) as any
@@ -188,5 +315,14 @@ onMounted(load)
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+</style>
+
+<style scoped>
+.rt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 </style>

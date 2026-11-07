@@ -468,42 +468,6 @@ volumes:
 		},
 	},
 	{
-		Key: "nodejs", Name: "Node.js 20 LTS", Desc: "JavaScript 运行时（工具类；阿里云/腾讯/清华/中科大镜像站收录）", Kind: "native",
-		Params: []Param{},
-		Native: &NativeSpec{
-			Tool:      true,
-			ArchAlias: map[string]string{"amd64": "x64"},
-			URLs: map[string]string{
-				"amd64": "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz",
-				"arm64": "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-arm64.tar.gz",
-			},
-			MirrorPaths: map[string]map[string]string{
-				"aliyun":  {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
-				"tencent": {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
-				"tuna":    {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
-				"ustc":    {"amd64": "nodejs-release/v20.18.1/node-v20.18.1-linux-x64.tar.gz", "arm64": "nodejs-release/v20.18.1/node-v20.18.1-linux-arm64.tar.gz"},
-			},
-			Archive: true, InArchive: "node-v20.18.1-linux-{vendor_arch}/bin/node", Binary: "node",
-		},
-	},
-	{
-		Key: "golang", Name: "Golang 1.23", Desc: "Go 编译工具链（工具类；阿里云/腾讯/中科大镜像站收录）", Kind: "native",
-		Params: []Param{},
-		Native: &NativeSpec{
-			Tool: true,
-			URLs: map[string]string{
-				"amd64": "https://go.dev/dl/go1.23.4.linux-amd64.tar.gz",
-				"arm64": "https://go.dev/dl/go1.23.4.linux-arm64.tar.gz",
-			},
-			MirrorPaths: map[string]map[string]string{
-				"aliyun":  {"amd64": "golang/go1.23.4.linux-amd64.tar.gz", "arm64": "golang/go1.23.4.linux-arm64.tar.gz"},
-				"tencent": {"amd64": "golang/go1.23.4.linux-amd64.tar.gz", "arm64": "golang/go1.23.4.linux-arm64.tar.gz"},
-				"ustc":    {"amd64": "golang/go1.23.4.linux-amd64.tar.gz", "arm64": "golang/go1.23.4.linux-arm64.tar.gz"},
-			},
-			Archive: true, InArchive: "go/bin/go", Binary: "go",
-		},
-	},
-	{
 		Key: "caddy", Name: "Caddy", Desc: "Web 服务器，自动 HTTPS（原生 v2.8.4）", Kind: "native",
 		Params: []Param{{Key: "port", Label: "HTTP 端口", Def: "2015", Required: true}},
 		Native: &NativeSpec{

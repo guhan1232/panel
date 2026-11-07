@@ -62,6 +62,11 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 | 📥 软件商店源 | 下载源可选：官方直连 / GitHub 加速（ghfast、gh-proxy）/ **阿里云 / 腾讯云 / 清华 / 中科大镜像站**；镜像站未收录的软件自动置灰对应源；新增工具类安装（Node.js 20 LTS、Golang 1.23 四大镜像站真实收录，解压后软链 /usr/local/bin，非 systemd 服务） |
 | 🐳 Docker 容器管理 | 13 个容器模板（Nginx/MySQL/Redis/WordPress/PG/Mongo/Memcached/RabbitMQ/Portainer/Kuma/phpMyAdmin/Grafana/Vaultwarden），部署时可选拉取代理源；daemon.json 镜像加速**自行配置**（自动备份/回滚） |
 
+### v0.11 运行时版本管理器（宝塔式）
+
+| 模块 | 说明 |
+|---|---|
+| 🧬 运行时环境 | 软件商店新增运行时区块：**Node.js / Golang / Python / OpenJDK** 全版本列表，任选版本安装、多版本共存、一键设默认（软链 /usr/local/bin）、卸载。版本清单来自**真实镜像站**：Node.js 走 index.json（官方/阿里云/腾讯/清华/中科大）、Go 走镜像站目录解析（官方/阿里云/腾讯/中科大）、Python 走 python-build-standalone（npmmirror 镜像/GitHub 加速）、OpenJDK 走清华 Adoptium 目录。rc/预发布版本自动过滤，Node.js 标注 LTS |
 ### v0.8 多节点 Agent
 
 | 模块 | 说明 |

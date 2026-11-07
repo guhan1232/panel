@@ -30,6 +30,7 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/modules/firewall"
 	"cnb.cool/hanyuxin/panel/internal/modules/node"
 	"cnb.cool/hanyuxin/panel/internal/modules/proc"
+	rtm "cnb.cool/hanyuxin/panel/internal/modules/runtime"
 	"cnb.cool/hanyuxin/panel/internal/modules/setting"
 	"cnb.cool/hanyuxin/panel/internal/modules/term"
 	"cnb.cool/hanyuxin/panel/internal/modules/website"
@@ -119,6 +120,13 @@ func main() {
 	}
 	r.GET("/api/ws/agent", nodeMod.HandleAgent)
 	nodeMod.Register(protected, protectedRW, protectedAdmin)
+
+	// 运行时版本管理器（宝塔式：多版本共存/设默认/卸载）
+	runtimeMod := rtm.New(db, cfg.DataDir)
+	if err := runtimeMod.Start(); err != nil {
+		slog.Error("运行时模块启动失败", "err", err)
+	}
+	runtimeMod.Register(protected)
 
 	// P2 模块
 	dash := dashboard.New()
