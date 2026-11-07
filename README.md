@@ -67,10 +67,10 @@ sudo cat /opt/webmblx/data/initial_admin.txt
 
 ```bash
 # 后端（Windows/macOS/Linux 均可开发调试）
-go run ./cmd/server          # 生成 config.yaml（含随机入口）与初始密码
+go run ./cmd/server          # 生成 config.yaml：随机端口(10000-30000) + 随机入口 + 初始密码
 
-# 前端（热更新，代理到 :8443）
-cd web && npm install && npm run dev
+# 前端（热更新；代理目标 = 后端实际端口，见 config.yaml 的 listen）
+cd web && WM_PANEL_URL=http://127.0.0.1:<端口> npm run dev
 ```
 
 ### 构建
@@ -85,10 +85,11 @@ make release      # 打包 tar.gz
 
 ## 首次启动发生了什么
 
-1. 生成 `config.yaml`：监听 `:8443`，随机 **安全入口**（如 `/s/a84e491e`）
+1. 生成 `config.yaml`：监听端口在 **10000–30000 中随机挑选**（自动探测空闲，重启保持不变；需固定端口可直接改 `listen`），随机 **安全入口**（如 `/s/a84e491e`）
 2. 创建 SQLite 数据库 `data/panel.db`
 3. 创建管理员 `admin`，随机密码写入 `data/initial_admin.txt` 并打印
-4. **不带入口串的任何请求一律 404**，只有访问过 `/s/<入口串>` 才能进入面板
+4. 启动日志打印完整访问地址（端口 + 入口）
+5. **不带入口串的任何请求一律 404**，只有访问过 `/s/<入口串>` 才能进入面板
 
 ## 安全说明
 

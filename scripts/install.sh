@@ -47,7 +47,7 @@ sleep 2
 
 PORT=$(grep -E '^\s*listen:' "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
 ENTRANCE=$(grep -E '^\s*entrance:' "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
-PORT=${PORT:-":8443"}
+PORT=${PORT:-":24443"}
 
 echo ""
 echo "=============================================="

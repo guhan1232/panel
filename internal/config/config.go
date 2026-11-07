@@ -5,11 +5,37 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
+
+// 端口随机化范围：面板默认监听端口在此区间内随机挑选。
+const (
+	PortMin = 10000
+	PortMax = 30000
+)
+
+// randomFreePort 在 [PortMin, PortMax] 中随机挑选一个当前空闲的 TCP 端口。
+func randomFreePort() (int, error) {
+	span := big.NewInt(int64(PortMax - PortMin + 1))
+	for i := 0; i < 50; i++ {
+		n, err := rand.Int(rand.Reader, span)
+		if err != nil {
+			return 0, err
+		}
+		port := PortMin + int(n.Int64())
+		l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			_ = l.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("%d-%d 范围内未找到空闲端口", PortMin, PortMax)
+}
 
 // TLSConfig TLS 配置；cert/key 为空时自动生成自签证书。
 type TLSConfig struct {
@@ -52,14 +78,26 @@ func Load(path string) (*Config, error) {
 			return nil, err
 		}
 	}
+	listenWasEmpty := cfg.Server.Listen == ""
 	applyDefaults(cfg)
+	// listen 原为空时把生成的随机端口持久化，避免每次重启端口漂移
+	if listenWasEmpty && cfg.Server.Listen != "" {
+		if err := cfg.Save(path); err != nil {
+			return nil, err
+		}
+	}
 	return cfg, nil
 }
 
 func defaultConfig() *Config {
+	// 面板端口在 [10000, 30000] 中随机开放；探测失败兜底 24443
+	port, err := randomFreePort()
+	if err != nil {
+		port = 24443
+	}
 	return &Config{
 		Server: ServerConfig{
-			Listen:   ":8443",
+			Listen:   fmt.Sprintf(":%d", port),
 			Entrance: randomToken(4), // 8 位随机安全入口
 		},
 		DataDir:  "data",
@@ -70,7 +108,12 @@ func defaultConfig() *Config {
 
 func applyDefaults(cfg *Config) {
 	if cfg.Server.Listen == "" {
-		cfg.Server.Listen = ":8443"
+		// 未指定端口时在随机区间内挑选（每次生成可能不同，建议固定端口时显式配置）
+		if port, err := randomFreePort(); err == nil {
+			cfg.Server.Listen = fmt.Sprintf(":%d", port)
+		} else {
+			cfg.Server.Listen = ":24443"
+		}
 	}
 	if cfg.DataDir == "" {
 		cfg.DataDir = "data"

@@ -49,6 +49,11 @@ func main() {
 	}
 	core.Setup(cfg.LogDir, cfg.LogLevel)
 	slog.Info("webmblx 启动", "version", core.Version, "listen", cfg.Server.Listen)
+	scheme := "http"
+	if cfg.Server.TLS.Enabled {
+		scheme = "https"
+	}
+	slog.Info("面板访问地址", "url", fmt.Sprintf("%s://<服务器IP>%s/s/%s", scheme, cfg.Server.Listen, cfg.Server.Entrance))
 
 	db, err := core.OpenDB(cfg.DataDir)
 	if err != nil {
