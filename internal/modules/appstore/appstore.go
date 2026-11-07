@@ -346,6 +346,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/templates", listTemplates)
 	g.GET("/docker/status", dockerStatus)
 	g.POST("/docker/install", installDocker)
+	g.GET("/docker/mirrors", m.getMirrors)
+	g.POST("/docker/mirrors", m.saveMirrors)
 	g.GET("", m.list)
 	g.POST("", m.install)
 	g.POST("/:id/start", m.start)
@@ -353,6 +355,196 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/:id/restart", m.restart)
 	g.GET("/:id/logs", m.logs)
 	g.POST("/:id/uninstall", m.uninstall)
+}
+
+// ---- Docker 镜像源（daemon.json）管理 ----
+
+const daemonJSONPath = "/etc/docker/daemon.json"
+
+// readDaemonJSON 读取 daemon.json；不存在返回空 map 与 exists=false，其余键保留不动。
+func readDaemonJSON() (map[string]any, bool, string, error) {
+	data, err := os.ReadFile(daemonJSONPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]any{}, false, "", nil
+		}
+		return nil, false, "", err
+	}
+	raw := string(data)
+	if len(strings.TrimSpace(raw)) == 0 {
+		return map[string]any{}, true, raw, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, true, raw, fmt.Errorf("daemon.json 解析失败: %w", err)
+	}
+	return m, true, raw, nil
+}
+
+func strListOf(m map[string]any, key string) []string {
+	raw, ok := m[key].([]any)
+	if !ok {
+		return []string{}
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// liveMirrors 从 docker info 回读当前实际生效的镜像源。
+func liveMirrors() []string {
+	out, _, err := execx.Run("appstore", 25*time.Second, "docker", "info")
+	if err != nil {
+		return nil
+	}
+	var res []string
+	in := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Registry Mirrors:") {
+			in = true
+			continue
+		}
+		if in {
+			t := strings.TrimSpace(line)
+			if t == "" || (!strings.HasPrefix(t, "https://") && !strings.HasPrefix(t, "http://")) {
+				break
+			}
+			res = append(res, t)
+		}
+	}
+	return res
+}
+
+func (m *Module) getMirrors(c *gin.Context) {
+	mm, exists, raw, err := readDaemonJSON()
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	dockerInstalled := false
+	if v, _, e := execx.Run("appstore", 20*time.Second, "docker", "--version"); e == nil && strings.Contains(v, "docker") {
+		dockerInstalled = true
+	}
+	core.OK(c, gin.H{
+		"path":                daemonJSONPath,
+		"exists":              exists,
+		"raw":                 raw,
+		"registry_mirrors":    strListOf(mm, "registry-mirrors"),
+		"insecure_registries": strListOf(mm, "insecure-registries"),
+		"live_mirrors":        liveMirrors(),
+		"docker_installed":    dockerInstalled,
+	})
+}
+
+func (m *Module) saveMirrors(c *gin.Context) {
+	if runtime.GOOS != "linux" {
+		core.Err(c, 400, "Docker 配置仅支持在 Linux 服务器上修改")
+		return
+	}
+	var req struct {
+		RegistryMirrors    []string `json:"registry_mirrors"`
+		InsecureRegistries []string `json:"insecure_registries"`
+		Restart            bool     `json:"restart"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	clean := func(list []string, needURL bool) ([]string, error) {
+		seen := map[string]bool{}
+		out := []string{}
+		for _, s := range list {
+			s = strings.TrimSpace(strings.TrimRight(s, ","))
+			if s == "" {
+				continue
+			}
+			if needURL && !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
+				return nil, fmt.Errorf("镜像源需以 http(s):// 开头: %s", s)
+			}
+			if strings.ContainsAny(s, " \t\n\"'") {
+				return nil, fmt.Errorf("配置项含非法字符: %s", s)
+			}
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	}
+	mirrors, err := clean(req.RegistryMirrors, true)
+	if err != nil {
+		core.Err(c, 400, err.Error())
+		return
+	}
+	insecure, err := clean(req.InsecureRegistries, false)
+	if err != nil {
+		core.Err(c, 400, err.Error())
+		return
+	}
+
+	mm, exists, _, err := readDaemonJSON()
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	// 合并写入：清空则删除键，其余键保持不动
+	if len(mirrors) > 0 {
+		mm["registry-mirrors"] = mirrors
+	} else {
+		delete(mm, "registry-mirrors")
+	}
+	if len(insecure) > 0 {
+		mm["insecure-registries"] = insecure
+	} else {
+		delete(mm, "insecure-registries")
+	}
+	data, err := json.MarshalIndent(mm, "", "  ")
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+
+	// 备份原文件
+	if exists {
+		if old, rerr := os.ReadFile(daemonJSONPath); rerr == nil {
+			_ = os.WriteFile(daemonJSONPath+".webmblx.bak", old, 0o644)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(daemonJSONPath), 0o755); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if err := os.WriteFile(daemonJSONPath, data, 0o644); err != nil {
+		core.Err(c, 500, "写入 daemon.json 失败: "+err.Error())
+		return
+	}
+
+	restarted := false
+	if req.Restart {
+		if out, code, rerr := execx.Run("appstore", 120*time.Second, "systemctl", "restart", "docker"); rerr != nil {
+			// 回滚配置并再次重启，保持 Docker 可用
+			if exists {
+				if bak, berr := os.ReadFile(daemonJSONPath + ".webmblx.bak"); berr == nil {
+					_ = os.WriteFile(daemonJSONPath, bak, 0o644)
+					_, _, _ = execx.Run("appstore", 120*time.Second, "systemctl", "restart", "docker")
+				}
+			}
+			core.Err(c, 500, fmt.Sprintf("重启 Docker 失败(exit %d)，已回滚配置: %s", code, tailOf(out)))
+			return
+		}
+		restarted = true
+	}
+	slog.Info("Docker 镜像源配置已更新", "mirrors", len(mirrors), "insecure", len(insecure), "restarted", restarted)
+	core.OK(c, gin.H{
+		"registry_mirrors":    mirrors,
+		"insecure_registries": insecure,
+		"live_mirrors":        liveMirrors(),
+		"restarted":           restarted,
+	})
 }
 
 // 目录

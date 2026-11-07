@@ -6,6 +6,7 @@
           Docker {{ docker.installed ? (docker.compose ? '就绪' : '缺少 compose 插件') : '未安装（仅影响容器类模板）' }}
         </el-tag>
         <el-button v-if="!docker.installed" size="small" type="warning" :loading="installing" @click="installDocker">一键安装 Docker</el-button>
+        <el-button size="small" @click="openMirrors">镜像源配置</el-button>
         <el-button size="small" @click="load">刷新</el-button>
         <span class="hint">原生应用经 systemd 托管（webmblx-app-*），日志走 journalctl；容器应用走 Docker Compose</span>
       </div>
@@ -63,6 +64,37 @@
     <el-dialog v-model="logDlg" :title="`日志 - ${logName}`" width="820px">
       <pre class="pre-output">{{ logContent || '（空）' }}</pre>
     </el-dialog>
+
+    <el-dialog v-model="mirrorDlg" title="Docker 镜像源配置" width="680px">
+      <el-alert v-if="mirrorInfo.docker_installed === false" type="warning" :closable="false"
+        title="未检测到 Docker，可先编辑配置文件，安装 Docker 后生效" style="margin-bottom: 12px" />
+      <el-form label-width="110px">
+        <el-form-item label="加速镜像源">
+          <el-input v-model="mirrorForm.registry_mirrors" type="textarea" :rows="5"
+            placeholder="每行一个，如 https://docker.m.daocloud.io" />
+          <div class="presets">
+            <span class="hint" style="margin-right: 6px">常用源（时效性强，按可用性自行取舍）：</span>
+            <el-tag v-for="m in mirrorPresets" :key="m" size="small" class="preset-tag" @click="addPreset(m)">{{ m }}</el-tag>
+          </div>
+        </el-form-item>
+        <el-form-item label="私有仓库白名单">
+          <el-input v-model="mirrorForm.insecure_registries" type="textarea" :rows="3"
+            placeholder="每行一个 HTTP 私有仓库，如 192.168.1.10:5000" />
+        </el-form-item>
+        <el-form-item v-if="mirrorInfo.live_mirrors && mirrorInfo.live_mirrors.length" label="当前生效">
+          <div class="live-mirrors">
+            <el-tag v-for="m in mirrorInfo.live_mirrors" :key="m" size="small" type="success" style="margin: 0 6px 4px 0">{{ m }}</el-tag>
+          </div>
+        </el-form-item>
+        <el-form-item label="配置文件">
+          <span class="hint">{{ mirrorInfo.path }}（其余配置项保持不变，修改前自动备份）</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mirrorDlg = false">取消</el-button>
+        <el-button type="primary" :loading="mirrorSaving" @click="saveMirrors">保存并重启 Docker</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -85,6 +117,56 @@ const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
 const logName = ref('')
 const logContent = ref('')
+
+const mirrorPresets = [
+  'https://docker.m.daocloud.io',
+  'https://docker.1ms.run',
+  'https://hub.rat.dev',
+  'https://docker.nju.edu.cn',
+  'https://docker.mirrors.ustc.edu.cn',
+  'https://hub-mirror.c.163.com'
+]
+const mirrorDlg = ref(false)
+const mirrorSaving = ref(false)
+const mirrorInfo = ref<any>({})
+const mirrorForm = reactive({ registry_mirrors: '', insecure_registries: '' })
+
+async function openMirrors() {
+  mirrorInfo.value = await api.get('/apps/docker/mirrors')
+  mirrorForm.registry_mirrors = (mirrorInfo.value.registry_mirrors || []).join('\n')
+  mirrorForm.insecure_registries = (mirrorInfo.value.insecure_registries || []).join('\n')
+  mirrorDlg.value = true
+}
+
+function addPreset(m: string) {
+  const lines = mirrorForm.registry_mirrors.split('\n').map((s: string) => s.trim()).filter(Boolean)
+  if (!lines.includes(m)) lines.push(m)
+  mirrorForm.registry_mirrors = lines.join('\n')
+}
+
+async function saveMirrors() {
+  try {
+    await ElMessageBox.confirm(
+      '保存需要重启 Docker 服务，运行中的容器会短暂中断（restart=always 的容器会自动恢复），继续？',
+      '重启确认', { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  mirrorSaving.value = true
+  try {
+    const d: any = await api.post('/apps/docker/mirrors', {
+      registry_mirrors: mirrorForm.registry_mirrors.split('\n').map((s: string) => s.trim()).filter(Boolean),
+      insecure_registries: mirrorForm.insecure_registries.split('\n').map((s: string) => s.trim()).filter(Boolean),
+      restart: true
+    }, { timeout: 180000 })
+    ElMessage.success(d.restarted ? '已保存并重启 Docker' : '已保存（未重启，下次启动 Docker 生效）')
+    mirrorInfo.value.live_mirrors = d.live_mirrors
+    mirrorDlg.value = false
+  } finally {
+    mirrorSaving.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -176,4 +258,7 @@ onMounted(load)
 <style scoped>
 .mono { font-family: Consolas, Monaco, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 .hint { color: #999; font-size: 12px; }
+.presets { margin-top: 8px; line-height: 2; }
+.preset-tag { cursor: pointer; margin-right: 6px; }
+.live-mirrors { line-height: 1.8; }
 </style>

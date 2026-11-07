@@ -42,6 +42,12 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 |---|---|
 | 📦 原生应用 | 免 Docker 的 **Linux 原生二进制部署**：自动按架构（amd64/arm64）下载官方发行包 → 解压 → 生成 systemd 单元（`webmblx-app-*`，崩溃自动重启）→ 启动并健康检查；日志走 journalctl，卸载可选清数据。内置模板：**Caddy**（Web/自动HTTPS）、**MinIO**（对象存储）、**node_exporter**（指标采集）、**FRP 服务端**（内网穿透）；容器与原生模板统一管理界面 |
 
+### v0.5 Docker 镜像源管理
+
+| 模块 | 说明 |
+|---|---|
+| 🪞 镜像源配置 | 可视化管理 `/etc/docker/daemon.json` 的 `registry-mirrors` 与 `insecure-registries`：合并写入不动其它配置项、修改前自动备份、重启失败自动回滚并恢复 Docker；常用国内加速源一键填入；保存后回读 `docker info` 展示当前生效的镜像源 |
+
 ## 快速开始
 
 ### 安装（Linux 服务器）
