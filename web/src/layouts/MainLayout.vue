@@ -20,7 +20,7 @@
           <el-menu-item index="/website"><el-icon><Connection /></el-icon><template #title>网站</template></el-menu-item>
           <el-menu-item index="/databases"><el-icon><Coin /></el-icon><template #title>数据库</template></el-menu-item>
           <el-menu-item index="/appstore"><el-icon><Shop /></el-icon><template #title>应用商店</template></el-menu-item>
-          <el-menu-item index="/terminal"><el-icon><Monitor /></el-icon><template #title>终端</template></el-menu-item>
+          <el-menu-item index="/terminal" v-if="auth.role !== 'viewer'"><el-icon><Monitor /></el-icon><template #title>终端</template></el-menu-item>
 
           <template v-if="!collapsed"><div class="menu-group">系统运维</div></template>
           <div v-else class="menu-divider"></div>
@@ -35,6 +35,7 @@
           <div v-else class="menu-divider"></div>
           <el-menu-item index="/audit"><el-icon><Document /></el-icon><template #title>审计日志</template></el-menu-item>
           <el-menu-item index="/notify"><el-icon><Bell /></el-icon><template #title>通知与存储</template></el-menu-item>
+          <el-menu-item index="/users" v-if="auth.role === 'admin'"><el-icon><Avatar /></el-icon><template #title>用户管理</template></el-menu-item>
           <el-menu-item index="/setting"><el-icon><Setting /></el-icon><template #title>系统设置</template></el-menu-item>
         </el-menu>
       </el-scrollbar>
@@ -90,7 +91,7 @@ import { useRouter } from 'vue-router'
 import {
   Odometer, Connection, Coin, Shop, Monitor, Timer, Warning, Folder, Cpu,
   Lock, Stamp, Document, Bell, Setting, User, Expand, Fold, Sunny, Moon,
-  ArrowDown, SwitchButton
+  ArrowDown, SwitchButton, Avatar
 } from '@element-plus/icons-vue'
 import { useAuth } from '../stores/auth'
 import { useTheme } from '../stores/theme'

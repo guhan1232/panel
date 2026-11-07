@@ -28,7 +28,7 @@ func BootstrapAdmin(db *gorm.DB, dataDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := db.Create(&User{Username: "admin", Password: string(hash)}).Error; err != nil {
+	if err := db.Create(&User{Username: "admin", Password: string(hash), Role: "admin"}).Error; err != nil {
 		return err
 	}
 	msg := fmt.Sprintf("初始管理员账号: admin  密码: %s\n", pass)

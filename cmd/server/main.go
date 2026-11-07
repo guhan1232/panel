@@ -78,6 +78,7 @@ func main() {
 	api := r.Group("/api", authSvc.EntranceRequired())
 	authSvc.Register(api)
 	protected := api.Group("", authSvc.Middleware(), audit.Middleware(db))
+	authSvc.RegisterAdmin(protected) // 用户管理（仅 admin）
 
 	cronMod := cron.New(db, cfg.DataDir)
 	if err := cronMod.Start(); err != nil {
@@ -86,7 +87,8 @@ func main() {
 	}
 	cronMod.Register(protected)
 	filem.New(cfg.DataDir).Register(protected)
-	term.Register(protected)
+	// 终端为系统 shell，viewer 角色禁止
+	term.Register(protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator)))
 	proc.Register(protected)
 	setting.New(db, cfg).Register(protected)
 

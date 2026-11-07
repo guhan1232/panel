@@ -11,6 +11,9 @@
     <el-table :data="items" v-loading="loading" size="small">
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="username" label="操作人" width="100" />
+      <el-table-column label="角色" width="90">
+        <template #default="{ row }"><el-tag v-if="row.role" size="small" :type="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'primary' : 'info'">{{ row.role }}</el-tag><span v-else>-</span></template>
+      </el-table-column>
       <el-table-column prop="method" label="方法" width="80">
         <template #default="{ row }"><el-tag size="small" :type="row.method === 'DELETE' ? 'danger' : 'primary'">{{ row.method }}</el-tag></template>
       </el-table-column>

@@ -23,6 +23,19 @@ const (
 	CookieEntrance = "wm_entrance"
 )
 
+// Role 面板角色：admin 全权限；operator 可操作全部功能（无用户管理）；viewer 只读。
+type Role string
+
+const (
+	RoleAdmin    Role = "admin"
+	RoleOperator Role = "operator"
+	RoleViewer   Role = "viewer"
+)
+
+var validRoles = map[Role]bool{RoleAdmin: true, RoleOperator: true, RoleViewer: true}
+
+func ValidRole(r string) bool { return validRoles[Role(r)] }
+
 type Service struct {
 	db    *gorm.DB
 	cfg   *config.Config
@@ -103,6 +116,11 @@ func (s *Service) login(c *gin.Context) {
 		core.Err(c, 401, "用户名或密码错误")
 		return
 	}
+	if u.Disabled {
+		slog.Warn("已禁用账号尝试登录", "username", req.Username, "ip", ip)
+		core.Err(c, 403, "账号已被禁用，请联系管理员")
+		return
+	}
 	s.clearFails(ip)
 	token := randomToken(32)
 	sess := core.Session{Token: token, UserID: u.ID, IP: ip, UA: c.Request.UserAgent(), ExpiresAt: time.Now().Add(24 * time.Hour)}
@@ -114,8 +132,8 @@ func (s *Service) login(c *gin.Context) {
 		Name: CookieSession, Value: token, Path: "/", HttpOnly: true,
 		SameSite: http.SameSiteLaxMode, MaxAge: 86400,
 	})
-	slog.Info("登录成功", "username", u.Username, "ip", ip)
-	core.OK(c, gin.H{"username": u.Username})
+	slog.Info("登录成功", "username", u.Username, "role", u.Role, "ip", ip)
+	core.OK(c, gin.H{"username": u.Username, "role": u.Role})
 }
 
 func (s *Service) logout(c *gin.Context) {
@@ -127,7 +145,7 @@ func (s *Service) logout(c *gin.Context) {
 }
 
 func (s *Service) me(c *gin.Context) {
-	core.OK(c, gin.H{"username": c.GetString("user")})
+	core.OK(c, gin.H{"username": c.GetString("user"), "role": c.GetString("role")})
 }
 
 // ---- 中间件 ----
@@ -148,7 +166,7 @@ func (s *Service) currentSession(c *gin.Context) (*core.Session, bool) {
 	return &sess, true
 }
 
-// Middleware API 鉴权：校验会话并注入 user/uid/session。
+// Middleware API 鉴权：校验会话、注入 user/uid/role/session，并拦截 viewer 的写操作。
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sess, ok := s.currentSession(c)
@@ -161,9 +179,26 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			core.Unauthorized(c)
 			return
 		}
+		if u.Disabled {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "账号已被禁用"})
+			return
+		}
 		c.Set("user", u.Username)
 		c.Set("uid", u.ID)
+		c.Set("role", u.Role)
 		c.Set("session", sess.Token)
+
+		// viewer 只读：拦截写方法（退出登录豁免）
+		if Role(u.Role) == RoleViewer {
+			switch c.Request.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+			default:
+				if c.Request.URL.Path != "/api/auth/logout" {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "viewer 为只读角色，无权执行此操作"})
+					return
+				}
+			}
+		}
 		c.Next()
 	}
 }

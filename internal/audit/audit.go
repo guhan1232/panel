@@ -31,6 +31,7 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 
 		log := core.AuditLog{
 			Username: c.GetString("user"),
+			Role:     c.GetString("role"),
 			Method:   c.Request.Method,
 			Path:     truncate(c.Request.URL.Path, 256),
 			IP:       c.ClientIP(),

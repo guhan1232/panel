@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.6.0"
+const Version = "0.7.0"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
@@ -40,6 +40,8 @@ type User struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	Username   string    `gorm:"uniqueIndex;size:64" json:"username"`
 	Password   string    `json:"-"` // bcrypt 哈希
+	Role       string    `gorm:"size:16;default:admin" json:"role"` // admin | operator | viewer
+	Disabled   bool      `json:"disabled"`
 	TOTPSecret string    `json:"-"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -57,6 +59,7 @@ type Session struct {
 type AuditLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Username  string    `json:"username"`
+	Role      string    `gorm:"size:16" json:"role"`
 	Method    string    `gorm:"size:8" json:"method"`
 	Path      string    `gorm:"size:256" json:"path"`
 	IP        string    `gorm:"size:64" json:"ip"`

@@ -23,6 +23,7 @@ const router = createRouter({
         { path: 'alerts', component: () => import('../views/Alerts.vue'), meta: { title: '告警策略' } },
         { path: 'appstore', component: () => import('../views/Appstore.vue'), meta: { title: '应用商店' } },
         { path: 'notify', component: () => import('../views/Notify.vue'), meta: { title: '通知与存储' } },
+        { path: 'users', component: () => import('../views/Users.vue'), meta: { title: '用户管理', admin: true } },
         { path: 'setting', component: () => import('../views/Setting.vue'), meta: { title: '系统设置' } }
       ]
     },
@@ -35,6 +36,7 @@ router.beforeEach(async (to) => {
   const auth = useAuth()
   if (!auth.checked) await auth.fetchMe()
   if (!auth.username) return '/login'
+  if (to.meta.admin && auth.role !== 'admin') return '/dashboard'
   return true
 })
 

@@ -2,14 +2,16 @@ import { defineStore } from 'pinia'
 import api from '../api'
 
 export const useAuth = defineStore('auth', {
-  state: () => ({ username: '', checked: false }),
+  state: () => ({ username: '', role: '', checked: false }),
   actions: {
     async fetchMe() {
       try {
         const d: any = await api.get('/auth/me')
         this.username = d?.username || ''
+        this.role = d?.role || ''
       } catch {
         this.username = ''
+        this.role = ''
       }
       this.checked = true
     },
@@ -24,6 +26,7 @@ export const useAuth = defineStore('auth', {
         /* ignore */
       }
       this.username = ''
+      this.role = ''
     }
   }
 })
