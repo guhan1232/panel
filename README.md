@@ -72,7 +72,7 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 
 | 模块 | 说明 |
 |---|---|
-| 🧬 运行时环境 | 软件商店新增运行时区块：**Node.js / Golang / Python / OpenJDK** 全版本列表，任选版本安装、多版本共存、一键设默认（软链 /usr/local/bin）、卸载。版本清单来自**真实镜像站**：Node.js 走 index.json（官方/阿里云/腾讯/清华/中科大）、Go 走镜像站目录解析（官方/阿里云/腾讯/中科大）、Python 走 python-build-standalone（npmmirror 镜像/GitHub 加速）、OpenJDK 走清华 Adoptium 目录。rc/预发布版本自动过滤，Node.js 标注 LTS |
+| 🧬 运行时环境 | 软件商店新增运行时区块（OpenJDK 双源：**清华 Temurin + 华为云通用构建**，均已实测目录/文件可达；Zulu/Liberica/Dragonwell 等站点路径未开放目录索引或未收录，暂未接入，架构已支持按发行版扩展）：**Node.js / Golang / Python / OpenJDK** 全版本列表，任选版本安装、多版本共存、一键设默认（软链 /usr/local/bin）、卸载。版本清单来自**真实镜像站**：Node.js 走 index.json（官方/阿里云/腾讯/清华/中科大）、Go 走镜像站目录解析（官方/阿里云/腾讯/中科大）、Python 走 python-build-standalone（npmmirror 镜像/GitHub 加速）、OpenJDK 走清华 Adoptium 目录。rc/预发布版本自动过滤，Node.js 标注 LTS |
 ### v0.8 多节点 Agent
 
 | 模块 | 说明 |

@@ -136,8 +136,25 @@ var pythonSources = []sourceDef{
 	{ID: "ghproxy", Name: "GitHub 加速 gh-proxy"},
 }
 
-var jdkSources = []sourceDef{
-	{ID: "tuna", Name: "清华大学镜像站 (Temurin)", Base: "https://mirrors.tuna.tsinghua.edu.cn"},
+type jdkSourceDef struct {
+	ID     string
+	Name   string
+	Base   string
+	Distro string // adoptium(Temurin) | openjdk(Oracle 通用构建)
+}
+
+var jdkSources = []jdkSourceDef{
+	{ID: "tuna-adoptium", Name: "清华大学 · Temurin", Base: "https://mirrors.tuna.tsinghua.edu.cn", Distro: "adoptium"},
+	{ID: "huawei-openjdk", Name: "华为云 · OpenJDK", Base: "https://mirrors.huaweicloud.com", Distro: "openjdk"},
+}
+
+func findJdkSource(id string) *jdkSourceDef {
+	for i := range jdkSources {
+		if jdkSources[i].ID == id {
+			return &jdkSources[i]
+		}
+	}
+	return nil // 兼容旧 ID
 }
 
 func nodeSourceBase(source string) (string, error) {
@@ -370,15 +387,17 @@ func resolvePython(version, source, goarch, vendor string) (string, error) {
 
 // listOpenJDK 从清华/中科大 Adoptium 目录解析：先列主版本，再列各主版本文件。
 func listOpenJDK(source, goarch, vendor string) ([]runtimeVersion, error) {
-	var base string
-	for _, s := range jdkSources {
-		if s.ID == source {
-			base = s.Base
-		}
+	def := findJdkSource(source)
+	if source == "tuna" {
+		def = findJdkSource("tuna-adoptium") // 兼容旧源 ID
 	}
-	if base == "" {
+	if def == nil {
 		return nil, fmt.Errorf("未知 OpenJDK 下载源: %s", source)
 	}
+	if def.Distro == "openjdk" {
+		return listHuaweiOpenJDK(def.Base, goarch, vendor)
+	}
+	base := def.Base
 	html, err := httpGet(base+"/Adoptium/?C=N;O=A", 30*time.Second, httpLimit)
 	if err != nil {
 		return nil, err
@@ -421,21 +440,21 @@ func listOpenJDK(source, goarch, vendor string) ([]runtimeVersion, error) {
 }
 
 func resolveOpenJDK(version, source, goarch, vendor string) (string, error) {
-	var base string
-	for _, s := range jdkSources {
-		if s.ID == source {
-			base = s.Base
-		}
+	def := findJdkSource(source)
+	if source == "tuna" {
+		def = findJdkSource("tuna-adoptium")
 	}
-	if base == "" {
+	if def == nil {
 		return "", fmt.Errorf("未知 OpenJDK 下载源: %s", source)
 	}
 	major := strings.Split(version, ".")[0]
+	if def.Distro == "openjdk" {
+		// 华为云通用构建：/openjdk/<版本>/openjdk-<版本>_linux-<架构>_bin.tar.gz
+		return def.Base + "/openjdk/" + version + "/openjdk-" + version + "_linux-" + vendor + "_bin.tar.gz", nil
+	}
 	file := fmt.Sprintf("OpenJDK%sU-jdk_%s_linux_hotspot_%s.tar.gz",
 		major, vendor, strings.ReplaceAll(version, "+", "_"))
-	// 校验文件确实存在（目录名与版本严格对应）
-	u := base + "/Adoptium/" + major + "/jdk/" + vendor + "/linux/" + file
-	return u, nil
+	return def.Base + "/Adoptium/" + major + "/jdk/" + vendor + "/linux/" + file, nil
 }
 
 func vendorArchOf(lang, goarch string) string {
@@ -482,10 +501,14 @@ func init() {
 		List:    listPython,
 		Resolve: resolvePython,
 	}
+	jdkSrcs := []sourceDef{}
+	for _, js := range jdkSources {
+		jdkSrcs = append(jdkSrcs, sourceDef{ID: js.ID, Name: js.Name})
+	}
 	langs["openjdk"] = &langDef{
-		Key: "openjdk", Name: "OpenJDK (Temurin)",
-		Desc:   "Eclipse Temurin JDK；清华/中科大镜像站收录",
-		Sources: jdkSources,
+		Key: "openjdk", Name: "OpenJDK",
+		Desc:   "Java 开发工具包；Temurin(清华)与华为云通用构建",
+		Sources: jdkSrcs,
 		Bins:   nil, // 依赖版本
 		VendorArch: func(g string) string { return vendorArchOf("openjdk", g) },
 		List:    listOpenJDK,
@@ -1004,4 +1027,64 @@ func (m *Module) setPypi(c *gin.Context) {
 	}
 	slog.Info("pip index-url 已设置", "url", req.IndexURL, "by", c.GetString("user"))
 	core.OK(c, gin.H{"index_url": req.IndexURL})
+}
+// parseHuaweiOpenJDKDirs 从华为 /openjdk/ 目录列表提取版本目录（纯函数）。
+func parseHuaweiOpenJDKDirs(html string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, h := range parseHrefs(html) {
+		h = strings.Trim(h, "/")
+		if h == "" || !isVerDir(h) || seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := versionNums(out[i]), versionNums(out[j])
+		for k := 0; k < 4; k++ {
+			var ai, bi int
+			if k < len(a) { ai = a[k] }
+			if k < len(b) { bi = b[k] }
+			if ai != bi {
+				return ai > bi
+			}
+		}
+		return false
+	})
+	return out
+}
+
+func isVerDir(s string) bool {
+	for _, seg := range strings.Split(s, ".") {
+		if seg == "" {
+			return false
+		}
+		for _, r := range seg {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// listHuaweiOpenJDK 华为通用构建清单（目录名即版本，文件名可推导）。
+func listHuaweiOpenJDK(base, goarch, vendor string) ([]runtimeVersion, error) {
+	html, err := httpGet(base+"/openjdk/", 30*time.Second, httpLimit)
+	if err != nil {
+		return nil, err
+	}
+	dirs := parseHuaweiOpenJDKDirs(string(html))
+	if len(dirs) > 30 {
+		dirs = dirs[:30]
+	}
+	out := []runtimeVersion{}
+	for _, v := range dirs {
+		out = append(out, runtimeVersion{
+			Version: v,
+			URL:     base + "/openjdk/" + v + "/openjdk-" + v + "_linux-" + vendor + "_bin.tar.gz",
+		})
+	}
+	return out, nil
 }
