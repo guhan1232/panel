@@ -1,0 +1,18 @@
+[Unit]
+Description=webmblx Linux Web Panel
+Documentation=https://cnb.cool/hanyuxin/panel
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/webmblx
+ExecStart=/opt/webmblx/webmblx -c /opt/webmblx/config.yaml
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+
+# 面板需要管理系统资源，以 root 运行；安全由入口防护/会话/审计控制
+User=root
+
+[Install]
+WantedBy=multi-user.target
