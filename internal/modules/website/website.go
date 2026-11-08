@@ -1,5 +1,5 @@
 // Package website 网站管理：基于 Nginx 的静态站/PHP 站/反向代理。
-// 配置生成到 /etc/nginx/conf.d/webmblx_<name>.conf，写入前 nginx -t 校验，失败自动回滚。
+// 配置生成到 /etc/nginx/conf.d/digong_<name>.conf，写入前 nginx -t 校验，失败自动回滚。
 package website
 
 import (
@@ -85,8 +85,8 @@ func splitDomains(s string) []string {
 
 func genConf(s *Site) string {
 	domains := strings.Join(splitDomains(s.Domains), " ")
-	logAcc := fmt.Sprintf("/var/log/nginx/webmblx_%s.access.log", s.Name)
-	logErr := fmt.Sprintf("/var/log/nginx/webmblx_%s.error.log", s.Name)
+	logAcc := fmt.Sprintf("/var/log/nginx/digong_%s.access.log", s.Name)
+	logErr := fmt.Sprintf("/var/log/nginx/digong_%s.error.log", s.Name)
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 
@@ -134,9 +134,9 @@ func genConf(s *Site) string {
 
 func confPath(name string, enabled bool) string {
 	if enabled {
-		return filepath.Join(confDir, "webmblx_"+name+".conf")
+		return filepath.Join(confDir, "digong_"+name+".conf")
 	}
-	return filepath.Join(confDir, "webmblx_"+name+".conf.off")
+	return filepath.Join(confDir, "digong_"+name+".conf.off")
 }
 
 // writeConfWithCheck 写入配置并 nginx -t 校验；失败恢复原内容。
@@ -376,7 +376,7 @@ func (m *Module) siteLog(c *gin.Context) {
 	if kind != "access" && kind != "error" {
 		kind = "access"
 	}
-	path := fmt.Sprintf("/var/log/nginx/webmblx_%s.%s.log", s.Name, kind)
+	path := fmt.Sprintf("/var/log/nginx/digong_%s.%s.log", s.Name, kind)
 	out, _, err := execx.Run("website", 15*time.Second, "tail", "-n", lines, path)
 	if err != nil && out == "" {
 		core.Err(c, 404, "日志文件不存在或不可读: "+path)

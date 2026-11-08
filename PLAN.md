@@ -1,4 +1,4 @@
-# webmblx — Linux Web 管理面板 开发规划
+# 帝弓面板（Digong Panel）— Linux Web 管理面板 开发规划
 
 > 版本：v0.1（规划稿） 日期：2026-11-07
 > 定位：Go + Vue3 的全功能 Linux 服务器管理面板，对标 1Panel / 宝塔，单二进制部署、低资源占用、内置调度引擎。
@@ -18,7 +18,7 @@
 | 零依赖部署 | 后端编译为单二进制，前端 `go:embed` 打包进二进制；面板自身数据用 SQLite |
 | 低资源占用 | 空载内存目标 < 50MB，监控采集不做常驻子进程 |
 | 安全默认值 | 强制 HTTPS、登录防爆破、安全入口路径、全量操作审计 |
-| 不污染系统 | 面板自身装在 `/opt/webmblx`；计划任务不写入系统 crontab（见 §4.5） |
+| 不污染系统 | 面板自身装在 `/opt/digong`；计划任务不写入系统 crontab（见 §4.5） |
 | 模块化 | 每个功能一个后端 module，注册进路由与权限表，方便裁剪与扩展 |
 
 ### 1.3 支持范围
@@ -56,7 +56,7 @@
 │  仪表盘 │ 计划任务 │ 文件 │ 终端(xterm) │ 网站 │ … │
 └────────── HTTPS : {8443, 安全入口路径} ──────────┘
                  │ REST API + WebSocket
-┌─────────────── webmblx 二进制 (root) ───────────┐
+┌─────────────── digong 二进制 (root) ───────────┐
 │  中间件: 安全入口 → 认证 → 权限 → 审计 → 限流     │
 │  core:  配置 / SQLite / 日志 / 通知 / 升级        │
 │  modules: dashboard│cron│file│terminal│website … │
@@ -153,7 +153,7 @@ type Task struct {
 2. 新建/修改/删除/启停 → 内存调度器即时增删（`cron.Remove(id)`），无需重启。
 3. 执行历史表 `task_log`：任务ID、触发方式(定时/手动)、开始/结束时间、耗时、退出码、输出**截断存前 64KB**、超时标记；历史保留可配置（默认 90 天，超期清理任务自动滚动）。
 4. 失败告警：连续失败达到 `NotifyFail` 推送通知渠道，成功后自动复位计数。
-5. 执行隔离：任务输出落 `/opt/webmblx/logs/tasks/<task_id>/<date>.log`；面板升级/重启不丢任务；运行中任务在面板上可见并可手动终止。
+5. 执行隔离：任务输出落 `/opt/digong/logs/tasks/<task_id>/<date>.log`；面板升级/重启不丢任务；运行中任务在面板上可见并可手动终止。
 6. 与系统 crontab 隔离：**面板任务全部走内置引擎，不写 `/etc/crontab`**；系统设置页提供系统 crontab **只读视图**，避免与手工任务互相踩踏。
 
 **API 草案**
@@ -190,7 +190,7 @@ GET    /api/task-logs/:logId      单次执行详情(含输出)
 ## 6. 代码结构规划
 
 ```
-webmblx/
+digong/
 ├── cmd/server/main.go            # 启动装配
 ├── internal/
 │   ├── core/                     # 配置/日志/SQLite/通知/审计中间件
@@ -207,7 +207,7 @@ webmblx/
 ├── web/                          # Vue3 前端
 │   └── src/{views,api,stores,components}
 ├── scripts/install.sh            # 一键安装(自动装 systemd unit)
-├── deploy/webmblx.service
+├── deploy/digong.service
 └── Makefile                      # build / build-web / release
 ```
 

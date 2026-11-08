@@ -36,7 +36,7 @@ func Ensure(dir string) (string, string, error) {
 	}
 	tmpl := x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "webmblx"},
+		Subject:               pkix.Name{CommonName: "digong"},
 		NotBefore:             time.Now().Add(-24 * time.Hour),
 		NotAfter:              time.Now().AddDate(1, 0, 0),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,

@@ -7,7 +7,7 @@
         <a-button v-if="auth.role === 'admin'" @click="regenToken" data-tone="warning">重置 Token</a-button>
         <a-button @click="load">刷新</a-button>
       </WmToolbar>
-      <WmNotice tone="neutral">在目标服务器下载对应架构的 webmblx-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。</WmNotice>
+      <WmNotice tone="neutral">在目标服务器下载对应架构的 digong-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。</WmNotice>
     </WmSectionCard>
 
     <WmSectionCard title="节点列表" description="在线状态依据最近心跳判定" flush>
@@ -86,7 +86,7 @@ let cpuChart: echarts.ECharts | null = null
 let netChart: echarts.ECharts | null = null
 
 const agentCmd = computed(() =>
-  `./webmblx-agent -s ${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host} -t ${token.value || '<token>'} -name <节点名>`
+  `./digong-agent -s ${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host} -t ${token.value || '<token>'} -name <节点名>`
 )
 
 function fade(hex: string, alpha: number) {

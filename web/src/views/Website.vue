@@ -139,8 +139,8 @@ function openEdit(row: any) {
 
 function payload() {
   const locations = form.extra.filter((l) => l.prefix && l.target)
-  const certPath = form.ssl_cert ? `/opt/webmblx/data/certs-managed/${form.ssl_cert}/fullchain.pem` : ''
-  const keyPath = form.ssl_cert ? `/opt/webmblx/data/certs-managed/${form.ssl_cert}/privkey.pem` : ''
+  const certPath = form.ssl_cert ? `/opt/digong/data/certs-managed/${form.ssl_cert}/fullchain.pem` : ''
+  const keyPath = form.ssl_cert ? `/opt/digong/data/certs-managed/${form.ssl_cert}/privkey.pem` : ''
   return {
     name: form.name, type: form.type, domains: form.domains, root: form.root,
     php_socket: form.php_socket, upstream: form.upstream,
@@ -210,7 +210,7 @@ async function installNginx() {
 watch(
   () => form.ssl_cert,
   (v) => {
-    certBase.value = v ? `opt/webmblx/data/certs-managed/${v}` : ''
+    certBase.value = v ? `opt/digong/data/certs-managed/${v}` : ''
   }
 )
 

@@ -1,12 +1,12 @@
 [Unit]
-Description=webmblx Linux Web Panel
+Description=帝弓面板 (Digong Panel) Linux Web Panel
 Documentation=https://cnb.cool/hanyuxin/panel
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/webmblx
-ExecStart=/opt/webmblx/webmblx -c /opt/webmblx/config.yaml
+WorkingDirectory=/opt/digong
+ExecStart=/opt/digong/digong -c /opt/digong/config.yaml
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536

@@ -223,7 +223,7 @@ func (m *Module) test(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
-	title := "webmblx 测试通知"
+	title := "帝弓面板测试通知"
 	content := "这是一条测试通知，发送时间 " + time.Now().Format("2006-01-02 15:04:05")
 	var err error
 	if req.Channel == "email" {

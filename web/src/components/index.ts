@@ -1,5 +1,5 @@
 /**
- * Global component registry for the webmblx Ant Design UI layer.
+ * Global component registry for the 帝弓面板 Ant Design UI layer.
  * Registered once in main.ts so every view can use them without imports —
  * this keeps business logic untouched while unifying the visual layer.
  */
