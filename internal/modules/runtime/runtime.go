@@ -673,8 +673,9 @@ func (m *Module) setDefault(c *gin.Context) {
 		return
 	}
 	vendor := vendorArchOf(inst.Lang, goruntime.GOARCH)
+	dirAbs, _ := filepath.Abs(inst.Dir)
 	for _, b := range binsFor(inst.Lang, inst.Version, vendor) {
-		target := filepath.Join(inst.Dir, filepath.FromSlash(b.Rel))
+		target := filepath.Join(dirAbs, filepath.FromSlash(b.Rel))
 		link := filepath.Join("/usr/local/bin", b.Link)
 		_ = os.Remove(link)
 		if err := os.Symlink(target, link); err != nil {
@@ -781,7 +782,7 @@ func (m *Module) installRuntime(lang, version, source string) ([]string, error) 
 	if dirName == "" || dirName == "." {
 		return nil, fmt.Errorf("版本目录名非法")
 	}
-	dir := filepath.Join(m.dataDir, "runtimes", lang, dirName)
+	dir, _ := filepath.Abs(filepath.Join(m.dataDir, "runtimes", lang, dirName))
 	_ = os.MkdirAll(dir, 0o755)
 	fail := func(err error) error {
 		_ = os.RemoveAll(dir)
@@ -1189,11 +1190,11 @@ func (m *Module) installPHP(version string) ([]string, error) {
 	if goruntime.GOOS != "linux" {
 		return nil, fmt.Errorf("PHP 安装仅支持在 Linux 服务器上执行")
 	}
-	br := strings.ReplaceAll(version, ".", "") // 8.3 → php83
 	osID, verID, codename := osRelease()
 	var cmds []string
 	var unit string
 	var pkgs []string
+	cmds = append(cmds, "systemctl stop unattended-upgrades || true")
 	switch osID {
 	case "ubuntu":
 		cmds = append(cmds,
@@ -1201,8 +1202,8 @@ func (m *Module) installPHP(version string) ([]string, error) {
 			"add-apt-repository ppa:ondrej/php -y",
 			"apt-get update",
 		)
-		pkgs = []string{"php" + br + "-fpm", "php" + br + "-mysql", "php" + br + "-curl", "php" + br + "-gd", "php" + br + "-xml", "php" + br + "-mbstring"}
-		unit = "php" + br + "-fpm"
+		pkgs = []string{"php" + version + "-fpm", "php" + version + "-mysql", "php" + version + "-curl", "php" + version + "-gd", "php" + version + "-xml", "php" + version + "-mbstring"}
+		unit = "php" + version + "-fpm"
 	case "debian":
 		if codename == "" {
 			codename = shellOut("lsb_release -cs")
@@ -1216,8 +1217,8 @@ func (m *Module) installPHP(version string) ([]string, error) {
 			"echo \"deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ " + codename + " main\" > /etc/apt/sources.list.d/sury-php.list",
 			"apt-get update",
 		)
-		pkgs = []string{"php" + br + "-fpm", "php" + br + "-mysql", "php" + br + "-curl", "php" + br + "-gd", "php" + br + "-xml", "php" + br + "-mbstring"}
-		unit = "php" + br + "-fpm"
+		pkgs = []string{"php" + version + "-fpm", "php" + version + "-mysql", "php" + version + "-curl", "php" + version + "-gd", "php" + version + "-xml", "php" + version + "-mbstring"}
+		unit = "php" + version + "-fpm"
 	case "centos", "rocky", "almalinux", "rhel", "ol", "fedora":
 		el := verID
 		if i := strings.Index(el, "."); i > 0 {
@@ -1233,35 +1234,42 @@ func (m *Module) installPHP(version string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("暂不支持发行版 %s 的 PHP 仓库安装", osID)
 	}
-	for _, cmd := range cmds {
-		if out, code, err := execx.RunShell("runtime:php", 20*time.Minute, cmd); err != nil {
-			return nil, fmt.Errorf("仓库准备失败(exit %d): %s", code, tailOf(out))
-		}
-	}
-	installCmd := "DEBIAN_FRONTEND=noninteractive apt-get install -y " + strings.Join(pkgs, " ")
+	installCmd := "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=1800 install -y " + strings.Join(pkgs, " ")
 	if osID != "ubuntu" && osID != "debian" {
 		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
 	}
-	if out, code, err := execx.RunShell("runtime:php", 20*time.Minute, installCmd); err != nil {
-		return nil, fmt.Errorf("php%s-fpm 安装失败(exit %d): %s", br, code, tailOf(out))
+	if out, code, err := execx.RunShell("runtime:php", 30*time.Minute, installCmd); err != nil {
+		return nil, fmt.Errorf("php%s-fpm 安装失败(exit %d): %s", version, code, tailOf(out))
 	}
 	if _, code, err := execx.Run("runtime", 60*time.Second, "systemctl", "enable", "--now", unit); err != nil {
 		return nil, fmt.Errorf("服务启动失败(exit %d): %s", code, unit)
 	}
 	time.Sleep(2 * time.Second)
 	if stateOut, _, _ := execx.Run("runtime", 10*time.Second, "systemctl", "is-active", unit); strings.TrimSpace(stateOut) != "active" {
-		return nil, fmt.Errorf("php%s-fpm 未进入 active 状态，请检查 journalctl -u %s", br, unit)
+		return nil, fmt.Errorf("php%s-fpm 未进入 active 状态，请检查 journalctl -u %s", version, unit)
+	}
+	_, _, _ = execx.Run("runtime", 30*time.Second, "systemctl", "start", "unattended-upgrades")
+	var dup int64
+	m.db.Model(&RuntimeInst{}).Where("lang = ? AND version = ?", "php", version).Count(&dup)
+	if dup == 0 {
+		inst := RuntimeInst{Lang: "php", Version: version, Binary: unit, Pkgs: strings.Join(pkgs, " "), IsDefault: true}
+		m.db.Create(&inst)
 	}
 	return []string{unit + " 服务已启动"}, nil
 }
 
-// shellOut 执行 shell 命令并返回 trim 后输出（内部辅助）。
-func shellOut(cmd string) string {
-	out, _, err := execx.RunShell("runtime", 30*time.Second, cmd)
-	if err != nil {
-		return ""
+// uninstallPHP 卸载指定分支的 PHP（停服 + 移除包）。
+func (m *Module) uninstallPHP(version string) ([]string, error) {
+	osID, _, _ := osRelease()
+	unit := "php" + version + "-fpm"
+	_, _, _ = execx.Run("runtime", 60*time.Second, "systemctl", "disable", "--now", unit)
+	switch osID {
+	case "ubuntu", "debian":
+		_, _, _ = execx.RunShell("runtime:php", 10*time.Minute, "DEBIAN_FRONTEND=noninteractive apt-get purge -y php"+version+"-*")
+	case "centos", "rocky", "almalinux", "rhel", "ol", "fedora":
+		_, _, _ = execx.RunShell("runtime:php", 10*time.Minute, "dnf remove -y php-*")
 	}
-	return strings.TrimSpace(out)
+	return []string{"php" + version + " 已卸载"}, nil
 }
 
 // osRelease 读取 /etc/os-release 关键字段。
@@ -1283,20 +1291,15 @@ func osRelease() (id, versionID, codename string) {
 	return
 }
 
-// uninstallPHP 卸载指定分支的 PHP（停服 + 移除包）。
-func (m *Module) uninstallPHP(version string) ([]string, error) {
-	br := strings.ReplaceAll(version, ".", "")
-	osID, _, _ := osRelease()
-	unit := "php" + br + "-fpm"
-	_, _, _ = execx.Run("runtime", 60*time.Second, "systemctl", "disable", "--now", unit)
-	switch osID {
-	case "ubuntu", "debian":
-		_, _, _ = execx.RunShell("runtime:php", 10*time.Minute, "DEBIAN_FRONTEND=noninteractive apt-get purge -y php" + br + "-*")
-	case "centos", "rocky", "almalinux", "rhel", "ol", "fedora":
-		_, _, _ = execx.RunShell("runtime:php", 10*time.Minute, "dnf remove -y php-*")
+// shellOut 执行 shell 命令并返回 trim 后输出（内部辅助）。
+func shellOut(cmd string) string {
+	out, _, err := execx.RunShell("runtime", 30*time.Second, cmd)
+	if err != nil {
+		return ""
 	}
-	return []string{"php" + br + " 已卸载"}, nil
+	return strings.TrimSpace(out)
 }
+
 // tailOf 截取输出末尾（错误提示用）。
 func tailOf(s string) string {
 	s = strings.TrimSpace(s)

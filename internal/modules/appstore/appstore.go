@@ -1093,7 +1093,7 @@ func (m *Module) installNative(tpl *Template, name string, p map[string]string, 
 	if err != nil {
 		return "", err
 	}
-	dir := m.nativeDir(name)
+	dir, _ := filepath.Abs(m.nativeDir(name))
 	_ = os.MkdirAll(dir, 0o755)
 	fail := func(err error) error {
 		_ = os.RemoveAll(dir)
@@ -1320,7 +1320,7 @@ func (m *Module) uninstall(c *gin.Context) {
 		_, _, _ = execx.Run("appstore", 60*time.Second, "systemctl", "disable", "--now", r.Binary)
 		if r.Pkgs != "" {
 			if detectPkgManager() == "apt" {
-				_, _, _ = execx.RunShell("appstore:uninstall", 10*time.Minute, "DEBIAN_FRONTEND=noninteractive apt-get purge -y "+r.Pkgs)
+				_, _, _ = execx.RunShell("appstore:uninstall", 10*time.Minute, "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 purge -y "+r.Pkgs)
 			} else {
 				_, _, _ = execx.RunShell("appstore:uninstall", 10*time.Minute, "dnf remove -y "+r.Pkgs)
 			}
@@ -1395,7 +1395,7 @@ func (m *Module) installPackage(tpl *Template, name string, p map[string]string)
 	var installCmd string
 	switch distro {
 	case "apt":
-		installCmd = "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y " + strings.Join(pkgs, " ")
+		installCmd = "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; systemctl start unattended-upgrades || true"
 	case "dnf":
 		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
 	default:

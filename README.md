@@ -79,6 +79,16 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 | 模块 | 说明 |
 |---|---|
 | 🧬 运行时环境 | 软件商店新增运行时区块（OpenJDK 双源：**清华 Temurin + 华为云通用构建**，均已实测目录/文件可达；Zulu/Liberica/Dragonwell 等站点路径未开放目录索引或未收录，暂未接入，架构已支持按发行版扩展）：**Node.js / Golang / Python / OpenJDK** 全版本列表，任选版本安装、多版本共存、一键设默认（软链 /usr/local/bin）、卸载。版本清单来自**真实镜像站**：Node.js 走 index.json（官方/阿里云/腾讯/清华/中科大）、Go 走镜像站目录解析（官方/阿里云/腾讯/中科大）、Python 走 python-build-standalone（npmmirror 镜像/GitHub 加速）、OpenJDK 走清华 Adoptium 目录。rc/预发布版本自动过滤，Node.js 标注 LTS |
+### v0.19 真实服务器冒烟修复
+
+| 修复 | 说明 |
+|---|---|
+| 🔗 软链绝对路径 | 运行时/原生应用软链与 systemd 路径改为绝对路径（dataDir 相对导致 /usr/local/bin 软链断链，实测 node -v 失败后修复） |
+| 🔒 dpkg 锁等待 | apt 全部命令加 DPkg::Lock::Timeout=1800 + 安装前临时停 unattended-upgrades、完成后恢复（实测被 unattended-upgr 卡 2 分钟后修复） |
+| 🐛 PHP 包名 | php83-fpm → php8.3-fpm（版本点号误删），恢复被误置空的 apt 安装命令 |
+| 🧩 解压树定位 | goproxy 工具链 zip 顶层目录不同，二进制按文件名在解压树中探索回退 |
+| 📝 实例入库 | PHP 覆盖安装补 RuntimeInst 入库（重装幂等） |
+
 ### v0.8 多节点 Agent
 
 | 模块 | 说明 |
