@@ -488,7 +488,7 @@ volumes:
 		},
 	},
 	{
-		Key: "nginx-pkg", Name: "Nginx", DefaultVersion: "distro", Desc: "Web 服务器/反向代理（发行版 / nginx.org stable / mainline）", Kind: "package",
+		Key: "nginx-pkg", Name: "Nginx", DefaultVersion: "distro", Desc: "Web 服务器/反向代理（发行版 / nginx.org 全部历史版本）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
@@ -531,8 +531,9 @@ volumes:
 					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " https://nginx.org/packages/ubuntu/pool/nginx/n/nginx/" + fname,
 					"systemctl stop nginx 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 purge -y nginx nginx-common nginx-core 2>/dev/null || true",
+					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + deb,
 				}
-				pkgs = []string{deb}
+				pkgs = []string{"nginx"}
 				unit = "nginx"
 				post = []string{"rm -f " + deb}
 				note = "nginx.org " + ver
@@ -554,20 +555,73 @@ volumes:
 		},
 	},
 	{
-		Key: "mariadb", Name: "MySQL / MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（系统包 mariadb-server， systemd 托管）", Kind: "package",
+		Key: "mariadb", Name: "MySQL / MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（发行版 / 阿里云镜像 10.6→13 全版本）", Kind: "package",
 		Params: []Param{},
+		VersionList: func() ([]AppVersion, error) {
+			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
+			for _, v := range mariadbVersions() {
+				note := "阿里云镜像 · 稳定分支"
+				if strings.Contains(v, "rolling") {
+					note = "阿里云镜像 · 滚动分支"
+				} else if strings.Count(v, ".") >= 2 {
+					note = "阿里云镜像 · 指定小版本"
+				}
+				out = append(out, AppVersion{Version: v, Note: note})
+			}
+			return out, nil
+		},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"mariadb-server", "mariadb-client"}, "mariadb", nil
 		},
+		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
+			if distro != "apt" {
+				return nil, []string{"mariadb-server", "mariadb-client"}, nil, "mariadb", "发行版源（该镜像 dnf 仓库暂未接入）", nil
+			}
+			pre = []string{
+				"install -d /etc/apt/keyrings",
+				"curl -fsSL https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor --yes -o /etc/apt/keyrings/mariadb-keyring.gpg",
+				`dp=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); echo "deb [signed-by=/etc/apt/keyrings/mariadb-keyring.gpg] https://mirrors.aliyun.com/mariadb/repo/` + ver + `/$dp $cn main" > /etc/apt/sources.list.d/mariadb-org.list`,
+			}
+			pkgs = []string{"mariadb-server", "mariadb-client"}
+			unit = "mariadb"
+			note = "MariaDB " + ver + " → 阿里云镜像"
+			return pre, pkgs, post, unit, note, nil
+		},
 	},
 	{
-		Key: "redis-pkg", Name: "Redis", DefaultVersion: "distro", Desc: "内存数据库/缓存（系统包）", Kind: "package",
+		Key: "redis-pkg", Name: "Redis", DefaultVersion: "distro", Desc: "内存数据库/缓存（发行版 / Redis 官方仓库 6.0→最新全版本）", Kind: "package",
 		Params: []Param{},
+		VersionList: func() ([]AppVersion, error) {
+			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
+			_, order := redisVersions()
+			for _, v := range order {
+				out = append(out, AppVersion{Version: v, Note: "Redis 官方仓库"})
+			}
+			return out, nil
+		},
 		Pkg: func(distro string) ([]string, string, error) {
 			if distro == "apt" {
 				return []string{"redis-server"}, "redis-server", nil
 			}
 			return []string{"redis"}, "redis", nil
+		},
+		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
+			if distro != "apt" {
+				return nil, []string{"redis"}, nil, "redis", "发行版源（官方仓库仅提供 deb）", nil
+			}
+			byDisp, _ := redisVersions()
+			full := byDisp[ver]
+			if full == "" {
+				return nil, nil, nil, "", "", fmt.Errorf("Redis %s 在 packages.redis.io 仓库中不存在（当前发行版/架构）", ver)
+			}
+			pre = []string{
+				"curl -fsSL https://packages.redis.io/gpg | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg",
+				`cn=$(. /etc/os-release && echo $VERSION_CODENAME); echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $cn main" > /etc/apt/sources.list.d/redis-org.list`,
+			}
+			pkgs = []string{"redis-server=" + full, "redis-tools=" + full}
+			unit = "redis-server"
+			note = "Redis 官方仓库 " + ver
+			return pre, pkgs, post, unit, note, nil
 		},
 	},
 	{
@@ -1068,6 +1122,9 @@ func (m *Module) listTemplates(c *gin.Context) {
 	}
 	core.OK(c, out)
 }
+
+// aptInstallMu 系统包安装全程互斥：并发安装会竞争 apt/dpkg 锁导致 update 失败。
+var aptInstallMu sync.Mutex
 
 // supportedPkgSources 系统包应用可用软件源：官方/自动 + 收录了 apt 仓库的镜像站。
 func supportedPkgSources() []string {
@@ -1600,6 +1657,8 @@ func detectPkgManager() string {
 
 // installPackage 系统包安装：包管理器安装 → systemctl enable --now。
 func (m *Module) installPackage(tpl *Template, name, version, srcID string, p map[string]string) (string, []string, string, error) {
+	aptInstallMu.Lock()
+	defer aptInstallMu.Unlock()
 	if goruntime.GOOS != "linux" {
 		return "", nil, "", fmt.Errorf("系统包安装仅支持在 Linux 服务器上执行")
 	}
@@ -1647,7 +1706,7 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 	var installCmd string
 	switch distro {
 	case "apt":
-		aptBase := "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; systemctl start unattended-upgrades || true"
+		aptBase := "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; rc=$?; systemctl start unattended-upgrades || true; exit $rc"
 		if strings.HasPrefix(srcNote, "mirror:") {
 			msrc, _ := aptMirrorSource(srcID)
 			installCmd = aptMirrorInstallShell(msrc, pkgs)
@@ -1680,6 +1739,114 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 		msg += "，安装源: " + srcNote
 	}
 	return msg, pkgs, unit, nil
+}
+
+// repoVer 阿里云 MariaDB 仓库的一个版本目录。
+var mariadbCache struct {
+	mu   sync.Mutex
+	vers []string
+	at   time.Time
+}
+
+// mariadbVersions 阿里云 MariaDB 仓库可用版本（按当前发行版校验，缓存 10 分钟）。
+func mariadbVersions() []string {
+	mariadbCache.mu.Lock()
+	defer mariadbCache.mu.Unlock()
+	if mariadbCache.vers != nil && time.Since(mariadbCache.at) < 10*time.Minute {
+		return mariadbCache.vers
+	}
+	id, cn := osRelease()
+	if cn == "" || detectPkgManager() != "apt" || (id != "ubuntu" && id != "debian") {
+		return nil
+	}
+	base := "https://mirrors.aliyun.com/mariadb/repo/"
+	data, err := httpGet(base, 20*time.Second, 4<<20)
+	if err != nil {
+		return nil
+	}
+	re := regexp.MustCompile(`href="\d+(?:\.\d+)*(?:\.rolling)?"`)
+	seen := map[string]bool{}
+	out := []string{}
+	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+		v := strings.TrimSuffix(strings.TrimPrefix(m[0], `href="`), `"`)
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		rel := base + v + "/" + id + "/dists/" + cn + "/Release"
+		rb, rerr := httpGet(rel, 15*time.Second, 512)
+		if rerr != nil || len(rb) == 0 {
+			continue
+		}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return verLess(strings.Replace(out[j], "rolling", "999999", 1), strings.Replace(out[i], "rolling", "999999", 1))
+	})
+	mariadbCache.vers = out
+	mariadbCache.at = time.Now()
+	return out
+}
+
+var redisCache struct {
+	mu     sync.Mutex
+	byDisp map[string]string // 上游版本号 → apt 完整版本
+	order  []string          // 显示版本，降序
+	at     time.Time
+}
+
+// redisVersions packages.redis.io 的 redis-server 全部历史版本（缓存 10 分钟）。
+func redisVersions() (map[string]string, []string) {
+	redisCache.mu.Lock()
+	defer redisCache.mu.Unlock()
+	if redisCache.byDisp != nil && time.Since(redisCache.at) < 10*time.Minute {
+		return redisCache.byDisp, redisCache.order
+	}
+	_, cn := osRelease()
+	if cn == "" || detectPkgManager() != "apt" {
+		return nil, nil
+	}
+	data, err := httpGet("https://packages.redis.io/deb/dists/"+cn+"/main/binary-"+runtime.GOARCH+"/Packages", 25*time.Second, 8<<20)
+	if err != nil {
+		return nil, nil
+	}
+	byDisp := map[string]string{}
+	order := []string{}
+	isSrv := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, "Package: ") {
+			isSrv = strings.TrimSpace(strings.TrimPrefix(line, "Package: ")) == "redis-server"
+			continue
+		}
+		if isSrv && strings.HasPrefix(line, "Version: ") {
+			v := strings.TrimSpace(strings.TrimPrefix(line, "Version: "))
+			disp := v
+			if i := strings.Index(disp, ":"); i >= 0 {
+				disp = disp[i+1:]
+			}
+			if i := strings.Index(disp, "-"); i >= 0 {
+				disp = disp[:i]
+			}
+			if _, ok := byDisp[disp]; !ok {
+				byDisp[disp] = v
+				order = append(order, disp)
+			} else {
+				byDisp[disp] = v // Packages 升序排列，后者修订更高
+			}
+		}
+	}
+	if len(order) == 0 {
+		return nil, nil
+	}
+	sort.Slice(order, func(i, j int) bool { return verLess(order[j], order[i]) })
+	redisCache.byDisp = byDisp
+	redisCache.order = order
+	redisCache.at = time.Now()
+	return byDisp, order
 }
 
 // osRelease 读取 /etc/os-release 的 ID 与 VERSION_CODENAME（进程内缓存）。

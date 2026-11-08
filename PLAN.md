@@ -270,6 +270,8 @@ webmblx/
 
 > v0.24 已交付：软件商店全量版本选择——所有原生应用（Caddy/node_exporter/FRP）拉取 GitHub Releases 全版本清单（10 分钟缓存），Nginx 支持 nginx.org stable/mainline 源，PostgreSQL 支持 PGDG 13-17，安装请求携带 version 字段按版本下载/建仓库；原生压缩包路径支持 {ver} 占位；版本化下载同样走 GitHub 加速通道。真实服务器验收：PG16（PGDG）与 node_exporter 1.12.1（非默认版本）均安装成功且 systemd active。
 
+> v0.24.5 已交付：MariaDB/Redis 具体版本安装（阿里云镜像仓库/packages.redis.io 官方仓库全历史版本）；修复并发安装 apt 锁竞争与失败退出码被吞；真实服务器验收 Redis 7.4.12（redis-server v=7.4.12）与 MariaDB 11.8（11.8.9，阿里云镜像）安装成功。
+
 > v0.24.4 已交付：Nginx 安装到具体版本——nginx.org pool 目录解析（发行版代号+架构过滤、版本降序、修订去重），指定版本经 pool deb 直装（apt 本地包），真实服务器验收 1.26.3 安装成功且 nginx -v 确认。
 
 > v0.24.3 已交付：系统包应用镜像站/官方源选择——apt 临时 sources.list 定向安装（不污染系统源），Ubuntu/Debian 阿里云/腾讯云/清华/中科大四镜像实测；PGDG 仓库支持阿里云/腾讯云镜像（其余回退官方并提示），nginx.org 仓库无镜像收录自动回退。
