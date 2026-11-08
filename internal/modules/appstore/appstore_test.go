@@ -120,9 +120,67 @@ func TestResolveNativeURL(t *testing.T) {
 	if _, _, err = resolveNativeURL(map[string]string{"amd64": "https://dl.min.io/a"}, nil, "amd64", "ghfast", p); err == nil {
 		t.Errorf("非 GitHub 选加速应报错")
 	}
+	// 非 GitHub 原生应用可通过专用镜像站解析指定版本路径。
+	u, note, err = resolveNativeURL(
+		map[string]string{"amd64": "https://dl.min.io/server/minio/release/linux-amd64/archive/minio.RELEASE.2025-01-01T00-00-00Z"},
+		map[string]map[string]string{"minio-cn": {"amd64": "server/minio/release/linux-amd64/archive/minio.{{ver}}"}},
+		"amd64", "minio-cn", map[string]string{"ver": "RELEASE.2025-01-01T00-00-00Z"},
+	)
+	if err != nil || u != "https://dl.minio.org.cn/server/minio/release/linux-amd64/archive/minio.RELEASE.2025-01-01T00-00-00Z" || note != "MinIO 中国镜像" {
+		t.Errorf("MinIO 镜像版本路径: u=%q note=%q err=%v", u, note, err)
+	}
 	// 参数替换
 	if u, _, _ = resolveNativeURL(map[string]string{"amd64": "https://mirrors.aliyun.com/golang/go{{ver}}.tar.gz"},
 		map[string]map[string]string{"aliyun": {"amd64": "golang/go{{ver}}.tar.gz"}}, "amd64", "aliyun", map[string]string{"ver": "1.23.4"}); u != "https://mirrors.aliyun.com/golang/go1.23.4.tar.gz" {
 		t.Errorf("参数替换失败: %q", u)
+	}
+}
+
+func TestParseAptMadisonVersions(t *testing.T) {
+	raw := `memcached | 1.6.24-1build1 | http://archive.ubuntu.com/ubuntu noble/universe amd64 Packages
+memcached | 1.6.18-1ubuntu1 | http://archive.ubuntu.com/ubuntu jammy/universe amd64 Packages
+memcached | 1.6.24-1build1 | http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages`
+	got := parseAptMadisonVersions(raw)
+	want := []string{"1.6.24-1build1", "1.6.18-1ubuntu1"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestMinioVersionURL(t *testing.T) {
+	got, err := minioVersionURL("RELEASE.2025-01-01T00-00-00Z", "arm64")
+	if err != nil || got != "https://github.com/minio/minio/releases/download/RELEASE.2025-01-01T00-00-00Z/minio.linux-arm64.RELEASE.2025-01-01T00-00-00Z" {
+		t.Errorf("archive URL = %q", got)
+	}
+}
+
+func TestSoftwareStoreVersionContracts(t *testing.T) {
+	want := []string{"nginx-pkg", "mariadb", "redis-pkg", "postgresql-pkg", "memcached-pkg", "caddy", "minio", "node_exporter", "frps"}
+	for _, key := range want {
+		var got *Template
+		for i := range templates {
+			if templates[i].Key == key {
+				got = &templates[i]
+				break
+			}
+		}
+		if got == nil {
+			t.Errorf("missing software template %s", key)
+			continue
+		}
+		if got.DefaultVersion == "" || got.VersionList == nil {
+			t.Errorf("%s must expose a selectable version list", key)
+		}
+		if got.Kind == "native" && got.NativeVersionURL == nil {
+			t.Errorf("%s must resolve a selected native version", key)
+		}
+		if got.Kind == "package" && got.PkgInstallVer == nil {
+			t.Errorf("%s must install a selected package version", key)
+		}
 	}
 }

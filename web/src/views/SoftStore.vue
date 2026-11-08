@@ -213,7 +213,7 @@
         <a-form-item label="下载源">
           <a-select v-model:value="instSource" style="width: 100%">
             <a-select-option v-for="s in sources" :key="s.id"
-              :value="s.id" :disabled="cur && cur.soft_sources && !cur.soft_sources.includes(s.id)">{{ s.name }}</a-select-option>
+              :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
           </a-select>
           <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
         </a-form-item>
@@ -238,7 +238,7 @@
 
 <script setup lang="ts">
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
@@ -468,6 +468,21 @@ async function openInstall(t: any) {
     } catch { /* 拉取失败时无版本选择 */ }
   }
 }
+
+function sourceDisabled(id: string) {
+  if (!cur.value) return false
+  if (cur.value.soft_sources && !cur.value.soft_sources.includes(id)) return true
+  // nginx.org 与 packages.redis.io 的历史版本没有对应的通用 apt 镜像，避免提交后才失败。
+  if (cur.value.key === 'nginx-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official'].includes(id)
+  if (cur.value.key === 'redis-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official'].includes(id)
+  if (cur.value.key === 'mariadb' && instVer.value && instVer.value !== 'distro') return !['auto', 'official', 'aliyun'].includes(id)
+  if (cur.value.key === 'postgresql-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official', 'aliyun', 'tencent'].includes(id)
+  return false
+}
+
+watch(instVer, () => {
+  if (sourceDisabled(instSource.value)) instSource.value = 'auto'
+})
 
 async function deploy() {
   if (!instName.value) {

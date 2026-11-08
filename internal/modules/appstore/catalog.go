@@ -22,17 +22,18 @@ const (
 )
 
 type remoteNative struct {
-	URLs        map[string]string            `json:"urls"`
-	Archive     bool                         `json:"archive"`
-	InArchive   string                       `json:"in_archive"`
-	Binary      string                       `json:"binary"`
-	Args        []string                     `json:"args"`
-	Env         map[string]string            `json:"env"`
-	Files       map[string]string            `json:"files"`
-	Dirs        []string                     `json:"dirs"`
-	Tool        bool                         `json:"tool"`
-	ArchAlias   map[string]string            `json:"arch_alias"`
-	MirrorPaths map[string]map[string]string `json:"mirror_paths"`
+	URLs               map[string]string            `json:"urls"`
+	Archive            bool                         `json:"archive"`
+	InArchive          string                       `json:"in_archive"`
+	Binary             string                       `json:"binary"`
+	Args               []string                     `json:"args"`
+	Env                map[string]string            `json:"env"`
+	Files              map[string]string            `json:"files"`
+	Dirs               []string                     `json:"dirs"`
+	Tool               bool                         `json:"tool"`
+	ArchAlias          map[string]string            `json:"arch_alias"`
+	MirrorPaths        map[string]map[string]string `json:"mirror_paths"`
+	VersionMirrorPaths map[string]map[string]string `json:"version_mirror_paths"`
 }
 
 // remoteApp 远程清单中的一个应用定义（纯声明式，无代码）。
@@ -65,14 +66,15 @@ func remoteToTemplate(def remoteApp) *Template {
 	}
 	nd := def.Native
 	t.Native = &NativeSpec{
-		Archive:     nd.Archive,
-		InArchive:   nd.InArchive,
-		Binary:      nd.Binary,
-		Dirs:        nd.Dirs,
-		URLs:        nd.URLs,
-		Tool:        nd.Tool,
-		ArchAlias:   nd.ArchAlias,
-		MirrorPaths: nd.MirrorPaths,
+		Archive:            nd.Archive,
+		InArchive:          nd.InArchive,
+		Binary:             nd.Binary,
+		Dirs:               nd.Dirs,
+		URLs:               nd.URLs,
+		Tool:               nd.Tool,
+		ArchAlias:          nd.ArchAlias,
+		MirrorPaths:        nd.MirrorPaths,
+		VersionMirrorPaths: nd.VersionMirrorPaths,
 		Args: func(p map[string]string) []string {
 			out := make([]string, len(nd.Args))
 			for i, a := range nd.Args {

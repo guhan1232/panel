@@ -62,6 +62,8 @@ type NativeSpec struct {
 	ArchAlias map[string]string
 	// MirrorPaths 大镜像站收录路径：源ID → 架构 → 相对镜像站根的路径（或完整 URL）
 	MirrorPaths map[string]map[string]string
+	// VersionMirrorPaths 指定版本的大镜像站路径：源ID → 架构 → 路径模板，支持 {{ver}}。
+	VersionMirrorPaths map[string]map[string]string
 }
 
 // Template 应用模板。
@@ -522,13 +524,20 @@ volumes:
 				return nil, []string{"nginx"}, nil, "nginx", "nginx.org 官方源", nil
 			}
 			if nginxRe.MatchString(ver) {
+				if srcID != "" && srcID != "auto" && srcID != "official" {
+					return nil, nil, nil, "", "", fmt.Errorf("Nginx 指定版本来自 nginx.org 官方源，请选择官方源")
+				}
 				fname := nginxPoolCache.byVer[ver]
 				if fname == "" {
 					return nil, nil, nil, "", "", fmt.Errorf("nginx %s 在 nginx.org 仓库中不存在（当前发行版/架构）", ver)
 				}
+				distroPath := "ubuntu"
+				if id, _ := osRelease(); id == "debian" {
+					distroPath = "debian"
+				}
 				deb := "/tmp/digong-nginx-" + ver + ".deb"
 				pre = []string{
-					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " https://nginx.org/packages/ubuntu/pool/nginx/n/nginx/" + fname,
+					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/" + fname,
 					"systemctl stop nginx 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 purge -y nginx nginx-common nginx-core 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + deb,
@@ -577,14 +586,24 @@ volumes:
 			if distro != "apt" {
 				return nil, []string{"mariadb-server", "mariadb-client"}, nil, "mariadb", "发行版源（该镜像 dnf 仓库暂未接入）", nil
 			}
+			repo := "https://mirrors.aliyun.com/mariadb/repo/" + ver
+			sourceNote := "阿里云镜像"
+			switch srcID {
+			case "", "auto", "aliyun":
+			case "official":
+				repo = "https://deb.mariadb.org/" + ver
+				sourceNote = "MariaDB 官方源"
+			default:
+				return nil, nil, nil, "", "", fmt.Errorf("MariaDB 指定版本仅支持阿里云镜像或官方源，请更换下载源")
+			}
 			pre = []string{
 				"install -d /etc/apt/keyrings",
 				"curl -fsSL https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor --yes -o /etc/apt/keyrings/mariadb-keyring.gpg",
-				`dp=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); echo "deb [signed-by=/etc/apt/keyrings/mariadb-keyring.gpg] https://mirrors.aliyun.com/mariadb/repo/` + ver + `/$dp $cn main" > /etc/apt/sources.list.d/mariadb-org.list`,
+				`dp=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); echo "deb [signed-by=/etc/apt/keyrings/mariadb-keyring.gpg] ` + repo + `/$dp $cn main" > /etc/apt/sources.list.d/mariadb-org.list`,
 			}
 			pkgs = []string{"mariadb-server", "mariadb-client"}
 			unit = "mariadb"
-			note = "MariaDB " + ver + " → 阿里云镜像"
+			note = "MariaDB " + ver + " → " + sourceNote
 			return pre, pkgs, post, unit, note, nil
 		},
 	},
@@ -608,6 +627,9 @@ volumes:
 		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
 			if distro != "apt" {
 				return nil, []string{"redis"}, nil, "redis", "发行版源（官方仓库仅提供 deb）", nil
+			}
+			if srcID != "" && srcID != "auto" && srcID != "official" {
+				return nil, nil, nil, "", "", fmt.Errorf("Redis 指定版本仅支持 packages.redis.io 官方源，请选择官方源")
 			}
 			byDisp, _ := redisVersions()
 			full := byDisp[ver]
@@ -645,6 +667,9 @@ volumes:
 		},
 		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
 			if distro == "apt" {
+				if srcID != "" && srcID != "auto" && srcID != "official" && srcID != "aliyun" && srcID != "tencent" {
+					return nil, nil, nil, "", "", fmt.Errorf("PostgreSQL 指定版本仅支持 PGDG 官方、阿里云或腾讯云源，请更换下载源")
+				}
 				repoBase := "https://apt.postgresql.org/pub/repos/apt"
 				note = "PGDG 官方源"
 				if msrc, ok := aptMirrorSource(srcID); ok && msrc.PgdgApt != "" {
@@ -672,10 +697,30 @@ volumes:
 		},
 	},
 	{
-		Key: "memcached-pkg", Name: "Memcached", DefaultVersion: "distro", Desc: "内存缓存（系统包）", Kind: "package",
+		Key: "memcached-pkg", Name: "Memcached", DefaultVersion: "distro", Desc: "内存缓存（发行版软件包，可选已发布包版本）", Kind: "package",
 		Params: []Param{},
+		VersionList: func() ([]AppVersion, error) {
+			return memcachedVersions(), nil
+		},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"memcached"}, "memcached", nil
+		},
+		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
+			if distro != "apt" {
+				return nil, []string{"memcached"}, nil, "memcached", "发行版源（dnf/yum 暂不锁定历史包版本）", nil
+			}
+			if !aptVersionAvailable("memcached", ver) {
+				return nil, nil, nil, "", "", fmt.Errorf("Memcached %s 不在当前 apt 软件包索引中，请先刷新版本列表", ver)
+			}
+			pkgs = []string{"memcached=" + ver}
+			unit = "memcached"
+			note = "Memcached " + ver + "（发行版源）"
+			if msrc, ok := aptMirrorSource(srcID); ok {
+				note += " → " + msrc.Name
+			} else if srcID == "official" || srcID == "" || srcID == "auto" {
+				note += " → 官方源"
+			}
+			return nil, pkgs, nil, unit, note, nil
 		},
 	},
 	{
@@ -719,12 +764,30 @@ volumes:
 			{Key: "access_key", Label: "Access Key", Def: "minioadmin", Required: true},
 			{Key: "secret_key", Label: "Secret Key", Required: true},
 		},
+		VersionList: func() ([]AppVersion, error) {
+			return minioVersions(), nil
+		},
+		NativeVersionURL: func(ver, goarch string) (string, error) {
+			return minioVersionURL(ver, goarch)
+		},
 		Native: &NativeSpec{
 			URLs: map[string]string{
 				"amd64": "https://dl.min.io/server/minio/release/linux-amd64/minio",
 				"arm64": "https://dl.min.io/server/minio/release/linux-arm64/minio",
 			},
 			Archive: false, Binary: "minio",
+			MirrorPaths: map[string]map[string]string{
+				"minio-cn": {
+					"amd64": "server/minio/release/linux-amd64/minio",
+					"arm64": "server/minio/release/linux-arm64/minio",
+				},
+			},
+			VersionMirrorPaths: map[string]map[string]string{
+				"minio-cn": {
+					"amd64": "server/minio/release/linux-amd64/archive/minio.{{ver}}",
+					"arm64": "server/minio/release/linux-arm64/archive/minio.{{ver}}",
+				},
+			},
 			Dirs: []string{"data"},
 			Env: func(p map[string]string) map[string]string {
 				return map[string]string{
@@ -1095,7 +1158,7 @@ func (m *Module) listTemplates(c *gin.Context) {
 		if t.Kind == "package" {
 			item["soft_sources"] = supportedPkgSources()
 		} else if t.Kind == "native" && t.Native != nil {
-			item["soft_sources"] = supportedSoftSources(t.Native.URLs, t.Native.MirrorPaths)
+			item["soft_sources"] = supportedSoftSources(t.Native.URLs, t.Native.MirrorPaths, t.Native.VersionMirrorPaths)
 			item["tool"] = t.Native.Tool
 		}
 		out = append(out, item)
@@ -1115,7 +1178,7 @@ func (m *Module) listTemplates(c *gin.Context) {
 		if d.Kind == "package" {
 			item["soft_sources"] = supportedPkgSources()
 		} else if d.Kind == "native" && d.Native != nil {
-			item["soft_sources"] = supportedSoftSources(d.Native.URLs, d.Native.MirrorPaths)
+			item["soft_sources"] = supportedSoftSources(d.Native.URLs, d.Native.MirrorPaths, d.Native.VersionMirrorPaths)
 			item["tool"] = d.Native.Tool
 		}
 		out = append(out, item)
@@ -1153,7 +1216,7 @@ func aptMirrorInstallShell(msrc SoftwareSource, pkgs []string) string {
 }
 
 // supportedSoftSources 计算原生应用可用的软件源 ID（官方/自动恒可用，其余按发布渠道与镜像站收录判断）。
-func supportedSoftSources(urls map[string]string, mirrorPaths map[string]map[string]string) []string {
+func supportedSoftSources(urls map[string]string, mirrorPaths, versionMirrorPaths map[string]map[string]string) []string {
 	ids := []string{"auto", "official"}
 	isGitHub := false
 	for _, u := range urls {
@@ -1169,7 +1232,7 @@ func supportedSoftSources(urls map[string]string, mirrorPaths map[string]map[str
 			}
 			continue
 		}
-		if s.Base != "" && mirrorPaths[s.ID] != nil {
+		if s.Base != "" && (mirrorPaths[s.ID] != nil || versionMirrorPaths[s.ID] != nil) {
 			ids = append(ids, s.ID)
 		}
 	}
@@ -1333,34 +1396,25 @@ func (m *Module) installNative(tpl *Template, name, version string, p map[string
 	spec := tpl.Native
 	arch := runtime.GOARCH
 	var rawURL, sourceNote string
-	if version != "" && version != tpl.DefaultVersion && tpl.NativeVersionURL != nil {
+	if version != "" && tpl.NativeVersionURL != nil && (version != tpl.DefaultVersion || tpl.Key == "minio") {
+		if !versionTokenRe.MatchString(version) {
+			return "", fmt.Errorf("版本号非法: %s", version)
+		}
 		u, uerr := tpl.NativeVersionURL(version, arch)
 		if uerr != nil {
 			return "", uerr
 		}
-		// 与 resolveNativeURL 相同的 GitHub 加速语义
-		sourceNote = "指定版本 " + version
-		switch srcID {
-		case "", "auto":
-			for _, s := range softwareSources {
-				if s.GitHub != "" && strings.Contains(u, "github.com/") {
-					u = applyGitHubMirror(u, s.GitHub)
-					sourceNote += "（" + s.Name + "）"
-					break
-				}
-			}
-		default:
-			for _, s := range softwareSources {
-				if s.ID == srcID {
-					if s.GitHub != "" && strings.Contains(u, "github.com/") {
-						u = applyGitHubMirror(u, s.GitHub)
-						sourceNote += "（" + s.Name + "）"
-					}
-					break
-				}
-			}
+		versionParams := cloneParams(p)
+		versionParams["ver"] = version
+		paths := spec.MirrorPaths
+		if version != "latest" && len(spec.VersionMirrorPaths) > 0 {
+			paths = spec.VersionMirrorPaths
 		}
-		rawURL = u
+		var rerr error
+		rawURL, sourceNote, rerr = resolveNativeURL(map[string]string{arch: u}, paths, arch, srcID, versionParams)
+		if rerr != nil {
+			return "", rerr
+		}
 	} else {
 		var rerr error
 		rawURL, sourceNote, rerr = resolveNativeURL(spec.URLs, spec.MirrorPaths, arch, srcID, p)
@@ -1637,6 +1691,14 @@ func orParams(p map[string]string) map[string]string {
 	return p
 }
 
+func cloneParams(p map[string]string) map[string]string {
+	out := make(map[string]string, len(p)+1)
+	for k, v := range p {
+		out[k] = v
+	}
+	return out
+}
+
 func tailOf(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > 1024 {
@@ -1666,9 +1728,13 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 	if distro == "" {
 		return "", nil, "", fmt.Errorf("未找到 apt-get/dnf/yum 包管理器")
 	}
+	if version != "" && version != "distro" && !versionTokenRe.MatchString(version) {
+		return "", nil, "", fmt.Errorf("版本号非法: %s", version)
+	}
 	var pkgs []string
 	var unit string
 	var srcNote string
+	useAptMirror := false
 	if tpl.PkgInstallVer != nil && version != "" && version != "distro" {
 		pre, pk, post, u, note, err := tpl.PkgInstallVer(version, distro, srcID)
 		if err != nil {
@@ -1681,6 +1747,7 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 		}
 		pkgs, unit = pk, u
 		srcNote = note
+		useAptMirror = tpl.Key == "memcached-pkg" && distro == "apt"
 		defer func() {
 			for _, cmd := range post {
 				_, _, _ = execx.RunShell("appstore:pkg", 10*time.Minute, cmd)
@@ -1707,7 +1774,14 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 	switch distro {
 	case "apt":
 		aptBase := "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; rc=$?; systemctl start unattended-upgrades || true; exit $rc"
-		if strings.HasPrefix(srcNote, "mirror:") {
+		if useAptMirror {
+			msrc, ok := aptMirrorSource(srcID)
+			if ok {
+				installCmd = aptMirrorInstallShell(msrc, pkgs)
+			} else {
+				installCmd = aptBase
+			}
+		} else if strings.HasPrefix(srcNote, "mirror:") {
 			msrc, _ := aptMirrorSource(srcID)
 			installCmd = aptMirrorInstallShell(msrc, pkgs)
 		} else {
@@ -1969,6 +2043,9 @@ var cleanVerRe = regexp.MustCompile(`^\d+(\.\d+)*$`)
 
 var nginxRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
+// versionTokenRe 允许上游包管理器/发行包使用的版本字符，拒绝路径和 shell 元字符。
+var versionTokenRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+~:-]{0,79}$`)
+
 func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -1985,6 +2062,117 @@ func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
+// parseAptMadisonVersions 提取 apt-cache madison 的完整包版本号。
+func parseAptMadisonVersions(output string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.Split(line, "|")
+		if len(parts) < 2 {
+			continue
+		}
+		ver := strings.TrimSpace(parts[1])
+		if ver == "" || !versionTokenRe.MatchString(ver) || seen[ver] {
+			continue
+		}
+		seen[ver] = true
+		out = append(out, ver)
+	}
+	return out
+}
+
+// aptVersionAvailable 检查完整 apt 包版本是否仍在本机索引中。
+func aptVersionAvailable(pkg, version string) bool {
+	if !versionTokenRe.MatchString(version) {
+		return false
+	}
+	out, _, err := execx.Run("appstore", 20*time.Second, "apt-cache", "madison", pkg)
+	if err != nil {
+		return false
+	}
+	for _, v := range parseAptMadisonVersions(out) {
+		if v == version {
+			return true
+		}
+	}
+	return false
+}
+
+// memcachedVersions 返回当前发行版 apt 索引中可锁定安装的 Memcached 版本。
+func memcachedVersions() []AppVersion {
+	out := []AppVersion{{Version: "distro", Note: "发行版最新"}}
+	if detectPkgManager() != "apt" {
+		return out
+	}
+	raw, _, err := execx.Run("appstore", 20*time.Second, "apt-cache", "madison", "memcached")
+	if err != nil {
+		return out
+	}
+	for _, v := range parseAptMadisonVersions(raw) {
+		out = append(out, AppVersion{Version: v, Note: "发行版精确包版本"})
+	}
+	return out
+}
+
+var minioReleaseRe = regexp.MustCompile(`minio\.(RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z)`)
+
+// minioVersions 从 MinIO 官方归档目录读取版本；官方目录失效时仍保留 latest 选项。
+func minioVersions() []AppVersion {
+	out := []AppVersion{{Version: "latest", Note: "官方最新"}}
+	arch := runtime.GOARCH
+	if arch != "amd64" && arch != "arm64" {
+		return out
+	}
+	base := "https://dl.min.io/server/minio/release/linux-" + arch + "/archive/"
+	data, err := httpGet(base, 20*time.Second, 8<<20)
+	if err != nil {
+		base = "https://dl.minio.org.cn/server/minio/release/linux-" + arch + "/archive/"
+		data, err = httpGet(base, 20*time.Second, 8<<20)
+	}
+	if err != nil {
+		return out
+	}
+	seen := map[string]bool{}
+	for _, m := range minioReleaseRe.FindAllStringSubmatch(string(data), -1) {
+		if len(m) < 2 || seen[m[1]] {
+			continue
+		}
+		seen[m[1]] = true
+		out = append(out, AppVersion{Version: m[1], Note: "MinIO 官方归档"})
+	}
+	if len(out) > 1 {
+		sort.Slice(out[1:], func(i, j int) bool { return out[i+1].Version > out[j+1].Version })
+	}
+	return out
+}
+
+func minioVersionURL(version, arch string) (string, error) {
+	if version == "latest" {
+		var err error
+		version, err = minioLatestVersion()
+		if err != nil {
+			return "", err
+		}
+	}
+	return "https://github.com/minio/minio/releases/download/" + version + "/minio.linux-" + arch + "." + version, nil
+}
+
+func minioLatestVersion() (string, error) {
+	data, err := httpGet("https://api.github.com/repos/minio/minio/releases?per_page=1", 20*time.Second, 1<<20)
+	if err != nil {
+		return "", err
+	}
+	var releases []struct {
+		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
+		Pre     bool   `json:"prerelease"`
+	}
+	if err := json.Unmarshal(data, &releases); err != nil || len(releases) == 0 || releases[0].TagName == "" {
+		return "", fmt.Errorf("MinIO 官方版本清单解析失败")
+	}
+	return releases[0].TagName, nil
 }
 
 type ghTagEntry struct {

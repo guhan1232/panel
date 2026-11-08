@@ -188,6 +188,8 @@ var softwareSources = []SoftwareSource{
 	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn",
 		AptUbuntu: "https://mirrors.ustc.edu.cn/ubuntu", AptDebian: "https://mirrors.ustc.edu.cn/debian",
 		Desc: "mirrors.ustc.edu.cn"},
+	{ID: "minio-cn", Name: "MinIO 中国镜像", Base: "https://dl.minio.org.cn",
+		Desc: "dl.minio.org.cn"},
 }
 
 func listSoftSources(c *gin.Context) {
@@ -208,6 +210,18 @@ func resolveNativeURL(urls map[string]string, mirrorPaths map[string]map[string]
 		for _, s := range softwareSources {
 			if s.GitHub != "" && strings.Contains(raw, "github.com/") {
 				return applyGitHubMirror(raw, s.GitHub), "自动 → " + s.Name, nil
+			}
+		}
+		for _, s := range softwareSources {
+			if s.Base == "" {
+				continue
+			}
+			if path, ok := mirrorPaths[s.ID][arch]; ok && path != "" {
+				path = substitute(path, p)
+				if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+					path = strings.TrimRight(s.Base, "/") + "/" + strings.TrimLeft(path, "/")
+				}
+				return path, "自动 → " + s.Name, nil
 			}
 		}
 		return raw, "官方直连", nil
