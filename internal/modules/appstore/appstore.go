@@ -5,6 +5,7 @@ package appstore
 
 import (
 	"encoding/json"
+	goruntime "runtime"
 	"fmt"
 	"log/slog"
 	"os"
@@ -58,10 +59,11 @@ type Template struct {
 	Key    string      `json:"key"`
 	Name   string      `json:"name"`
 	Desc   string      `json:"desc"`
-	Kind   string      `json:"kind"` // compose | native
+	Kind   string      `json:"kind"` // compose | native | package
 	Params []Param     `json:"params"`
 	Gen    func(p map[string]string) (string, error) // compose 用
 	Native *NativeSpec                               // native 用
+	Pkg    func(distro string) ([]string, string, error) // package 用: 返回(包列表, systemd 单元)
 }
 
 // AppInst 已安装实例。
@@ -71,7 +73,8 @@ type AppInst struct {
 	AppKey    string    `gorm:"size:32" json:"app_key"`
 	Kind      string    `gorm:"size:16" json:"kind"`   // compose | native（历史空值按 compose）
 	Tool      bool      `json:"tool"`                  // native 工具类（无 systemd 服务）
-	Binary    string    `gorm:"size:64" json:"binary"` // native 二进制名（卸载软链用）
+	Binary    string    `gorm:"size:64" json:"binary"` // native 二进制名 / package 的 systemd 单元
+	Pkgs      string    `gorm:"size:256" json:"pkgs"`  // package 空格分隔的包名（卸载用）
 	Params    string    `gorm:"type:text" json:"params"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -465,6 +468,57 @@ volumes:
       - ./data:/data
     restart: always
 `, port), nil
+		},
+	},
+	{
+		Key: "nginx-pkg", Name: "Nginx", Desc: "Web 服务器/反向代理（系统包，apt/dnf 安装）", Kind: "package",
+		Params: []Param{},
+		Pkg: func(distro string) ([]string, string, error) {
+			return []string{"nginx"}, "nginx", nil
+		},
+	},
+	{
+		Key: "mariadb", Name: "MySQL / MariaDB", Desc: "关系型数据库（系统包 mariadb-server， systemd 托管）", Kind: "package",
+		Params: []Param{},
+		Pkg: func(distro string) ([]string, string, error) {
+			return []string{"mariadb-server", "mariadb-client"}, "mariadb", nil
+		},
+	},
+	{
+		Key: "php-pkg", Name: "PHP", Desc: "PHP-FPM + 常用扩展（系统包，配合网站模块建 PHP 站）", Kind: "package",
+		Params: []Param{},
+		Pkg: func(distro string) ([]string, string, error) {
+			if distro == "apt" {
+				return []string{"php-fpm", "php-mysql", "php-gd", "php-curl", "php-xml", "php-mbstring"}, "php-fpm", nil
+			}
+			return []string{"php-fpm", "php-mysqlnd", "php-gd", "php-curl", "php-xml", "php-mbstring"}, "php-fpm", nil
+		},
+	},
+	{
+		Key: "redis-pkg", Name: "Redis", Desc: "内存数据库/缓存（系统包）", Kind: "package",
+		Params: []Param{},
+		Pkg: func(distro string) ([]string, string, error) {
+			if distro == "apt" {
+				return []string{"redis-server"}, "redis-server", nil
+			}
+			return []string{"redis"}, "redis", nil
+		},
+	},
+	{
+		Key: "postgresql-pkg", Name: "PostgreSQL", Desc: "关系型数据库（系统包）", Kind: "package",
+		Params: []Param{},
+		Pkg: func(distro string) ([]string, string, error) {
+			if distro == "apt" {
+				return []string{"postgresql"}, "postgresql", nil
+			}
+			return []string{"postgresql-server"}, "postgresql", nil
+		},
+	},
+	{
+		Key: "memcached-pkg", Name: "Memcached", Desc: "内存缓存（系统包）", Kind: "package",
+		Params: []Param{},
+		Pkg: func(distro string) ([]string, string, error) {
+			return []string{"memcached"}, "memcached", nil
 		},
 	},
 	{
@@ -904,6 +958,14 @@ func (m *Module) list(c *gin.Context) {
 }
 
 func (m *Module) statusText(r *AppInst) string {
+	if r.Kind == "package" {
+		out, _, err := execx.Run("appstore", 10*time.Second, "systemctl", "is-active", r.Binary)
+		state := strings.TrimSpace(out)
+		if err != nil || state == "" {
+			return "未知（systemd 不可用）"
+		}
+		return state
+	}
 	if r.Kind == "native" && r.Tool {
 		return "已安装（工具类）"
 	}
@@ -958,7 +1020,14 @@ func (m *Module) install(c *gin.Context) {
 
 	var status string
 	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
-	if tpl.Kind == "native" {
+	if tpl.Kind == "package" {
+		s, err := m.installPackage(tpl, req.Name, p)
+		if err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		status = s
+	} else if tpl.Kind == "native" {
 		s, err := m.installNative(tpl, req.Name, p, req.Mirror)
 		if err != nil {
 			core.Err(c, 500, err.Error())
@@ -1168,7 +1237,9 @@ func (m *Module) start(c *gin.Context) {
 	var out string
 	var code int
 	var err error
-	if r.Kind == "native" {
+	if r.Kind == "package" {
+		out, code, err = execx.Run("appstore", 60*time.Second, "systemctl", "start", r.Binary)
+	} else if r.Kind == "native" {
 		out, code, err = execx.Run("appstore", 60*time.Second, "systemctl", "start", m.unitName(r.Name))
 	} else {
 		out, code, err = execx.Run("appstore", 15*time.Minute, "docker", composeArgs(m.composeFile(r.Name), "up", "-d")...)
@@ -1188,7 +1259,9 @@ func (m *Module) stop(c *gin.Context) {
 	var out string
 	var code int
 	var err error
-	if r.Kind == "native" {
+	if r.Kind == "package" {
+		out, code, err = execx.Run("appstore", 60*time.Second, "systemctl", "stop", r.Binary)
+	} else if r.Kind == "native" {
 		out, code, err = execx.Run("appstore", 60*time.Second, "systemctl", "stop", m.unitName(r.Name))
 	} else {
 		out, code, err = execx.Run("appstore", 5*time.Minute, "docker", composeArgs(m.composeFile(r.Name), "stop")...)
@@ -1208,7 +1281,9 @@ func (m *Module) restart(c *gin.Context) {
 	var out string
 	var code int
 	var err error
-	if r.Kind == "native" {
+	if r.Kind == "package" {
+		out, code, err = execx.Run("appstore", 60*time.Second, "systemctl", "restart", r.Binary)
+	} else if r.Kind == "native" {
 		out, code, err = execx.Run("appstore", 60*time.Second, "systemctl", "restart", m.unitName(r.Name))
 	} else {
 		out, code, err = execx.Run("appstore", 5*time.Minute, "docker", composeArgs(m.composeFile(r.Name), "restart")...)
@@ -1227,7 +1302,9 @@ func (m *Module) logs(c *gin.Context) {
 	}
 	var out string
 	var err error
-	if r.Kind == "native" {
+	if r.Kind == "package" {
+		out, _, err = execx.Run("appstore", 30*time.Second, "journalctl", "-u", r.Binary, "-n", "200", "--no-pager")
+	} else if r.Kind == "native" {
 		out, _, err = execx.Run("appstore", 30*time.Second, "journalctl", "-u", m.unitName(r.Name), "-n", "200", "--no-pager")
 	} else {
 		out, _, err = execx.Run("appstore", 30*time.Second, "docker", composeArgs(m.composeFile(r.Name), "logs", "--tail=200")...)
@@ -1249,7 +1326,16 @@ func (m *Module) uninstall(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&req)
 
-	if r.Kind == "native" {
+	if r.Kind == "package" {
+		_, _, _ = execx.Run("appstore", 60*time.Second, "systemctl", "disable", "--now", r.Binary)
+		if r.Pkgs != "" {
+			if detectPkgManager() == "apt" {
+				_, _, _ = execx.RunShell("appstore:uninstall", 10*time.Minute, "DEBIAN_FRONTEND=noninteractive apt-get purge -y "+r.Pkgs)
+			} else {
+				_, _, _ = execx.RunShell("appstore:uninstall", 10*time.Minute, "dnf remove -y "+r.Pkgs)
+			}
+		}
+	} else if r.Kind == "native" {
 		if r.Tool {
 			if r.Binary != "" {
 				_ = os.Remove(filepath.Join("/usr/local/bin", r.Binary))
@@ -1288,4 +1374,54 @@ func tailOf(s string) string {
 		return "..." + s[len(s)-1024:]
 	}
 	return s
+}
+
+// detectPkgManager 检测系统包管理器：apt | dnf | yum | 空。
+func detectPkgManager() string {
+	for _, m := range []string{"apt-get", "dnf", "yum"} {
+		if _, err := os.Stat("/usr/bin/" + m); err == nil {
+			return strings.TrimSuffix(m, "-get")
+		}
+	}
+	return ""
+}
+
+// installPackage 系统包安装：包管理器安装 → systemctl enable --now。
+func (m *Module) installPackage(tpl *Template, name string, p map[string]string) (string, error) {
+	if goruntime.GOOS != "linux" {
+		return "", fmt.Errorf("系统包安装仅支持在 Linux 服务器上执行")
+	}
+	distro := detectPkgManager()
+	if distro == "" {
+		return "", fmt.Errorf("未找到 apt-get/dnf/yum 包管理器")
+	}
+	pkgs, unit, err := tpl.Pkg(distro)
+	if err != nil {
+		return "", err
+	}
+	if len(pkgs) == 0 || unit == "" {
+		return "", fmt.Errorf("模板包定义不完整")
+	}
+	var installCmd string
+	switch distro {
+	case "apt":
+		installCmd = "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y " + strings.Join(pkgs, " ")
+	case "dnf":
+		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
+	default:
+		installCmd = "yum install -y " + strings.Join(pkgs, " ")
+	}
+	if out, code, err := execx.RunShell("appstore:pkg", 20*time.Minute, installCmd); err != nil {
+		return "", fmt.Errorf("包安装失败(exit %d): %s", code, tailOf(out))
+	}
+	if _, code, err := execx.Run("appstore", 60*time.Second, "systemctl", "enable", "--now", unit); err != nil {
+		return "", fmt.Errorf("服务启动失败(exit %d): %s", code, unit)
+	}
+	time.Sleep(2 * time.Second)
+	stateOut, _, _ := execx.Run("appstore", 10*time.Second, "systemctl", "is-active", unit)
+	state := strings.TrimSpace(stateOut)
+	if state != "active" {
+		return "", fmt.Errorf("服务未进入 active 状态（当前 %s），请检查 journalctl -u %s", state, unit)
+	}
+	return fmt.Sprintf("已安装并启动（%s，服务 %s）", strings.Join(pkgs, " "), unit), nil
 }

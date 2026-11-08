@@ -17,7 +17,7 @@
             <div class="wm-tpl-card__top">
               <h3 class="wm-tpl-card__name">{{ t.name }}</h3>
               <div class="wm-tpl-card__pills">
-                <WmStatusPill :label="t.tool ? '工具' : '服务'" :tone="t.tool ? 'info' : 'warning'" :dot="false" outline />
+                <WmStatusPill :label="kindLabel(t.kind)" :tone="t.kind === 'package' ? 'success' : t.kind === 'native' ? 'warning' : 'info'" :dot="false" outline />
                 <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
               </div>
             </div>
@@ -115,7 +115,7 @@
           <el-table-column label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></el-table-column>
           <el-table-column label="软件" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></el-table-column>
           <el-table-column label="形态" width="90">
-            <template #default="{ row }"><WmStatusPill :label="row.app.tool ? '工具' : '服务'" :tone="row.app.tool ? 'info' : 'warning'" :dot="false" outline /></template>
+            <template #default="{ row }"><WmStatusPill :label="kindLabel(row.app.kind)" :tone="row.app.kind === 'package' ? 'success' : row.app.kind === 'native' ? 'warning' : 'info'" :dot="false" outline /></template>
           </el-table-column>
           <el-table-column label="状态" min-width="200"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></el-table-column>
           <el-table-column label="安装时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></el-table-column>
@@ -137,12 +137,15 @@
     <el-dialog v-model="dlg" :title="`安装 ${cur?.name || ''}`" width="560px">
       <el-form label-width="110px">
         <el-form-item label="实例名称"><el-input v-model="instName" placeholder="如 prod-node" /></el-form-item>
-        <el-form-item label="下载源">
+        <el-form-item v-if="cur?.kind !== 'package'" label="下载源">
           <el-select v-model="instSource" style="width: 100%">
             <el-option v-for="s in sources" :key="s.id" :label="s.name"
               :value="s.id" :disabled="cur && cur.soft_sources && !cur.soft_sources.includes(s.id)" />
           </el-select>
           <div class="hint">镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道</div>
+        </el-form-item>
+        <el-form-item v-if="cur?.kind === 'package'" label="安装方式">
+          <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
         </el-form-item>
         <el-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
           <el-input v-model="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
@@ -180,6 +183,7 @@ const logDlg = ref(false)
 const logName = ref('')
 const logContent = ref('')
 
+const kindLabel = (k: string) => ({ native: '二进制', package: '系统包', compose: '容器' } as any)[k] || k
 const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
 
 const runtimes = ref<any[]>([])
@@ -329,8 +333,8 @@ async function load() {
   loading.value = true
   try {
     loadRuntimes()
-    templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind === 'native')
-    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind === 'native')
+    templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind === 'native' || t.kind === 'package')
+    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind === 'native' || a.app.kind === 'package')
     sources.value = (await api.get('/apps/soft-sources')) as any
   } finally {
     loading.value = false

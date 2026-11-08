@@ -263,6 +263,9 @@ webmblx/
 > v0.14 已交付：Python pypi 源管理（清华/阿里云/中科大/华为云/腾讯云/豆瓣/官方，经 pip3 config 写入）。
 > v0.15 已交付：OpenJDK 多源（清华 Temurin + 华为云通用构建，均实测目录可达），源架构按发行版可扩展。
 
+> v0.16 已交付：依赖漏洞修复（go-jose/quic-go/echarts 升级 + Go 工具链 1.26.10，govulncheck 清零）。
+> v0.17 已交付：软件商店新增「系统包」安装形态——Nginx/MySQL(MariaDB)/PHP-FPM/Redis/PostgreSQL/Memcached 走 apt/dnf，与二进制应用统一管理界面。
+
 ### P2 收官后展望（未排期）
 
 - 任务/告警按节点维度下发（agent exec 通道已就绪，需 cron/告警模块加节点维度）
