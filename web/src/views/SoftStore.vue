@@ -1,182 +1,238 @@
 <template>
-  <div class="wm-page">
-    <WmSectionCard title="软件商店" description="原生二进制应用一键部署：下载源可选官方直连、GitHub 加速或阿里云/腾讯云/清华/中科大镜像站" flush>
-      <WmToolbar>
-        <WmStatusPill :label="`${templates.length} 个软件`" tone="info" :dot="false" />
-        <el-button size="small" @click="load">刷新</el-button>
-        <template #note>服务类应用由 systemd 托管（webmblx-app-*）；工具类（Node.js/Go 等）解压后软链到 /usr/local/bin。服务日志走 journalctl。</template>
-      </WmToolbar>
-
-      <div class="wm-section-block">
-        <div class="wm-section-block__head">
-          <span class="wm-eyebrow">可安装软件</span>
-          <span class="wm-text-muted">内置 {{ builtinCount }} · 镜像源 {{ remoteCount }} 个</span>
+  <div class="wm-page store-page">
+    <!-- Control strip: search, source filter, quick counters -->
+    <WmSectionCard dense class="store-control">
+      <div class="store-control__row">
+        <div class="store-control__stats">
+          <div class="store-stat"><span>可安装软件</span><b>{{ templates.length }}</b></div>
+          <div class="store-stat"><span>内置模板</span><b>{{ builtinCount }}</b></div>
+          <div class="store-stat"><span>镜像源</span><b>{{ remoteCount }}</b></div>
+          <div class="store-stat"><span>已安装实例</span><b>{{ apps.length }}</b></div>
         </div>
-        <div class="wm-tpl-grid" v-if="templates.length">
-          <article v-for="t in templates" :key="t.key" class="wm-tpl-card">
-            <div class="wm-tpl-card__top">
-              <h3 class="wm-tpl-card__name">{{ t.name }}</h3>
-              <div class="wm-tpl-card__pills">
-                <WmStatusPill :label="kindLabel(t.kind)" :tone="t.kind === 'package' ? 'success' : t.kind === 'native' ? 'warning' : 'info'" :dot="false" outline />
-                <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
-              </div>
-            </div>
-            <p class="wm-tpl-card__desc">{{ t.desc }}<template v-if="t.version"> · v{{ t.version }}</template></p>
-            <el-button size="small" type="primary" class="wm-tpl-card__btn" @click="openInstall(t)">安装</el-button>
-          </article>
+        <div class="store-control__actions">
+          <a-input v-model:value="keyword" placeholder="搜索软件或运行时" allow-clear style="width: 220px">
+            <template #prefix><SearchOutlined /></template>
+          </a-input>
+          <a-radio-group v-model:value="sourceFilter" size="small">
+            <a-radio-button value="all">全部</a-radio-button>
+            <a-radio-button value="builtin">内置</a-radio-button>
+            <a-radio-button value="remote">镜像源</a-radio-button>
+          </a-radio-group>
+          <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
         </div>
-        <WmEmptyState v-else compact title="加载中" description="正在读取软件清单。" />
-      </div>
-
-      <div class="wm-section-block">
-        <div class="wm-section-block__head">
-          <span class="wm-eyebrow">运行时环境</span>
-          <span class="wm-text-muted">编程语言多版本共存，安装后软链 /usr/local/bin</span>
-        </div>
-        <div class="wm-tpl-grid">
-          <article v-for="r in runtimes" :key="r.key" class="wm-tpl-card">
-            <div class="wm-tpl-card__top">
-              <h3 class="wm-tpl-card__name">{{ r.name }}</h3>
-              <WmStatusPill :label="`${r.installed.length} 个版本`" tone="info" :dot="false" />
-            </div>
-            <p class="wm-tpl-card__desc">{{ r.desc }}</p>
-            <div class="rt-chips" v-if="r.installed.length">
-              <el-tag v-for="i in r.installed" :key="i.id" size="small" :type="i.is_default ? 'success' : 'info'">{{ i.version }}{{ i.is_default ? ' · 默认' : '' }}</el-tag>
-            </div>
-            <el-button size="small" type="primary" class="wm-tpl-card__btn" @click="openRt(r)">安装 / 管理版本</el-button>
-          </article>
-        </div>
-      </div>
-
-      <el-drawer v-model="rtDlg" size="62%" :title="`运行时版本 - ${rtLang?.name || ''}`">
-        <div class="toolbar">
-          <el-select v-model="rtSource" style="width: 190px" @change="loadVersions">
-            <el-option v-for="s in rtLang?.sources || []" :key="s.id" :label="s.name" :value="s.id" />
-          </el-select>
-          <el-select v-model="rtFilterMode" style="width: 150px">
-            <el-option label="显示常用版本" value="common" />
-            <el-option label="只显示LTS版本" value="lts" />
-            <el-option label="显示所有版本" value="all" />
-          </el-select>
-          <el-input v-model="rtFilter" placeholder="版本过滤" style="width: 140px" clearable />
-          <el-button size="small" @click="loadVersions">更新版本列表</el-button>
-          <span class="hint">共 {{ filteredVersions.length }} 个</span>
-          <template v-if="rtLang?.key === 'nodejs'">
-            <span class="hint">registry源</span>
-            <el-select v-model="npmRegistry" placeholder="未设置" style="width: 200px" :loading="regLoading" @change="saveRegistry">
-              <el-option v-for="o in registryOptions" :key="o.id" :label="o.name" :value="o.id" />
-            </el-select>
-          </template>
-          <template v-if="rtLang?.key === 'python'">
-            <span class="hint">pypi源</span>
-            <el-select v-model="pypiIndex" placeholder="未设置" style="width: 240px" :loading="pypiLoading" @change="savePypi">
-              <el-option v-for="o in pypiOptions" :key="o.id" :label="o.name" :value="o.id" />
-            </el-select>
-          </template>
-          <template v-if="rtLang?.key === 'php'">
-            <span class="hint">Composer源</span>
-            <el-select v-model="composerUrl" placeholder="未设置" style="width: 210px" :loading="composerLoading" @change="saveComposer">
-              <el-option v-for="o in composerMirrorOptions" :key="o.id" :label="o.name" :value="o.id" />
-            </el-select>
-            <el-button v-if="!composerInstalled" size="small" type="primary" plain :loading="composerInstalling" @click="installComposer">安装 Composer</el-button>
-            <span class="hint">PECL源</span>
-            <el-select v-model="peclMirror" placeholder="未设置" style="width: 190px" @change="savePecl">
-              <el-option v-for="o in peclOptions" :key="o.id" :label="o.name" :value="o.id" />
-            </el-select>
-          </template>
-          <template v-if="rtInstalled.length && rtLang?.key === 'nodejs'">
-            <span class="hint">命令行版本</span>
-            <el-select v-model="defaultInstId" style="width: 160px" @change="setDefaultById">
-              <el-option v-for="i in rtInstalled" :key="i.id" :label="i.version" :value="i.id" />
-            </el-select>
-          </template>
-        </div>
-        <el-table :data="filteredVersions" v-loading="rtLoading" size="small" max-height="380">
-          <el-table-column label="版本" width="150">
-            <template #default="{ row }"><b>{{ row.version }}</b> <el-tag v-if="row.lts" size="small" type="success">LTS</el-tag></template>
-          </el-table-column>
-          <el-table-column v-if="rtLang?.key === 'nodejs'" label="NPM" width="90"><template #default="{ row }">{{ row.npm || '-' }}</template></el-table-column>
-          <el-table-column v-if="rtLang?.key === 'nodejs'" label="V8" width="110"><template #default="{ row }">{{ row.v8 || '-' }}</template></el-table-column>
-          <el-table-column label="发布日期" width="120"><template #default="{ row }">{{ row.date || '-' }}</template></el-table-column>
-          <el-table-column label="操作" width="110">
-            <template #default="{ row }"><el-button size="small" type="primary" :loading="installingVer === row.version" @click="installVer(row)">安装</el-button></template>
-          </el-table-column>
-        </el-table>
-        <h4 style="margin: 16px 0 8px">已安装</h4>
-        <el-table :data="rtInstalled" size="small">
-          <el-table-column prop="version" label="版本" width="150" />
-          <el-table-column label="默认" width="70"><template #default="{ row }"><el-tag v-if="row.is_default" size="small" type="success">默认</el-tag><span v-else>-</span></template></el-table-column>
-          <el-table-column label="软件路径" min-width="220"><template #default="{ row }"><span class="mono">{{ row.dir }}</span></template></el-table-column>
-          <el-table-column label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
-          <el-table-column label="操作" width="180">
-            <template #default="{ row }">
-              <el-button size="small" :disabled="row.is_default || rtLang?.key === 'php'" @click="setDefault(row)">设为默认</el-button>
-              <el-button size="small" type="danger" @click="rmRuntime(row)">卸载</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-drawer>
-
-      <div class="wm-section-block wm-section-block--table">
-        <div class="wm-section-block__head">
-          <span class="wm-eyebrow">已安装软件</span>
-          <span class="wm-text-muted">{{ apps.length }} 个实例</span>
-        </div>
-        <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从上方选择软件，选择下载源即可安装。">
-          <el-table-column label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></el-table-column>
-          <el-table-column label="软件" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></el-table-column>
-          <el-table-column label="形态" width="90">
-            <template #default="{ row }"><WmStatusPill :label="kindLabel(row.app.kind)" :tone="row.app.kind === 'package' ? 'success' : row.app.kind === 'native' ? 'warning' : 'info'" :dot="false" outline /></template>
-          </el-table-column>
-          <el-table-column label="状态" min-width="200"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></el-table-column>
-          <el-table-column label="安装时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></el-table-column>
-          <el-table-column label="操作" width="310" fixed="right">
-            <template #default="{ row }">
-              <template v-if="!row.app.tool">
-                <el-button size="small" type="success" @click="act(row, 'start')">启动</el-button>
-                <el-button size="small" type="warning" @click="act(row, 'stop')">停止</el-button>
-                <el-button size="small" @click="act(row, 'restart')">重启</el-button>
-              </template>
-              <el-button size="small" @click="viewLogs(row)">日志</el-button>
-              <el-button size="small" type="danger" @click="uninstall(row)">卸载</el-button>
-            </template>
-          </el-table-column>
-        </WmTable>
       </div>
     </WmSectionCard>
 
-    <el-dialog v-model="dlg" :title="`安装 ${cur?.name || ''}`" width="560px">
-      <el-form label-width="110px">
-        <el-form-item label="实例名称"><el-input v-model="instName" placeholder="如 prod-node" /></el-form-item>
-        <el-form-item v-if="cur?.kind !== 'package'" label="下载源">
-          <el-select v-model="instSource" style="width: 100%">
-            <el-option v-for="s in sources" :key="s.id" :label="s.name"
-              :value="s.id" :disabled="cur && cur.soft_sources && !cur.soft_sources.includes(s.id)" />
-          </el-select>
-          <div class="hint">镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道</div>
-        </el-form-item>
-        <el-form-item v-if="cur?.kind === 'package'" label="安装方式">
-          <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
-        </el-form-item>
-        <el-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
-          <el-input v-model="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="deploying" @click="deploy">安装（下载发行包可能较慢）</el-button>
-      </template>
-    </el-dialog>
+    <a-row :gutter="16" class="store-grid">
+      <a-col :xs="24" :xl="16">
+        <WmSectionCard title="可安装软件" description="原生二进制与系统包一键部署，下载源可在安装时选择">
+          <template #actions><span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span></template>
+          <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
+            <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8">
+              <div class="store-card">
+                <div class="store-card__head">
+                  <span class="store-card__avatar">{{ (t.name || '?').slice(0, 1) }}</span>
+                  <div class="store-card__title">
+                    <b class="wm-truncate">{{ t.name }}</b>
+                    <span v-if="t.version" class="store-card__ver">v{{ t.version }}</span>
+                  </div>
+                </div>
+                <p class="store-card__desc">{{ t.desc }}</p>
+                <div class="store-card__tags">
+                  <WmStatusPill :label="kindLabel(t.kind)" :tone="t.kind === 'package' ? 'success' : t.kind === 'native' ? 'warning' : 'info'" :dot="false" outline />
+                  <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
+                </div>
+                <div class="store-card__foot">
+                  <a-button type="primary" size="small" @click="openInstall(t)">安装</a-button>
+                </div>
+              </div>
+            </a-col>
+          </a-row>
+          <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词，或把来源筛选切回「全部」。" />
+        </WmSectionCard>
 
-    <el-dialog v-model="logDlg" :title="`日志 - ${logName}`" width="820px">
+        <WmSectionCard title="运行时环境" description="编程语言多版本共存，安装后软链到 /usr/local/bin">
+          <template #actions><span class="wm-text-muted">{{ filteredRuntimes.length }} 个运行时</span></template>
+          <a-row :gutter="[12, 12]" v-if="filteredRuntimes.length">
+            <a-col v-for="r in filteredRuntimes" :key="r.key" :xs="24" :sm="12" :lg="8">
+              <div class="store-card store-card--compact">
+                <div class="store-card__head">
+                  <span class="store-card__avatar store-card__avatar--runtime">{{ (r.name || '?').slice(0, 1) }}</span>
+                  <div class="store-card__title">
+                    <b class="wm-truncate">{{ r.name }}</b>
+                    <WmStatusPill :label="`${r.installed.length} 个版本`" tone="info" :dot="false" />
+                  </div>
+                </div>
+                <p class="store-card__desc">{{ r.desc }}</p>
+                <div class="rt-chips" v-if="r.installed.length">
+                  <a-tag v-for="i in r.installed" :key="i.id" :data-tone="i.is_default ? 'success' : 'primary'">{{ i.version }}{{ i.is_default ? '（默认）' : '' }}</a-tag>
+                </div>
+                <div class="store-card__foot">
+                  <a-button size="small" @click="openRt(r)">安装 / 管理版本</a-button>
+                </div>
+              </div>
+            </a-col>
+          </a-row>
+          <WmEmptyState v-else compact title="没有匹配的运行时" description="更换关键词后再试。" />
+        </WmSectionCard>
+      </a-col>
+
+      <a-col :xs="24" :xl="8">
+        <WmSectionCard title="已安装" :description="`${apps.length} 个实例，可查看日志或卸载`">
+          <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
+            <template #renderItem="{ item }">
+              <a-list-item class="store-list__item">
+                <div class="store-list__meta">
+                  <b class="wm-truncate">{{ item.app.name }}</b>
+                  <span class="wm-text-muted wm-truncate">{{ item.app.app_key }}</span>
+                </div>
+                <template #actions>
+                  <a-button type="link" size="small" @click="viewLogs(item)">日志</a-button>
+                </template>
+              </a-list-item>
+            </template>
+          </a-list>
+          <WmEmptyState v-else compact title="还没有安装软件" description="从左侧卡片选择软件并点击安装。" />
+        </WmSectionCard>
+
+        <WmSectionCard title="下载源" description="安装时可为发行包选择来源">
+          <a-list :data-source="sources" size="small" class="store-list">
+            <template #renderItem="{ item }">
+              <a-list-item class="store-list__item">
+                <div class="store-list__meta"><b class="wm-truncate">{{ item.name }}</b></div>
+              </a-list-item>
+            </template>
+          </a-list>
+          <WmNotice tone="neutral" class="wm-mt-4">镜像站仅收录部分软件，未收录的源会在安装界面置灰；GitHub 类发布走加速通道。</WmNotice>
+        </WmSectionCard>
+      </a-col>
+    </a-row>
+
+    <WmSectionCard title="实例明细" description="启动、停止、重启、查看日志与卸载" flush>
+      <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从上方选择软件，选择下载源即可安装。">
+        <WmColumn label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></WmColumn>
+        <WmColumn label="软件" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></WmColumn>
+        <WmColumn label="形态" width="90">
+          <template #default="{ row }"><WmStatusPill :label="kindLabel(row.app.kind)" :tone="row.app.kind === 'package' ? 'success' : row.app.kind === 'native' ? 'warning' : 'info'" :dot="false" outline /></template>
+        </WmColumn>
+        <WmColumn label="状态" min-width="200"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></WmColumn>
+        <WmColumn label="安装时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></WmColumn>
+        <WmColumn label="操作" width="310" fixed="right">
+          <template #default="{ row }">
+            <template v-if="!row.app.tool">
+              <a-button size="small" data-tone="success" @click="act(row, 'start')">启动</a-button>
+              <a-button size="small" data-tone="warning" @click="act(row, 'stop')">停止</a-button>
+              <a-button size="small" @click="act(row, 'restart')">重启</a-button>
+            </template>
+            <a-button size="small" @click="viewLogs(row)">日志</a-button>
+            <a-button size="small" data-tone="danger" @click="uninstall(row)">卸载</a-button>
+          </template>
+        </WmColumn>
+      </WmTable>
+    </WmSectionCard>
+
+    <a-drawer v-model:open="rtDlg" width="62%" :title="`运行时版本 - ${rtLang?.name || ''}`">
+      <WmToolbar>
+        <a-select v-model:value="rtSource" style="width: 190px" @change="loadVersions">
+          <a-select-option v-for="s in rtLang?.sources || []" :key="s.id" :value="s.id">{{ s.name }}</a-select-option>
+        </a-select>
+        <a-select v-model:value="rtFilterMode" style="width: 150px">
+          <a-select-option value="common">显示常用版本</a-select-option>
+          <a-select-option value="lts">只显示LTS版本</a-select-option>
+          <a-select-option value="all">显示所有版本</a-select-option>
+        </a-select>
+        <a-input v-model:value="rtFilter" placeholder="版本过滤" style="width: 140px" allow-clear />
+        <a-button size="small" @click="loadVersions">更新版本列表</a-button>
+        <template #note>共 {{ filteredVersions.length }} 个</template>
+        <template v-if="rtLang?.key === 'nodejs'">
+          <span class="hint">registry源</span>
+          <a-select v-model:value="npmRegistry" placeholder="未设置" style="width: 200px" :loading="regLoading" @change="saveRegistry">
+            <a-select-option v-for="o in registryOptions" :key="o.id" :value="o.id">{{ o.name }}</a-select-option>
+          </a-select>
+        </template>
+        <template v-if="rtLang?.key === 'python'">
+          <span class="hint">pypi源</span>
+          <a-select v-model:value="pypiIndex" placeholder="未设置" style="width: 240px" :loading="pypiLoading" @change="savePypi">
+            <a-select-option v-for="o in pypiOptions" :key="o.id" :value="o.id">{{ o.name }}</a-select-option>
+          </a-select>
+        </template>
+        <template v-if="rtLang?.key === 'php'">
+          <span class="hint">Composer源</span>
+          <a-select v-model:value="composerUrl" placeholder="未设置" style="width: 210px" :loading="composerLoading" @change="saveComposer">
+            <a-select-option v-for="o in composerMirrorOptions" :key="o.id" :value="o.id">{{ o.name }}</a-select-option>
+          </a-select>
+          <a-button v-if="!composerInstalled" size="small" type="primary" :loading="composerInstalling" @click="installComposer">安装 Composer</a-button>
+          <span class="hint">PECL源</span>
+          <a-select v-model:value="peclMirror" placeholder="未设置" style="width: 190px" @change="savePecl">
+            <a-select-option v-for="o in peclOptions" :key="o.id" :value="o.id">{{ o.name }}</a-select-option>
+          </a-select>
+        </template>
+        <template v-if="rtInstalled.length && rtLang?.key === 'nodejs'">
+          <span class="hint">命令行版本</span>
+          <a-select v-model:value="defaultInstId" style="width: 160px" @change="setDefaultById">
+            <a-select-option v-for="i in rtInstalled" :key="i.id" :value="i.id">{{ i.version }}</a-select-option>
+          </a-select>
+        </template>
+      </WmToolbar>
+      <WmTable :data="filteredVersions" v-loading="rtLoading" size="small" max-height="380">
+        <WmColumn label="版本" width="150">
+          <template #default="{ row }"><b>{{ row.version }}</b> <a-tag v-if="row.lts" size="small" data-tone="success">LTS</a-tag></template>
+        </WmColumn>
+        <WmColumn v-if="rtLang?.key === 'nodejs'" label="NPM" width="90"><template #default="{ row }">{{ row.npm || '-' }}</template></WmColumn>
+        <WmColumn v-if="rtLang?.key === 'nodejs'" label="V8" width="110"><template #default="{ row }">{{ row.v8 || '-' }}</template></WmColumn>
+        <WmColumn label="发布日期" width="120"><template #default="{ row }">{{ row.date || '-' }}</template></WmColumn>
+        <WmColumn label="操作" width="110">
+          <template #default="{ row }"><a-button size="small" type="primary" :loading="installingVer === row.version" @click="installVer(row)">安装</a-button></template>
+        </WmColumn>
+      </WmTable>
+      <h4 class="store-subhead">已安装</h4>
+      <WmTable :data="rtInstalled" size="small">
+        <WmColumn prop="version" label="版本" width="150" />
+        <WmColumn label="默认" width="70"><template #default="{ row }"><a-tag v-if="row.is_default" size="small" data-tone="success">默认</a-tag><span v-else>-</span></template></WmColumn>
+        <WmColumn label="软件路径" min-width="220"><template #default="{ row }"><span class="mono">{{ row.dir }}</span></template></WmColumn>
+        <WmColumn label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></WmColumn>
+        <WmColumn label="操作" width="180">
+          <template #default="{ row }">
+            <a-button size="small" :disabled="row.is_default || rtLang?.key === 'php'" @click="setDefault(row)">设为默认</a-button>
+            <a-button size="small" data-tone="danger" @click="rmRuntime(row)">卸载</a-button>
+          </template>
+        </WmColumn>
+      </WmTable>
+    </a-drawer>
+
+    <a-modal v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" width="560px">
+      <a-form :label-col="{ style: { width: '110px' } }">
+        <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
+        <a-form-item v-if="cur?.kind !== 'package'" label="下载源">
+          <a-select v-model:value="instSource" style="width: 100%">
+            <a-select-option v-for="s in sources" :key="s.id"
+              :value="s.id" :disabled="cur && cur.soft_sources && !cur.soft_sources.includes(s.id)">{{ s.name }}</a-select-option>
+          </a-select>
+          <div class="hint">镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道</div>
+        </a-form-item>
+        <a-form-item v-if="cur?.kind === 'package'" label="安装方式">
+          <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
+        </a-form-item>
+        <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
+          <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
+        </a-form-item>
+      </a-form>
+      <template #footer>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="deploying" @click="deploy">安装（下载发行包可能较慢）</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
 
@@ -357,6 +413,23 @@ async function rmRuntime(row: any) {
   loadRuntimes()
 }
 const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
+
+const keyword = ref('')
+const sourceFilter = ref<'all' | 'builtin' | 'remote'>('all')
+const filteredTemplates = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  return templates.value.filter((t) => {
+    if (sourceFilter.value === 'builtin' && t.source === 'remote') return false
+    if (sourceFilter.value === 'remote' && t.source !== 'remote') return false
+    if (!q) return true
+    return [t.name, t.key, t.desc, kindLabel(t.kind)].some((v: any) => String(v || '').toLowerCase().includes(q))
+  })
+})
+const filteredRuntimes = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return runtimes.value
+  return runtimes.value.filter((r) => [r.name, r.key, r.desc].some((v: any) => String(v || '').toLowerCase().includes(q)))
+})
 
 async function load() {
   loading.value = true

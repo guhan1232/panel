@@ -2,59 +2,59 @@
   <div class="wm-page">
     <WmSectionCard title="用户列表" description="三角色 RBAC：admin 全部权限 · operator 可操作全部功能 · viewer 只读且禁用终端" flush>
       <WmToolbar>
-        <el-button type="primary" @click="openCreate">新建用户</el-button>
-        <el-button @click="load">刷新</el-button>
+        <a-button type="primary" @click="openCreate">新建用户</a-button>
+        <a-button @click="load">刷新</a-button>
         <template #note>不能修改自身角色、禁用或删除自身，以保护最后一个可用管理员。</template>
       </WmToolbar>
       <WmTable :data="users" v-loading="loading" empty-title="暂无用户">
-        <el-table-column prop="id" label="ID" width="70"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></el-table-column>
-        <el-table-column prop="username" label="用户名" min-width="160"><template #default="{ row }"><b>{{ row.username }}</b></template></el-table-column>
-        <el-table-column label="角色" width="130">
+        <WmColumn prop="id" label="ID" width="70"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></WmColumn>
+        <WmColumn prop="username" label="用户名" min-width="160"><template #default="{ row }"><b>{{ row.username }}</b></template></WmColumn>
+        <WmColumn label="角色" width="130">
           <template #default="{ row }"><WmStatusPill :label="roleLabel(row.role)" :tone="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'info' : 'neutral'" :dot="false" /></template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
+        </WmColumn>
+        <WmColumn label="状态" width="110">
           <template #default="{ row }"><WmStatusPill :label="row.disabled ? '已禁用' : '正常'" :tone="row.disabled ? 'danger' : 'success'" /></template>
-        </el-table-column>
-        <el-table-column label="创建时间" width="175"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.created_at) }}</span></template></el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        </WmColumn>
+        <WmColumn label="创建时间" width="175"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.created_at) }}</span></template></WmColumn>
+        <WmColumn label="操作" width="230" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" :disabled="row.username === auth.username" @click="del(row)">删除</el-button>
+            <a-button size="small" @click="openEdit(row)">编辑</a-button>
+            <a-button size="small" data-tone="danger" :disabled="row.username === auth.username" @click="del(row)">删除</a-button>
           </template>
-        </el-table-column>
+        </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <el-dialog v-model="dlg" :title="form.id ? `编辑 - ${form.username}` : '新建用户'" width="480px">
-      <el-form label-width="100px">
-        <el-form-item label="用户名">
-          <el-input v-model="form.username" :disabled="!!form.id" placeholder="2-32 位字母/数字/下划线" />
-        </el-form-item>
-        <el-form-item :label="form.id ? '重置密码' : '密码'">
-          <el-input v-model="form.password" type="password" show-password :placeholder="form.id ? '留空则不修改' : '至少 8 位'" />
-        </el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="form.role" style="width: 100%" :disabled="form.username === auth.username">
-            <el-option label="admin — 全部权限" value="admin" />
-            <el-option label="operator — 可操作全部功能" value="operator" />
-            <el-option label="viewer — 只读" value="viewer" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="form.id" label="禁用">
-          <el-switch v-model="form.disabled" :disabled="form.username === auth.username" />
-        </el-form-item>
-      </el-form>
+    <a-modal v-model:open="dlg" :title="form.id ? `编辑 - ${form.username}` : '新建用户'" width="480px">
+      <a-form :label-col="{ style: { width: '100px' } }">
+        <a-form-item label="用户名">
+          <a-input v-model:value="form.username" :disabled="!!form.id" placeholder="2-32 位字母/数字/下划线" />
+        </a-form-item>
+        <a-form-item :label="form.id ? '重置密码' : '密码'">
+          <a-input-password v-model:value="form.password"  :placeholder="form.id ? '留空则不修改' : '至少 8 位'" />
+        </a-form-item>
+        <a-form-item label="角色">
+          <a-select v-model:value="form.role" style="width: 100%" :disabled="form.username === auth.username">
+            <a-select-option value="admin">admin — 全部权限</a-select-option>
+            <a-select-option value="operator">operator — 可操作全部功能</a-select-option>
+            <a-select-option value="viewer">viewer — 只读</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item v-if="form.id" label="禁用">
+          <a-switch v-model:checked="form.disabled" :disabled="form.username === auth.username" />
+        </a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="save">保存</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
 import { useAuth } from '../stores/auth'

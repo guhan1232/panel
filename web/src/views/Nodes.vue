@@ -2,42 +2,42 @@
   <div class="wm-page">
     <WmSectionCard title="Agent 接入" description="通过 WebSocket 反连，被控端无需开放端口" marker>
       <WmToolbar>
-        <el-input :model-value="agentCmd" readonly class="wm-agent-cmd" aria-label="Agent 接入命令" />
-        <el-button @click="copyCmd">复制</el-button>
-        <el-button v-if="auth.role === 'admin'" @click="regenToken" type="warning" plain>重置 Token</el-button>
-        <el-button @click="load">刷新</el-button>
+        <a-input :value="agentCmd" readonly class="wm-agent-cmd" aria-label="Agent 接入命令" />
+        <a-button @click="copyCmd">复制</a-button>
+        <a-button v-if="auth.role === 'admin'" @click="regenToken" data-tone="warning">重置 Token</a-button>
+        <a-button @click="load">刷新</a-button>
       </WmToolbar>
       <WmNotice tone="neutral">在目标服务器下载对应架构的 webmblx-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。</WmNotice>
     </WmSectionCard>
 
     <WmSectionCard title="节点列表" description="在线状态依据最近心跳判定" flush>
       <WmToolbar>
-        <el-button size="small" @click="load">刷新</el-button>
+        <a-button size="small" @click="load">刷新</a-button>
         <template #note>共 {{ nodes.length }} 个节点，其中 {{ nodes.filter((n) => n.online).length }} 个在线。</template>
       </WmToolbar>
       <WmTable :data="nodes" v-loading="loading" empty-title="还没有接入节点" empty-description="复制上方接入命令，在目标服务器启动 Agent 后即可在此看到节点。">
-        <el-table-column label="节点" min-width="130"><template #default="{ row }"><b>{{ row.node.name }}</b></template></el-table-column>
-        <el-table-column label="主机" min-width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.hostname }}</span></template></el-table-column>
-        <el-table-column label="系统/架构" min-width="160"><template #default="{ row }">{{ row.node.os }} / {{ row.node.arch }}</template></el-table-column>
-        <el-table-column label="IP" width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.ip }}</span></template></el-table-column>
-        <el-table-column label="状态" width="100">
+        <WmColumn label="节点" min-width="130"><template #default="{ row }"><b>{{ row.node.name }}</b></template></WmColumn>
+        <WmColumn label="主机" min-width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.hostname }}</span></template></WmColumn>
+        <WmColumn label="系统/架构" min-width="160"><template #default="{ row }">{{ row.node.os }} / {{ row.node.arch }}</template></WmColumn>
+        <WmColumn label="IP" width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.ip }}</span></template></WmColumn>
+        <WmColumn label="状态" width="100">
           <template #default="{ row }"><WmStatusPill :label="row.online ? '在线' : '离线'" :tone="row.online ? 'success' : 'muted'" :pulse="row.online" /></template>
-        </el-table-column>
-        <el-table-column label="最近心跳" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.node.last_seen) }}</span></template></el-table-column>
-        <el-table-column label="Agent" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.node.version }}</span></template></el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        </WmColumn>
+        <WmColumn label="最近心跳" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.node.last_seen) }}</span></template></WmColumn>
+        <WmColumn label="Agent" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.node.version }}</span></template></WmColumn>
+        <WmColumn label="操作" width="230" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openMetrics(row)">指标</el-button>
-            <el-button size="small" type="success" :disabled="!row.online || auth.role === 'viewer'" @click="openExec(row)">命令</el-button>
-            <el-button size="small" type="danger" v-if="auth.role === 'admin'" @click="del(row)">删除</el-button>
+            <a-button size="small" @click="openMetrics(row)">指标</a-button>
+            <a-button size="small" data-tone="success" :disabled="!row.online || auth.role === 'viewer'" @click="openExec(row)">命令</a-button>
+            <a-button size="small" data-tone="danger" v-if="auth.role === 'admin'" @click="del(row)">删除</a-button>
           </template>
-        </el-table-column>
+        </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <el-drawer v-model="mDlg" size="62%" :title="`节点指标 - ${mNode?.node?.name || ''}`">
+    <a-drawer v-model:open="mDlg" width="62%" :title="`节点指标 - ${mNode?.node?.name || ''}`">
       <WmToolbar>
-        <el-button size="small" @click="loadMetrics">刷新</el-button>
+        <a-button size="small" @click="loadMetrics">刷新</a-button>
         <template #note>近 1 小时（15s 采样，保留 3 天）</template>
       </WmToolbar>
       <WmSectionCard title="CPU / 内存" dense quiet class="wm-mb-4">
@@ -46,24 +46,24 @@
       <WmSectionCard title="网络流量" dense quiet>
         <div ref="netEl" class="wm-chart" style="height: 240px"></div>
       </WmSectionCard>
-    </el-drawer>
+    </a-drawer>
 
-    <el-dialog v-model="eDlg" :title="`远程命令 - ${eNode?.node?.name || ''}`" width="720px">
-      <el-input v-model="eScript" type="textarea" :rows="6" placeholder="bash 命令，如：df -h" />
+    <a-modal v-model:open="eDlg" :title="`远程命令 - ${eNode?.node?.name || ''}`" width="720px">
+      <a-textarea v-model:value="eScript"  :rows="6" placeholder="bash 命令，如：df -h" />
       <WmNotice tone="warning" class="wm-mt-2 wm-mb-4">超时 {{ eTimeout }}s；命令经审计记录，请确认执行内容。</WmNotice>
       <WmCodeBlock v-if="eResult" :content="eResult" label="remote exec output" />
       <template #footer>
-        <el-button @click="eDlg = false">关闭</el-button>
-        <el-button type="primary" :loading="eRunning" @click="runExec">执行</el-button>
+        <a-button @click="eDlg = false">关闭</a-button>
+        <a-button type="primary" :loading="eRunning" @click="runExec">执行</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as echarts from 'echarts'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtTime, chartPalette } from '../utils'
 import { useAuth } from '../stores/auth'

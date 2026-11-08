@@ -4,84 +4,84 @@
       <WmToolbar>
         <WmStatusPill :label="nginx.installed ? 'Nginx 已安装' : 'Nginx 未安装'" :tone="nginx.installed ? 'success' : 'danger'" :pulse="!nginx.installed" />
         <span v-if="nginx.installed && nginx.version" class="wm-mono wm-text-muted">{{ nginx.version }}</span>
-        <el-button v-if="!nginx.installed" size="small" type="warning" :loading="installing" @click="installNginx">安装 Nginx</el-button>
-        <el-button size="small" @click="reloadNginx">重载 Nginx</el-button>
-        <el-button type="primary" size="small" @click="openCreate">创建站点</el-button>
-        <el-button size="small" @click="load">刷新</el-button>
+        <a-button v-if="!nginx.installed" size="small" data-tone="warning" :loading="installing" @click="installNginx">安装 Nginx</a-button>
+        <a-button size="small" @click="reloadNginx">重载 Nginx</a-button>
+        <a-button type="primary" size="small" @click="openCreate">创建站点</a-button>
+        <a-button size="small" @click="load">刷新</a-button>
       </WmToolbar>
 
       <WmTable :data="sites" v-loading="loading" empty-title="还没有站点" empty-description="创建静态站、PHP 站或反向代理，域名与证书可随时绑定。">
-        <el-table-column label="站点" min-width="150"><template #default="{ row }"><b>{{ row.site.name }}</b></template></el-table-column>
-        <el-table-column label="类型" width="100">
+        <WmColumn label="站点" min-width="150"><template #default="{ row }"><b>{{ row.site.name }}</b></template></WmColumn>
+        <WmColumn label="类型" width="100">
           <template #default="{ row }"><WmStatusPill :label="typeLabel(row.site.type)" tone="neutral" :dot="false" outline /></template>
-        </el-table-column>
-        <el-table-column label="域名" min-width="210"><template #default="{ row }"><span class="wm-mono">{{ row.site.domains }}</span></template></el-table-column>
-        <el-table-column label="SSL" width="90">
+        </WmColumn>
+        <WmColumn label="域名" min-width="210"><template #default="{ row }"><span class="wm-mono">{{ row.site.domains }}</span></template></WmColumn>
+        <WmColumn label="SSL" width="90">
           <template #default="{ row }">
             <WmStatusPill v-if="row.site.ssl_cert" label="HTTPS" tone="success" :dot="false" />
             <span v-else class="wm-text-muted">—</span>
           </template>
-        </el-table-column>
-        <el-table-column label="启用" width="80">
-          <template #default="{ row }"><el-switch :model-value="row.site.enabled && row.conf_exists" @change="toggle(row)" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
+        </WmColumn>
+        <WmColumn label="启用" width="80">
+          <template #default="{ row }"><a-switch :checked="row.site.enabled && row.conf_exists" @change="toggle(row)" /></template>
+        </WmColumn>
+        <WmColumn label="操作" width="250" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="viewLog(row, 'access')">访问日志</el-button>
-            <el-button size="small" @click="viewLog(row, 'error')">错误日志</el-button>
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="del(row)">删除</el-button>
+            <a-button size="small" @click="viewLog(row, 'access')">访问日志</a-button>
+            <a-button size="small" @click="viewLog(row, 'error')">错误日志</a-button>
+            <a-button size="small" @click="openEdit(row)">编辑</a-button>
+            <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
           </template>
-        </el-table-column>
+        </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <el-dialog v-model="dlg" :title="form.id ? '编辑站点' : '创建站点'" width="680px">
-      <el-form label-width="110px">
-        <el-form-item label="站点标识"><el-input v-model="form.name" placeholder="小写字母数字点短横线，如 myblog" :disabled="!!form.id" /></el-form-item>
-        <el-form-item label="站点类型">
-          <el-radio-group v-model="form.type">
-            <el-radio-button value="static">静态站</el-radio-button>
-            <el-radio-button value="php">PHP 站</el-radio-button>
-            <el-radio-button value="proxy">反向代理</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="域名"><el-input v-model="form.domains" placeholder="example.com www.example.com（空格分隔多个）" /></el-form-item>
-        <el-form-item v-if="form.type !== 'proxy'" label="网站根目录"><el-input v-model="form.root" placeholder="/www/wwwroot/myblog" /></el-form-item>
-        <el-form-item v-if="form.type === 'php'" label="PHP-FPM"><el-input v-model="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" /></el-form-item>
-        <el-form-item v-if="form.type === 'proxy'" label="反代目标"><el-input v-model="form.upstream" placeholder="http://127.0.0.1:3000" /></el-form-item>
-        <el-form-item v-if="form.type === 'proxy'" label="附加路径规则">
+    <a-modal v-model:open="dlg" :title="form.id ? '编辑站点' : '创建站点'" width="680px">
+      <a-form :label-col="{ style: { width: '110px' } }">
+        <a-form-item label="站点标识"><a-input v-model:value="form.name" placeholder="小写字母数字点短横线，如 myblog" :disabled="!!form.id" /></a-form-item>
+        <a-form-item label="站点类型">
+          <a-radio-group v-model:value="form.type">
+            <a-radio-button value="static">静态站</a-radio-button>
+            <a-radio-button value="php">PHP 站</a-radio-button>
+            <a-radio-button value="proxy">反向代理</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="域名"><a-input v-model:value="form.domains" placeholder="example.com www.example.com（空格分隔多个）" /></a-form-item>
+        <a-form-item v-if="form.type !== 'proxy'" label="网站根目录"><a-input v-model:value="form.root" placeholder="/www/wwwroot/myblog" /></a-form-item>
+        <a-form-item v-if="form.type === 'php'" label="PHP-FPM"><a-input v-model:value="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" /></a-form-item>
+        <a-form-item v-if="form.type === 'proxy'" label="反代目标"><a-input v-model:value="form.upstream" placeholder="http://127.0.0.1:3000" /></a-form-item>
+        <a-form-item v-if="form.type === 'proxy'" label="附加路径规则">
           <div v-for="(loc, i) in form.extra" :key="i" class="loc-row">
-            <el-input v-model="loc.prefix" placeholder="/api" style="width: 160px" />
-            <el-input v-model="loc.target" placeholder="http://127.0.0.1:8000" style="width: 300px" />
-            <el-button size="small" circle type="danger" @click="form.extra.splice(i, 1)"><el-icon><Delete /></el-icon></el-button>
+            <a-input v-model:value="loc.prefix" placeholder="/api" style="width: 160px" />
+            <a-input v-model:value="loc.target" placeholder="http://127.0.0.1:8000" style="width: 300px" />
+            <a-button size="small" shape="circle" data-tone="danger" @click="form.extra.splice(i, 1)"><span class="wm-icon"><Delete /></span></a-button>
           </div>
-          <el-button size="small" @click="form.extra.push({ prefix: '', target: '' })">添加规则</el-button>
-        </el-form-item>
-        <el-form-item label="SSL 证书">
-          <el-select v-model="form.ssl_cert" placeholder="选择已托管证书或留空" style="width: 100%" clearable>
-            <el-option v-for="ct in certs" :key="ct.domain" :label="`${ct.domain}（至 ${ct.not_after?.slice(0, 10)}）`" :value="ct.domain" />
-          </el-select>
+          <a-button size="small" @click="form.extra.push({ prefix: '', target: '' })">添加规则</a-button>
+        </a-form-item>
+        <a-form-item label="SSL 证书">
+          <a-select v-model:value="form.ssl_cert" placeholder="选择已托管证书或留空" style="width: 100%" allow-clear>
+            <a-select-option v-for="ct in certs" :key="ct.domain" :value="ct.domain">{{ `${ct.domain}（至 ${ct.not_after?.slice(0, 10)}）` }}</a-select-option>
+          </a-select>
           <WmNotice v-if="form.ssl_cert" tone="neutral" class="wm-mt-2">将使用 <span class="wm-mono">{{ certBase }}</span> 路径下 fullchain.pem / privkey.pem</WmNotice>
-        </el-form-item>
-        <el-form-item v-if="form.ssl_cert" label="强制 HTTPS"><el-switch v-model="form.force_https" /></el-form-item>
-      </el-form>
+        </a-form-item>
+        <a-form-item v-if="form.ssl_cert" label="强制 HTTPS"><a-switch v-model:checked="form.force_https" /></a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存（nginx -t 校验）</el-button>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="save">保存（nginx -t 校验）</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
 
-    <el-dialog v-model="logDlg" :title="`日志 - ${logSite} (${logType})`" width="820px">
+    <a-modal v-model:open="logDlg" :title="`日志 - ${logSite} (${logType})`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logSite} / ${logType}.log`" empty-text="（日志为空）" />
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from '../antd-compat'
+import { Delete } from '../antd-compat'
 import api from '../api'
 
 const typeMap: Record<string, string> = { static: '静态', php: 'PHP', proxy: '反代' }

@@ -3,7 +3,7 @@
     <WmSectionCard title="Web 终端" description="会话经登录态鉴权，全部操作将被审计记录" marker dense>
       <WmToolbar>
         <WmStatusPill :label="connected ? '已连接' : '未连接'" :tone="connected ? 'success' : 'danger'" :pulse="connected" />
-        <el-button size="small" @click="connect">重新连接</el-button>
+        <a-button size="small" @click="connect">重新连接</a-button>
         <template #note>终端尺寸随窗口自适应；连接断开后可重新连接。</template>
       </WmToolbar>
       <div ref="box" class="term-box"></div>

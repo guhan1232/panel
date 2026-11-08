@@ -1,24 +1,24 @@
 <template>
   <transition name="fade">
     <div v-if="visible" class="wm-notice" :class="`wm-notice--${tone}`" role="status">
-      <el-icon class="wm-notice__icon">
+      <span class="wm-notice__icon">
         <CircleCheckFilled v-if="tone === 'success'" />
         <WarningFilled v-else-if="tone === 'warning' || tone === 'danger'" />
         <InfoFilled v-else />
-      </el-icon>
+      </span>
       <div class="wm-notice__body">
         <strong v-if="title" class="wm-notice__title">{{ title }}</strong>
         <slot />
       </div>
       <div v-if="$slots.action" class="wm-notice__action"><slot name="action" /></div>
-      <el-icon v-if="closable" class="wm-notice__close" @click="visible = false"><Close /></el-icon>
+      <span v-if="closable" class="wm-notice__close" @click="visible = false"><Close /></span>
     </div>
   </transition>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { InfoFilled, WarningFilled, CircleCheckFilled, Close } from '@element-plus/icons-vue'
+import { InfoFilled, WarningFilled, CircleCheckFilled, Close } from '../antd-compat'
 
 withDefaults(
   defineProps<{

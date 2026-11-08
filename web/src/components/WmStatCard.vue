@@ -3,7 +3,7 @@
     <div class="wm-stat__top">
       <span class="wm-stat__label">{{ label }}</span>
       <span v-if="$slots.icon || icon" class="wm-stat__icon">
-        <slot name="icon"><el-icon v-if="icon"><component :is="icon" /></el-icon></slot>
+        <slot name="icon"><span v-if="icon" class="wm-stat__icon-inline"><component :is="icon" /></span></slot>
       </span>
     </div>
 

@@ -1,11 +1,11 @@
 <template>
   <div class="wm-empty" :class="[`wm-empty--${tone}`, { 'wm-empty--compact': compact }]">
     <div class="wm-empty__icon">
-      <el-icon :size="compact ? 20 : 24">
+      <span class="wm-empty__icon">
         <WarningFilled v-if="tone === 'error'" />
         <Connection v-else-if="tone === 'offline'" />
         <Box v-else />
-      </el-icon>
+      </span>
     </div>
     <div class="wm-empty__title">{{ title }}</div>
     <div v-if="description || $slots.description" class="wm-empty__desc">
@@ -16,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { Box, WarningFilled, Connection } from '@element-plus/icons-vue'
+import { Box, WarningFilled, Connection } from '../antd-compat'
 
 withDefaults(
   defineProps<{

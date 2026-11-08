@@ -1,85 +1,85 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="数据库连接" description="连接凭据由面板托管，同时供计划任务的数据库备份使用">
-      <el-tabs v-model="engine">
-        <el-tab-pane label="MySQL" name="mysql">
-          <el-form inline class="cfg">
-            <el-form-item label="主机"><el-input v-model="mysql.host" style="width: 130px" /></el-form-item>
-            <el-form-item label="端口"><el-input-number v-model="mysql.port" :min="1" controls-position="right" style="width: 110px" /></el-form-item>
-            <el-form-item label="用户"><el-input v-model="mysql.user" style="width: 120px" /></el-form-item>
-            <el-form-item label="密码"><el-input v-model="mysql.password" type="password" show-password style="width: 140px" /></el-form-item>
-            <el-button @click="saveCfg('mysql')">保存配置</el-button>
-            <el-button type="primary" @click="testConn('mysql')">测试连接</el-button>
-          </el-form>
+      <a-tabs v-model:activeKey="engine">
+        <a-tab-pane tab="MySQL" key="mysql">
+          <a-form layout="inline" class="cfg">
+            <a-form-item label="主机"><a-input v-model:value="mysql.host" style="width: 130px" /></a-form-item>
+            <a-form-item label="端口"><a-input-number v-model:value="mysql.port" :min="1" controls-position="right" style="width: 110px" /></a-form-item>
+            <a-form-item label="用户"><a-input v-model:value="mysql.user" style="width: 120px" /></a-form-item>
+            <a-form-item label="密码"><a-input-password v-model:value="mysql.password"  style="width: 140px" /></a-form-item>
+            <a-button @click="saveCfg('mysql')">保存配置</a-button>
+            <a-button type="primary" @click="testConn('mysql')">测试连接</a-button>
+          </a-form>
           <WmToolbar class="wm-mt-4">
-            <el-button size="small" type="primary" @click="createDb('mysql')">创建数据库</el-button>
-            <el-button size="small" @click="createUser('mysql')">创建用户</el-button>
-            <el-button size="small" @click="grant('mysql')">授权用户到库</el-button>
-            <el-button size="small" @click="loadData">刷新</el-button>
+            <a-button size="small" type="primary" @click="createDb('mysql')">创建数据库</a-button>
+            <a-button size="small" @click="createUser('mysql')">创建用户</a-button>
+            <a-button size="small" @click="grant('mysql')">授权用户到库</a-button>
+            <a-button size="small" @click="loadData">刷新</a-button>
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
               <WmTable :data="mysqlData.dbs" size="small" max-height="360" empty-title="暂无数据库">
-                <el-table-column label="库名" prop="name" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row.name }}</span></template></el-table-column>
-                <el-table-column label="操作" width="90">
-                  <template #default="{ row }"><el-button size="small" type="danger" @click="dropDb('mysql', row.name)">删除</el-button></template>
-                </el-table-column>
+                <WmColumn label="库名" prop="name" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row.name }}</span></template></WmColumn>
+                <WmColumn label="操作" width="90">
+                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropDb('mysql', row.name)">删除</a-button></template>
+                </WmColumn>
               </WmTable>
             </WmSectionCard>
             <WmSectionCard title="用户" dense quiet>
               <WmTable :data="mysqlData.users" size="small" max-height="360" empty-title="暂无用户">
-                <el-table-column label="用户" prop="user" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.user }}</span></template></el-table-column>
-                <el-table-column label="主机" prop="host" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.host }}</span></template></el-table-column>
-                <el-table-column label="操作" width="90">
-                  <template #default="{ row }"><el-button size="small" type="danger" @click="dropUser('mysql', row)">删除</el-button></template>
-                </el-table-column>
+                <WmColumn label="用户" prop="user" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.user }}</span></template></WmColumn>
+                <WmColumn label="主机" prop="host" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.host }}</span></template></WmColumn>
+                <WmColumn label="操作" width="90">
+                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropUser('mysql', row)">删除</a-button></template>
+                </WmColumn>
               </WmTable>
             </WmSectionCard>
           </div>
-        </el-tab-pane>
+        </a-tab-pane>
 
-        <el-tab-pane label="PostgreSQL" name="pg">
-          <el-form inline class="cfg">
-            <el-form-item label="主机"><el-input v-model="pg.host" style="width: 130px" /></el-form-item>
-            <el-form-item label="端口"><el-input-number v-model="pg.port" :min="1" controls-position="right" style="width: 110px" /></el-form-item>
-            <el-form-item label="用户"><el-input v-model="pg.user" style="width: 120px" /></el-form-item>
-            <el-form-item label="密码"><el-input v-model="pg.password" type="password" show-password style="width: 140px" /></el-form-item>
-            <el-button @click="saveCfg('pg')">保存配置</el-button>
-            <el-button type="primary" @click="testConn('pg')">测试连接</el-button>
-          </el-form>
+        <a-tab-pane tab="PostgreSQL" key="pg">
+          <a-form layout="inline" class="cfg">
+            <a-form-item label="主机"><a-input v-model:value="pg.host" style="width: 130px" /></a-form-item>
+            <a-form-item label="端口"><a-input-number v-model:value="pg.port" :min="1" controls-position="right" style="width: 110px" /></a-form-item>
+            <a-form-item label="用户"><a-input v-model:value="pg.user" style="width: 120px" /></a-form-item>
+            <a-form-item label="密码"><a-input-password v-model:value="pg.password"  style="width: 140px" /></a-form-item>
+            <a-button @click="saveCfg('pg')">保存配置</a-button>
+            <a-button type="primary" @click="testConn('pg')">测试连接</a-button>
+          </a-form>
           <WmToolbar class="wm-mt-4">
-            <el-button size="small" type="primary" @click="createDb('pg')">创建数据库</el-button>
-            <el-button size="small" @click="createUser('pg')">创建用户</el-button>
-            <el-button size="small" @click="grant('pg')">授权用户到库</el-button>
-            <el-button size="small" @click="loadData">刷新</el-button>
+            <a-button size="small" type="primary" @click="createDb('pg')">创建数据库</a-button>
+            <a-button size="small" @click="createUser('pg')">创建用户</a-button>
+            <a-button size="small" @click="grant('pg')">授权用户到库</a-button>
+            <a-button size="small" @click="loadData">刷新</a-button>
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
               <WmTable :data="pgData.dbs" size="small" max-height="360" empty-title="暂无数据库">
-                <el-table-column label="库名" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></el-table-column>
-                <el-table-column label="操作" width="90">
-                  <template #default="{ row }"><el-button size="small" type="danger" @click="dropDb('pg', row)">删除</el-button></template>
-                </el-table-column>
+                <WmColumn label="库名" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
+                <WmColumn label="操作" width="90">
+                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropDb('pg', row)">删除</a-button></template>
+                </WmColumn>
               </WmTable>
             </WmSectionCard>
             <WmSectionCard title="角色" dense quiet>
               <WmTable :data="pgData.users" size="small" max-height="360" empty-title="暂无角色">
-                <el-table-column label="角色" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></el-table-column>
-                <el-table-column label="操作" width="90">
-                  <template #default="{ row }"><el-button size="small" type="danger" @click="dropUser('pg', row)">删除</el-button></template>
-                </el-table-column>
+                <WmColumn label="角色" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
+                <WmColumn label="操作" width="90">
+                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropUser('pg', row)">删除</a-button></template>
+                </WmColumn>
               </WmTable>
             </WmSectionCard>
           </div>
-        </el-tab-pane>
-      </el-tabs>
+        </a-tab-pane>
+      </a-tabs>
     </WmSectionCard>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 
 const engine = ref('mysql')

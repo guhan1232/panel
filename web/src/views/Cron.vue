@@ -2,122 +2,122 @@
   <div class="wm-page">
     <WmSectionCard title="任务列表" description="任务定义持久化于面板数据库，重启后自动恢复调度" flush>
       <WmToolbar>
-        <el-button type="primary" @click="openCreate">新建任务</el-button>
-        <el-button @click="load">刷新</el-button>
+        <a-button type="primary" @click="openCreate">新建任务</a-button>
+        <a-button @click="load">刷新</a-button>
         <template #note>内置调度引擎运行，任务不写入系统 crontab。</template>
       </WmToolbar>
 
       <WmTable :data="tasks" v-loading="loading" empty-title="还没有计划任务" empty-description="新建一条任务，按 cron 表达式或预设周期自动执行。">
-        <el-table-column prop="id" label="ID" width="60"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></el-table-column>
-        <el-table-column prop="name" label="任务名称" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></el-table-column>
-        <el-table-column label="类型" width="120">
+        <WmColumn prop="id" label="ID" width="60"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></WmColumn>
+        <WmColumn prop="name" label="任务名称" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></WmColumn>
+        <WmColumn label="类型" width="120">
           <template #default="{ row }"><WmStatusPill :label="typeLabel(row.type)" tone="neutral" :dot="false" outline /></template>
-        </el-table-column>
-        <el-table-column prop="spec" label="执行周期" width="140"><template #default="{ row }"><span class="wm-mono">{{ row.spec }}</span></template></el-table-column>
-        <el-table-column label="下次执行" width="170">
+        </WmColumn>
+        <WmColumn prop="spec" label="执行周期" width="140"><template #default="{ row }"><span class="wm-mono">{{ row.spec }}</span></template></WmColumn>
+        <WmColumn label="下次执行" width="170">
           <template #default="{ row }"><span class="wm-mono">{{ row.enabled ? fmtTime(row.next_run) : '-' }}</span></template>
-        </el-table-column>
-        <el-table-column label="上次状态" width="110">
+        </WmColumn>
+        <WmColumn label="上次状态" width="110">
           <template #default="{ row }">
             <WmStatusPill v-if="row.last_status" :label="row.last_status" :pulse="row.last_status === 'running'" />
             <span v-else class="wm-text-muted">—</span>
           </template>
-        </el-table-column>
-        <el-table-column label="启用" width="80">
-          <template #default="{ row }"><el-switch :model-value="row.enabled" @change="toggle(row)" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="270" fixed="right">
+        </WmColumn>
+        <WmColumn label="启用" width="80">
+          <template #default="{ row }"><a-switch :checked="row.enabled" @change="toggle(row)" /></template>
+        </WmColumn>
+        <WmColumn label="操作" width="270" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="success" @click="runNow(row)">执行</el-button>
-            <el-button size="small" @click="openLogs(row)">日志</el-button>
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="del(row)">删除</el-button>
+            <a-button size="small" data-tone="success" @click="runNow(row)">执行</a-button>
+            <a-button size="small" @click="openLogs(row)">日志</a-button>
+            <a-button size="small" @click="openEdit(row)">编辑</a-button>
+            <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
           </template>
-        </el-table-column>
+        </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <el-dialog v-model="dlg" :title="form.id ? '编辑任务' : '新建任务'" width="660px">
+    <a-modal v-model:open="dlg" :title="form.id ? '编辑任务' : '新建任务'" width="660px">
       <WmNotice tone="neutral" class="wm-mb-4">周期支持 5 段 cron、带秒 6 段与 @daily 等描述符；同一任务默认防重叠执行。</WmNotice>
-      <el-form label-width="100px">
-        <el-form-item label="任务名称"><el-input v-model="form.name" placeholder="如：每日备份数据库" /></el-form-item>
-        <el-form-item label="任务类型">
-          <el-select v-model="form.type" style="width: 100%">
-            <el-option v-for="(v, k) in typeMap" :key="k" :label="v" :value="k" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="执行周期">
-          <el-input v-model="form.spec" placeholder="分 时 日 月 周，如 */5 * * * *；支持 @daily 等" />
+      <a-form :label-col="{ style: { width: '100px' } }">
+        <a-form-item label="任务名称"><a-input v-model:value="form.name" placeholder="如：每日备份数据库" /></a-form-item>
+        <a-form-item label="任务类型">
+          <a-select v-model:value="form.type" style="width: 100%">
+            <a-select-option v-for="(v, k) in typeMap" :key="k" :value="k">{{ v }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="执行周期">
+          <a-input v-model:value="form.spec" placeholder="分 时 日 月 周，如 */5 * * * *；支持 @daily 等" />
           <div class="wm-tag-row">
-            <el-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</el-tag>
+            <a-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</a-tag>
           </div>
-        </el-form-item>
-        <el-form-item v-if="form.type === 'shell'" label="脚本内容">
-          <el-input v-model="form.command" type="textarea" :rows="8" placeholder="bash 命令，如：&#10;tar -czf /tmp/backup.tar.gz /data" />
-        </el-form-item>
+        </a-form-item>
+        <a-form-item v-if="form.type === 'shell'" label="脚本内容">
+          <a-textarea v-model:value="form.command"  :rows="8" placeholder="bash 命令，如：&#10;tar -czf /tmp/backup.tar.gz /data" />
+        </a-form-item>
         <template v-if="form.type === 'backup_dir'">
-          <el-form-item label="备份目录"><el-input v-model="form.source" placeholder="/data/www" /></el-form-item>
-          <el-form-item label="保留份数"><el-input-number v-model="form.keep" :min="0" /><span class="hint">超出自动清理，0=永久保留</span></el-form-item>
+          <a-form-item label="备份目录"><a-input v-model:value="form.source" placeholder="/data/www" /></a-form-item>
+          <a-form-item label="保留份数"><a-input-number v-model:value="form.keep" :min="0" /><span class="hint">超出自动清理，0=永久保留</span></a-form-item>
         </template>
-        <el-form-item v-if="form.type === 'visit_url'" label="访问 URL">
-          <el-input v-model="form.url" placeholder="https://example.com/health（非 2xx/3xx 视为失败）" />
-        </el-form-item>
+        <a-form-item v-if="form.type === 'visit_url'" label="访问 URL">
+          <a-input v-model:value="form.url" placeholder="https://example.com/health（非 2xx/3xx 视为失败）" />
+        </a-form-item>
         <template v-if="form.type === 'backup_db'">
-          <el-form-item label="数据库类型">
-            <el-radio-group v-model="form.db_engine">
-              <el-radio-button value="mysql">MySQL</el-radio-button>
-              <el-radio-button value="pg">PostgreSQL</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item label="数据库名"><el-input v-model="form.db_name" placeholder="mydb" /></el-form-item>
-          <el-form-item label="保留份数"><el-input-number v-model="form.keep" :min="0" /><span class="hint">连接凭据使用「数据库」页面保存的配置</span></el-form-item>
+          <a-form-item label="数据库类型">
+            <a-radio-group v-model:value="form.db_engine">
+              <a-radio-button value="mysql">MySQL</a-radio-button>
+              <a-radio-button value="pg">PostgreSQL</a-radio-button>
+            </a-radio-group>
+          </a-form-item>
+          <a-form-item label="数据库名"><a-input v-model:value="form.db_name" placeholder="mydb" /></a-form-item>
+          <a-form-item label="保留份数"><a-input-number v-model:value="form.keep" :min="0" /><span class="hint">连接凭据使用「数据库」页面保存的配置</span></a-form-item>
         </template>
         <template v-if="form.type === 'log_rotate'">
-          <el-form-item label="日志匹配"><el-input v-model="form.pattern" placeholder="/var/log/nginx/*.log（不含空格）" /></el-form-item>
-          <el-form-item label="切割阈值(MB)"><el-input-number v-model="form.size_mb" :min="1" /></el-form-item>
-          <el-form-item label="保留天数"><el-input-number v-model="form.keep_days" :min="1" /></el-form-item>
+          <a-form-item label="日志匹配"><a-input v-model:value="form.pattern" placeholder="/var/log/nginx/*.log（不含空格）" /></a-form-item>
+          <a-form-item label="切割阈值(MB)"><a-input-number v-model:value="form.size_mb" :min="1" /></a-form-item>
+          <a-form-item label="保留天数"><a-input-number v-model:value="form.keep_days" :min="1" /></a-form-item>
         </template>
         <WmNotice v-if="form.type === 'sys_update'" tone="warning" title="请在低峰期执行" class="wm-mb-4">将执行 apt-get upgrade / dnf upgrade 全量系统更新。</WmNotice>
-        <el-form-item label="超时(秒)"><el-input-number v-model="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></el-form-item>
-        <el-form-item label="允许并发"><el-switch v-model="form.concurrent" /><span class="hint">关闭时上一次未结束则跳过本次</span></el-form-item>
-        <el-form-item label="失败告警"><el-input-number v-model="form.notify_fail" :min="0" /><span class="hint">连续失败 N 次后告警，0=不告警</span></el-form-item>
-      </el-form>
+        <a-form-item label="超时(秒)"><a-input-number v-model:value="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></a-form-item>
+        <a-form-item label="允许并发"><a-switch v-model:checked="form.concurrent" /><span class="hint">关闭时上一次未结束则跳过本次</span></a-form-item>
+        <a-form-item label="失败告警"><a-input-number v-model:value="form.notify_fail" :min="0" /><span class="hint">连续失败 N 次后告警，0=不告警</span></a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="save">保存</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
 
-    <el-drawer v-model="logsDlg" size="62%" :title="`执行日志 - ${logsTask?.name || ''}`">
+    <a-drawer v-model:open="logsDlg" width="62%" :title="`执行日志 - ${logsTask?.name || ''}`">
       <WmNotice tone="neutral" class="wm-mb-4">每次执行记录状态、耗时、退出码与输出；历史保留 90 天后自动清理。</WmNotice>
       <WmToolbar>
-        <el-button size="small" type="warning" @click="stopRun">终止运行中实例</el-button>
-        <el-button size="small" @click="loadLogs">刷新</el-button>
+        <a-button size="small" data-tone="warning" @click="stopRun">终止运行中实例</a-button>
+        <a-button size="small" @click="loadLogs">刷新</a-button>
       </WmToolbar>
       <WmTable :data="logItems" v-loading="logsLoading" size="small" empty-title="暂无执行记录">
-        <el-table-column label="状态" width="100">
+        <WmColumn label="状态" width="100">
           <template #default="{ row }"><WmStatusPill :label="row.status" /></template>
-        </el-table-column>
-        <el-table-column label="触发" width="80"><template #default="{ row }">{{ row.trigger }}</template></el-table-column>
-        <el-table-column label="开始时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.start_at) }}</span></template></el-table-column>
-        <el-table-column label="耗时" width="95"><template #default="{ row }"><span class="wm-mono">{{ fmtCost(row.cost_ms) }}</span></template></el-table-column>
-        <el-table-column prop="exit_code" label="退出码" width="80"><template #default="{ row }"><span class="wm-mono">{{ row.exit_code }}</span></template></el-table-column>
-        <el-table-column label="操作" width="90">
-          <template #default="{ row }"><el-button size="small" @click="viewLog(row)">输出</el-button></template>
-        </el-table-column>
+        </WmColumn>
+        <WmColumn label="触发" width="80"><template #default="{ row }">{{ row.trigger }}</template></WmColumn>
+        <WmColumn label="开始时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.start_at) }}</span></template></WmColumn>
+        <WmColumn label="耗时" width="95"><template #default="{ row }"><span class="wm-mono">{{ fmtCost(row.cost_ms) }}</span></template></WmColumn>
+        <WmColumn prop="exit_code" label="退出码" width="80"><template #default="{ row }"><span class="wm-mono">{{ row.exit_code }}</span></template></WmColumn>
+        <WmColumn label="操作" width="90">
+          <template #default="{ row }"><a-button size="small" @click="viewLog(row)">输出</a-button></template>
+        </WmColumn>
       </WmTable>
-      <el-pagination layout="prev, pager, next, total" :total="logTotal" :page-size="logSize" v-model:current-page="logPage" @current-change="loadLogs" />
-    </el-drawer>
+      <a-pagination :total="logTotal" :page-size="logSize" v-model:current="logPage" @change="loadLogs" />
+    </a-drawer>
 
-    <el-dialog v-model="outDlg" title="任务输出" width="760px">
+    <a-modal v-model:open="outDlg" title="任务输出" width="760px">
       <WmCodeBlock :content="outContent" label="task output" />
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtTime, fmtCost } from '../utils'
 

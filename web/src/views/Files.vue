@@ -2,67 +2,67 @@
   <div class="wm-page">
     <WmSectionCard title="文件浏览" :description="path" flush>
       <WmToolbar>
-        <el-input v-model="pathInput" class="wm-path-input" placeholder="输入绝对路径" @keyup.enter="go" />
-        <el-button @click="go">跳转</el-button>
-        <el-button @click="goUp">上级</el-button>
-        <el-button @click="load">刷新</el-button>
+        <a-input v-model:value="pathInput" class="wm-path-input" placeholder="输入绝对路径" @keyup.enter="go" />
+        <a-button @click="go">跳转</a-button>
+        <a-button @click="goUp">上级</a-button>
+        <a-button @click="load">刷新</a-button>
         <span class="wm-toolbar__sep" />
-        <el-button type="primary" @click="mkdir">新建目录</el-button>
-        <el-upload :http-request="doUpload" :show-file-list="false">
-          <el-button type="success">上传文件</el-button>
-        </el-upload>
-        <el-dropdown @command="compress" :disabled="!selection.length">
-          <el-button :disabled="!selection.length">压缩选中</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="zip">压缩为 .zip</el-dropdown-item>
-              <el-dropdown-item command="targz">压缩为 .tar.gz</el-dropdown-item>
-            </el-dropdown-menu>
+        <a-button type="primary" @click="mkdir">新建目录</a-button>
+        <a-upload :custom-request="doUpload" :show-upload-list="false">
+          <a-button data-tone="success">上传文件</a-button>
+        </a-upload>
+        <a-dropdown :disabled="!selection.length" trigger="['click']">
+          <a-button :disabled="!selection.length">压缩选中</a-button>
+          <template #overlay>
+            <a-menu @click="({ key }: any) => compress(String(key))">
+              <a-menu-item key="zip">压缩为 .zip</a-menu-item>
+              <a-menu-item key="targz">压缩为 .tar.gz</a-menu-item>
+            </a-menu>
           </template>
-        </el-dropdown>
-        <el-button type="danger" :disabled="!selection.length" @click="delSelected">删除选中</el-button>
+        </a-dropdown>
+        <a-button data-tone="danger" :disabled="!selection.length" @click="delSelected">删除选中</a-button>
         <template #note v-if="selection.length">已选中 {{ selection.length }} 项，可使用批量操作。</template>
       </WmToolbar>
 
       <WmTable :data="items" v-loading="loading" size="small" @selection-change="(v: any) => (selection = v)" empty-title="此目录为空" empty-description="可上传文件、新建目录，或在上方输入路径跳转。">
-        <el-table-column type="selection" width="42" />
-        <el-table-column label="名称" min-width="300">
+        <WmColumn type="selection" width="42" />
+        <WmColumn label="名称" min-width="300">
           <template #default="{ row }">
-            <el-link v-if="row.is_dir" :underline="false" @click="enter(row)"><el-icon><Folder /></el-icon>&nbsp;{{ row.name }}</el-link>
+            <a v-if="row.is_dir" @click="enter(row)" class="wm-link"><span class="wm-icon"><Folder /></span>&nbsp;{{ row.name }}</a>
             <span v-else>{{ row.name }}</span>
           </template>
-        </el-table-column>
-        <el-table-column label="大小" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.is_dir ? '-' : fmtBytes(row.size) }}</span></template></el-table-column>
-        <el-table-column prop="mode" label="权限" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.mode }}</span></template></el-table-column>
-        <el-table-column prop="owner" label="属主" width="110" />
-        <el-table-column label="修改时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.mtime) }}</span></template></el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        </WmColumn>
+        <WmColumn label="大小" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.is_dir ? '-' : fmtBytes(row.size) }}</span></template></WmColumn>
+        <WmColumn prop="mode" label="权限" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.mode }}</span></template></WmColumn>
+        <WmColumn prop="owner" label="属主" width="110" />
+        <WmColumn label="修改时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.mtime) }}</span></template></WmColumn>
+        <WmColumn label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.is_dir" size="small" @click="enter(row)">打开</el-button>
-            <el-button v-if="!row.is_dir && row.size <= 2 * 1024 * 1024" size="small" @click="edit(row)">编辑</el-button>
-            <el-button v-if="!row.is_dir" size="small" @click="download(row)">下载</el-button>
-            <el-button v-if="isArchive(row.name)" size="small" type="success" @click="decompress(row)">解压</el-button>
-            <el-button size="small" @click="rename(row)">重命名</el-button>
-            <el-button size="small" type="danger" @click="delOne(row)">删除</el-button>
+            <a-button v-if="row.is_dir" size="small" @click="enter(row)">打开</a-button>
+            <a-button v-if="!row.is_dir && row.size <= 2 * 1024 * 1024" size="small" @click="edit(row)">编辑</a-button>
+            <a-button v-if="!row.is_dir" size="small" @click="download(row)">下载</a-button>
+            <a-button v-if="isArchive(row.name)" size="small" data-tone="success" @click="decompress(row)">解压</a-button>
+            <a-button size="small" @click="rename(row)">重命名</a-button>
+            <a-button size="small" data-tone="danger" @click="delOne(row)">删除</a-button>
           </template>
-        </el-table-column>
+        </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <el-dialog v-model="editDlg" :title="`编辑 - ${editPath}`" width="760px">
-      <el-input v-model="editContent" type="textarea" :rows="18" />
+    <a-modal v-model:open="editDlg" :title="`编辑 - ${editPath}`" width="760px">
+      <a-textarea v-model:value="editContent"  :rows="18" />
       <template #footer>
-        <el-button @click="editDlg = false">取消</el-button>
-        <el-button type="primary" @click="saveEdit">保存</el-button>
+        <a-button @click="editDlg = false">取消</a-button>
+        <a-button type="primary" @click="saveEdit">保存</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Folder } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from '../antd-compat'
+import { Folder } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtTime } from '../utils'
 

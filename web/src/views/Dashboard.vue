@@ -3,11 +3,10 @@
     <WmSectionCard dense>
       <WmToolbar>
         <span class="node-label">监控对象</span>
-        <el-select v-model="nodeSel" style="width: 250px" aria-label="监控对象">
-          <el-option label="本机（面板所在服务器）" value="local" />
-          <el-option v-for="n in nodes" :key="n.node.id" :value="String(n.node.id)"
-            :label="`${n.node.name}${n.online ? '' : '（离线）'}`" />
-        </el-select>
+        <a-select v-model:value="nodeSel" style="width: 250px" aria-label="监控对象">
+          <a-select-option value="local">本机（面板所在服务器）</a-select-option>
+          <a-select-option v-for="n in nodes" :key="n.node.id" :value="String(n.node.id)">{{ `${n.node.name}${n.online ? '' : '（离线）'}` }}</a-select-option>
+        </a-select>
         <template #note>本机指标每 3 秒采样；远程节点由 Agent 每 15 秒上报一次。</template>
       </WmToolbar>
     </WmSectionCard>
@@ -21,7 +20,7 @@
         :progress="Math.min(100, current.cpu || 0)"
         :loading="!loaded"
       >
-        <template #icon><el-icon><Cpu /></el-icon></template>
+        <template #icon><span class="wm-icon"><Cpu /></span></template>
       </WmStatCard>
 
       <WmStatCard
@@ -31,7 +30,7 @@
         :progress="Math.min(100, current.mem_pct || 0)"
         :loading="!loaded"
       >
-        <template #icon><el-icon><Memo /></el-icon></template>
+        <template #icon><span class="wm-icon"><Memo /></span></template>
         <template #sub>共 {{ fmtBytes(current.mem_total) }} · 使用率 {{ fix(current.mem_pct) }}%</template>
       </WmStatCard>
 
@@ -41,12 +40,12 @@
         tone="warning"
         :loading="!loaded"
       >
-        <template #icon><el-icon><TrendCharts /></el-icon></template>
+        <template #icon><span class="wm-icon"><TrendCharts /></span></template>
         <template #sub>网络 ↓ {{ fmtBytes(current.recv) }}/s · ↑ {{ fmtBytes(current.sent) }}/s</template>
       </WmStatCard>
 
       <WmStatCard label="系统环境" :text="true" :value="[host.platform, host.platform_version].filter(Boolean).join(' ') || '-'" tone="neutral" :loading="!loaded">
-        <template #icon><el-icon><Platform /></el-icon></template>
+        <template #icon><span class="wm-icon"><Platform /></span></template>
         <template #sub>
           <template v-if="remote">远程节点 · 最近上报 {{ fmtTime(current.time) }}</template>
           <template v-else>
@@ -70,28 +69,28 @@
       <div class="wm-grid-2 wm-grid-2--wide-left">
         <WmSectionCard title="磁盘" description="挂载点用量" flush>
           <WmTable :data="disks" size="small" empty-title="未检测到磁盘信息">
-            <el-table-column prop="mount" label="挂载点" min-width="110" />
-            <el-table-column label="用量" min-width="150">
+            <WmColumn prop="mount" label="挂载点" min-width="110" />
+            <WmColumn label="用量" min-width="150">
               <template #default="{ row }">
-                <el-progress :percentage="Math.min(100, Math.round(row.used_pct))" :stroke-width="10"
+                <a-progress :percent="Math.min(100, Math.round(row.used_pct))" :stroke-width="10"
                   :status="row.used_pct > 90 ? 'exception' : row.used_pct > 75 ? 'warning' : undefined" />
               </template>
-            </el-table-column>
-            <el-table-column label="已用/总量" width="150">
+            </WmColumn>
+            <WmColumn label="已用/总量" width="150">
               <template #default="{ row }"><span class="wm-mono">{{ fmtBytes(row.used) }} / {{ fmtBytes(row.total) }}</span></template>
-            </el-table-column>
+            </WmColumn>
           </WmTable>
         </WmSectionCard>
         <WmSectionCard title="CPU 占用 Top 进程" description="按当前占用排序" flush>
           <WmTable :data="procs" size="small" empty-title="暂无进程数据">
-            <el-table-column prop="pid" label="PID" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.pid }}</span></template></el-table-column>
-            <el-table-column prop="name" label="进程" min-width="180" />
-            <el-table-column label="CPU%" width="100">
+            <WmColumn prop="pid" label="PID" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.pid }}</span></template></WmColumn>
+            <WmColumn prop="name" label="进程" min-width="180" />
+            <WmColumn label="CPU%" width="100">
               <template #default="{ row }"><span :class="{ hot: row.cpu > 60 }" class="wm-mono">{{ row.cpu.toFixed(1) }}</span></template>
-            </el-table-column>
-            <el-table-column label="内存%" width="100">
+            </WmColumn>
+            <WmColumn label="内存%" width="100">
               <template #default="{ row }"><span class="wm-mono">{{ row.mem_pct.toFixed(1) }}</span></template>
-            </el-table-column>
+            </WmColumn>
           </WmTable>
         </WmSectionCard>
       </div>
@@ -106,7 +105,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { Cpu, Memo, TrendCharts, Platform } from '@element-plus/icons-vue'
+import { Cpu, Memo, TrendCharts, Platform } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtDuration, fmtTime, chartPalette } from '../utils'
 

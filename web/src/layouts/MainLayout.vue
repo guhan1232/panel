@@ -1,108 +1,97 @@
 <template>
-  <div
-    class="wm-shell"
-    :class="{ 'wm-shell--mini': collapsed && !isMobile, 'wm-shell--drawer': drawerOpen }"
-  >
-    <!-- Navigation rail ------------------------------------------------ -->
-    <aside class="wm-rail" aria-label="主导航">
+  <div class="wm-shell" :class="{ 'wm-shell--mini': collapsed && !isMobile, 'wm-shell--drawer': drawerOpen }">
+    <!-- Desktop sider -->
+    <aside class="wm-sider">
       <div class="wm-brand">
-        <span class="wm-brand__mark" aria-hidden="true">W</span>
-        <div class="wm-brand__text">
-          <div class="wm-brand__name">webmblx</div>
-          <div class="wm-brand__sub">control surface</div>
-        </div>
+        <span class="wm-brand__mark">W</span>
+        <transition name="fade">
+          <span v-show="!collapsed || isMobile" class="wm-brand__text">webmblx</span>
+        </transition>
       </div>
-
-      <nav class="wm-rail__nav">
-        <div v-for="(group, gi) in navGroups" :key="group.label" class="wm-nav-group">
-          <template v-if="!collapsed || isMobile">
-            <div class="wm-nav-group__label">
-              <span class="wm-mono" style="opacity: .65; margin-right: 8px">{{ String(gi + 1).padStart(2, '0') }}</span>
-              {{ group.label }}
-            </div>
-          </template>
-          <div v-else class="wm-nav-group__rule" />
-
-          <router-link
-            v-for="item in group.items"
-            :key="item.path"
-            :to="item.path"
-            class="wm-nav-item"
-            :class="{ 'is-active': route.path === item.path }"
-            :title="collapsed && !isMobile ? item.label : undefined"
-            :aria-current="route.path === item.path ? 'page' : undefined"
-            @click="drawerOpen = false"
-          >
-            <el-icon><component :is="item.icon" /></el-icon>
-            <span class="wm-nav-item__label">{{ item.label }}</span>
-          </router-link>
-        </div>
-      </nav>
-
-      <div class="wm-rail__foot">
-        <span class="wm-rail__avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</span>
-        <div class="wm-rail__who">
-          <div class="wm-rail__name wm-truncate">{{ auth.username || '未登录' }}</div>
-          <div class="wm-rail__role">{{ roleLabel }}</div>
-        </div>
+      <div class="wm-sider__scroll">
+        <a-menu
+          theme="dark"
+          mode="inline"
+          :inline-collapsed="collapsed && !isMobile"
+          :selected-keys="[route.path]"
+          :open-keys="[]"
+          class="wm-nav"
+        >
+          <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
+            <a-menu-item
+              v-for="item in group.items"
+              :key="item.path"
+              @click="go(item.path)"
+            >
+              <template #icon><component :is="item.icon" /></template>
+              <span>{{ item.label }}</span>
+            </a-menu-item>
+          </a-menu-item-group>
+        </a-menu>
       </div>
+      <div v-if="!collapsed || isMobile" class="wm-sider__foot">全部写操作均被审计</div>
     </aside>
 
-    <div class="wm-scrim" @click="drawerOpen = false" />
+    <!-- Mobile drawer -->
+    <a-drawer
+      v-model:open="drawerOpen"
+      placement="left"
+      :width="260"
+      :closable="false"
+      class="wm-mobile-drawer"
+    >
+      <div class="wm-brand wm-brand--drawer"><span class="wm-brand__mark">W</span><span class="wm-brand__text">webmblx</span></div>
+      <a-menu theme="dark" mode="inline" :selected-keys="[route.path]" class="wm-nav">
+        <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
+          <a-menu-item v-for="item in group.items" :key="item.path" @click="go(item.path)">
+            <template #icon><component :is="item.icon" /></template>
+            <span>{{ item.label }}</span>
+          </a-menu-item>
+        </a-menu-item-group>
+      </a-menu>
+    </a-drawer>
 
-    <!-- Main column ----------------------------------------------------- -->
     <div class="wm-main">
       <header class="wm-topbar">
         <div class="wm-topbar__left">
-          <button
-            class="wm-icon-btn"
-            type="button"
-            :aria-label="isMobile ? '打开导航' : collapsed ? '展开导航' : '收起导航'"
-            :aria-expanded="isMobile ? drawerOpen : !collapsed"
-            @click="toggleNav"
-          >
-            <el-icon><Menu v-if="isMobile" /><Expand v-else-if="collapsed" /><Fold v-else /></el-icon>
+          <button class="wm-icon-btn" type="button" :aria-label="isMobile ? '打开导航' : '切换导航'" @click="toggleNav">
+            <Menu v-if="isMobile" /><Expand v-else-if="collapsed" /><Fold v-else />
           </button>
-          <div class="wm-crumb" aria-label="当前位置">
+          <div class="wm-crumb">
             <span>{{ route.meta.group || '面板' }}</span>
             <span class="wm-crumb__sep">/</span>
             <span class="wm-crumb__current">{{ route.meta.title }}</span>
           </div>
           <span class="wm-topbar__title">{{ route.meta.title }}</span>
         </div>
-
         <div class="wm-topbar__right">
-          <span class="wm-session" :title="secure ? '当前通过 HTTPS 访问' : '当前为 HTTP 明文连接'">
-            <i class="wm-session__dot" :style="secure ? '' : 'background: var(--wm-warning); box-shadow: 0 0 0 3px rgba(185,116,27,.16)'" />
-            {{ secure ? 'HTTPS 安全会话' : 'HTTP 明文会话' }}
+          <span class="wm-session">
+            <i class="wm-session__dot" :class="{ 'is-plain': !secure }" />
+            {{ secure ? '安全连接' : '明文连接' }}
           </span>
-          <div class="wm-topbar__divider" />
-          <el-tooltip :content="theme.dark ? '切换到亮色' : '切换到暗色'" placement="bottom">
-            <button class="wm-icon-btn" type="button" :aria-label="theme.dark ? '切换到亮色' : '切换到暗色'" @click="theme.toggle()">
-              <el-icon><Sunny v-if="theme.dark" /><Moon v-else /></el-icon>
+          <a-tooltip :title="theme.dark ? '切换到亮色' : '切换到暗色'">
+            <button class="wm-icon-btn" type="button" @click="theme.toggle()">
+              <Sunny v-if="theme.dark" /><Moon v-else />
             </button>
-          </el-tooltip>
-          <el-dropdown trigger="click" @command="onCommand">
+          </a-tooltip>
+          <a-dropdown trigger="['click']">
             <button class="wm-user-trigger" type="button" aria-label="用户菜单">
-              <el-avatar :size="26" class="wm-user-avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</el-avatar>
+              <a-avatar :size="26" class="wm-user-avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</a-avatar>
               <span class="wm-user-trigger__name">{{ auth.username }}</span>
-              <el-icon :size="12"><ArrowDown /></el-icon>
+              <ArrowDown />
             </button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item disabled>
-                  <span class="wm-eyebrow">当前角色 · {{ roleLabel }}</span>
-                </el-dropdown-item>
-                <el-dropdown-item command="theme" divided>
-                  <el-icon><Moon v-if="!theme.dark" /><Sunny v-else /></el-icon>
-                  {{ theme.dark ? '亮色外观' : '暗色外观' }}
-                </el-dropdown-item>
-                <el-dropdown-item command="logout" divided>
-                  <el-icon><SwitchButton /></el-icon>退出登录
-                </el-dropdown-item>
-              </el-dropdown-menu>
+            <template #overlay>
+              <a-menu class="wm-user-menu" @click="({ key }: any) => onCommand(String(key))">
+                <a-menu-item disabled>当前角色：{{ roleLabel }}</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="theme">
+                  <Moon v-if="!theme.dark" /><Sunny v-else />&nbsp;{{ theme.dark ? '亮色外观' : '暗色外观' }}
+                </a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="logout"><SwitchButton />&nbsp;退出登录</a-menu-item>
+              </a-menu>
             </template>
-          </el-dropdown>
+          </a-dropdown>
         </div>
       </header>
 
@@ -124,7 +113,6 @@
       </main>
     </div>
 
-    <!-- Mobile bottom navigation ---------------------------------------- -->
     <nav class="wm-mobilebar" aria-label="快捷导航">
       <router-link
         v-for="item in mobileItems"
@@ -133,12 +121,10 @@
         class="wm-mobilebar__item"
         :class="{ 'is-active': route.path === item.path }"
       >
-        <el-icon><component :is="item.icon" /></el-icon>
-        <span>{{ item.label }}</span>
+        <component :is="item.icon" /><span>{{ item.label }}</span>
       </router-link>
       <button class="wm-mobilebar__item" type="button" @click="drawerOpen = true">
-        <el-icon><MoreFilled /></el-icon>
-        <span>更多</span>
+        <MoreFilled /><span>更多</span>
       </button>
     </nav>
   </div>
@@ -151,7 +137,7 @@ import {
   Odometer, Connection, Coin, Shop, Monitor, Timer, Warning, Folder, Cpu,
   Lock, Stamp, Document, Bell, Setting, Expand, Fold, Sunny, Moon,
   ArrowDown, SwitchButton, Avatar, Share, Menu, MoreFilled, Box
-} from '@element-plus/icons-vue'
+} from '../antd-compat'
 import { useAuth } from '../stores/auth'
 import { useTheme } from '../stores/theme'
 
@@ -169,10 +155,7 @@ const ROLE_LABEL: Record<string, string> = { admin: '管理员', operator: '操�
 const roleLabel = computed(() => ROLE_LABEL[auth.role] || '未登录')
 
 const navGroups = computed(() => [
-  {
-    label: '概览',
-    items: [{ path: '/dashboard', label: '仪表盘', icon: Odometer }]
-  },
+  { label: '概览', items: [{ path: '/dashboard', label: '仪表盘', icon: Odometer }] },
   {
     label: '站点与服务',
     items: [
@@ -213,6 +196,11 @@ const mobileItems = [
   { path: '/files', label: '文件', icon: Folder }
 ]
 
+function go(path: string) {
+  router.push(path)
+  drawerOpen.value = false
+}
+
 function toggleNav() {
   if (isMobile.value) drawerOpen.value = !drawerOpen.value
   else {
@@ -234,9 +222,7 @@ function onViewport(e: MediaQueryListEvent | MediaQueryList) {
   isMobile.value = e.matches
   if (!e.matches) drawerOpen.value = false
 }
-
 watch(() => route.fullPath, () => { drawerOpen.value = false })
-
 onMounted(() => {
   mql = window.matchMedia('(max-width: 900px)')
   onViewport(mql)
@@ -244,17 +230,3 @@ onMounted(() => {
 })
 onBeforeUnmount(() => mql?.removeEventListener('change', onViewport))
 </script>
-
-<style scoped>
-.wm-user-avatar {
-  background: var(--wm-accent-soft);
-  color: var(--wm-accent);
-  font-weight: 700;
-  font-size: 12px;
-  border: 1px solid var(--wm-accent-line);
-}
-.wm-topbar__title { display: none; font-size: 14px; font-weight: 650; color: var(--wm-ink); }
-@media (max-width: 900px) {
-  .wm-topbar__title { display: block; }
-}
-</style>

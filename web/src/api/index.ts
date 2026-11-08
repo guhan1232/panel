@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '../antd-compat'
 import router from '../router'
 
 const api = axios.create({ baseURL: '/api', timeout: 30000 })

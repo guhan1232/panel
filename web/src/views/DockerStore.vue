@@ -1,116 +1,161 @@
 <template>
-  <div class="wm-page">
-    <WmSectionCard title="Docker 容器管理" description="容器化应用一键部署（Docker Compose 编排），Docker 镜像加速源自行配置" flush>
-      <WmToolbar>
-        <WmStatusPill
-          :label="docker.installed ? (docker.compose ? 'Docker 就绪' : '缺少 compose 插件') : 'Docker 未安装'"
-          :tone="docker.installed ? (docker.compose ? 'success' : 'warning') : 'danger'"
-        />
-        <el-button v-if="!docker.installed" size="small" type="warning" :loading="installing" @click="installDocker">一键安装 Docker</el-button>
-        <el-button size="small" @click="openMirrors">镜像源配置</el-button>
-        <el-button size="small" @click="load">刷新</el-button>
-        <template #note>容器模板需要 Docker 与 compose 插件；镜像加速走 daemon.json（自行配置，修改前自动备份）。</template>
-      </WmToolbar>
-
-      <div class="wm-section-block">
-        <div class="wm-section-block__head">
-          <span class="wm-eyebrow">容器模板</span>
-          <span class="wm-text-muted">内置 {{ builtinCount }} · 镜像源 {{ remoteCount }} 个</span>
+  <div class="wm-page store-page">
+    <WmSectionCard dense class="store-control">
+      <div class="store-control__row">
+        <div class="store-control__stats">
+          <div class="store-stat"><span>Docker</span><b>{{ docker.installed ? (docker.compose ? '就绪' : '缺 compose') : '未安装' }}</b></div>
+          <div class="store-stat"><span>容器模板</span><b>{{ templates.length }}</b></div>
+          <div class="store-stat"><span>内置模板</span><b>{{ builtinCount }}</b></div>
+          <div class="store-stat"><span>已部署</span><b>{{ apps.length }}</b></div>
         </div>
-        <div class="wm-tpl-grid" v-if="templates.length">
-          <article v-for="t in templates" :key="t.key" class="wm-tpl-card">
-            <div class="wm-tpl-card__top">
-              <h3 class="wm-tpl-card__name">{{ t.name }}</h3>
-              <div class="wm-tpl-card__pills">
-                <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
-              </div>
-            </div>
-            <p class="wm-tpl-card__desc">{{ t.desc }}<template v-if="t.version"> · v{{ t.version }}</template></p>
-            <el-button size="small" type="primary" class="wm-tpl-card__btn"
-              :disabled="!docker.installed || !docker.compose"
-              @click="openInstall(t)">部署</el-button>
-          </article>
+        <div class="store-control__actions">
+          <a-input v-model:value="keyword" placeholder="搜索容器模板" allow-clear style="width: 200px">
+            <template #prefix><SearchOutlined /></template>
+          </a-input>
+          <a-radio-group v-model:value="sourceFilter" size="small">
+            <a-radio-button value="all">全部</a-radio-button>
+            <a-radio-button value="builtin">内置</a-radio-button>
+            <a-radio-button value="remote">镜像源</a-radio-button>
+          </a-radio-group>
+          <a-button size="small" @click="openMirrors">镜像源配置</a-button>
+          <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
         </div>
-        <WmEmptyState v-else compact title="加载中" description="正在读取容器模板清单。" />
-      </div>
-
-      <div class="wm-section-block wm-section-block--table">
-        <div class="wm-section-block__head">
-          <span class="wm-eyebrow">已部署容器</span>
-          <span class="wm-text-muted">{{ apps.length }} 个实例</span>
-        </div>
-        <WmTable :data="apps" v-loading="loading" empty-title="还没有部署应用" empty-description="从上方模板中选择一个，填写实例名称即可部署。">
-          <el-table-column label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></el-table-column>
-          <el-table-column label="应用" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></el-table-column>
-          <el-table-column label="状态" min-width="240"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></el-table-column>
-          <el-table-column label="部署时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></el-table-column>
-          <el-table-column label="操作" width="310" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" type="success" @click="act(row, 'start')">启动</el-button>
-              <el-button size="small" type="warning" @click="act(row, 'stop')">停止</el-button>
-              <el-button size="small" @click="act(row, 'restart')">重启</el-button>
-              <el-button size="small" @click="viewLogs(row)">日志</el-button>
-              <el-button size="small" type="danger" @click="uninstall(row)">卸载</el-button>
-            </template>
-          </el-table-column>
-        </WmTable>
       </div>
     </WmSectionCard>
 
-    <el-dialog v-model="dlg" :title="`部署 ${cur?.name || ''}`" width="560px">
-      <el-form label-width="130px">
-        <el-form-item label="实例名称"><el-input v-model="instName" placeholder="如 my-redis" /></el-form-item>
-        <el-form-item label="镜像源">
-          <el-select v-model="instMirror" style="width: 100%">
-            <el-option v-for="m in dockerMirrors" :key="m.id" :label="m.name" :value="m.id" />
-          </el-select>
+    <a-row :gutter="16" class="store-grid">
+      <a-col :xs="24" :xl="16">
+        <WmSectionCard title="容器模板" description="Docker Compose 编排，部署时可为镜像选择加速源">
+          <template #actions>
+            <a-button v-if="!docker.installed" size="small" data-tone="warning" :loading="installing" @click="installDocker">一键安装 Docker</a-button>
+            <span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span>
+          </template>
+          <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
+            <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8">
+              <div class="store-card">
+                <div class="store-card__head">
+                  <span class="store-card__avatar store-card__avatar--docker">{{ (t.name || '?').slice(0, 1) }}</span>
+                  <div class="store-card__title">
+                    <b class="wm-truncate">{{ t.name }}</b>
+                    <span v-if="t.version" class="store-card__ver">v{{ t.version }}</span>
+                  </div>
+                </div>
+                <p class="store-card__desc">{{ t.desc }}</p>
+                <div class="store-card__tags">
+                  <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
+                </div>
+                <div class="store-card__foot">
+                  <a-button type="primary" size="small" :disabled="!docker.installed || !docker.compose" @click="openInstall(t)">部署</a-button>
+                </div>
+              </div>
+            </a-col>
+          </a-row>
+          <WmEmptyState v-else compact title="没有匹配的模板" description="试试更换关键词，或把来源筛选切回「全部」。" />
+        </WmSectionCard>
+
+        <WmSectionCard title="实例明细" description="启动、停止、重启、查看日志与卸载" flush>
+          <WmTable :data="apps" v-loading="loading" empty-title="还没有部署应用" empty-description="从上方模板中选择一个，填写实例名称即可部署。">
+            <WmColumn label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></WmColumn>
+            <WmColumn label="应用" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></WmColumn>
+            <WmColumn label="状态" min-width="240"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></WmColumn>
+            <WmColumn label="部署时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></WmColumn>
+            <WmColumn label="操作" width="310" fixed="right">
+              <template #default="{ row }">
+                <a-button size="small" data-tone="success" @click="act(row, 'start')">启动</a-button>
+                <a-button size="small" data-tone="warning" @click="act(row, 'stop')">停止</a-button>
+                <a-button size="small" @click="act(row, 'restart')">重启</a-button>
+                <a-button size="small" @click="viewLogs(row)">日志</a-button>
+                <a-button size="small" data-tone="danger" @click="uninstall(row)">卸载</a-button>
+              </template>
+            </WmColumn>
+          </WmTable>
+        </WmSectionCard>
+      </a-col>
+
+      <a-col :xs="24" :xl="8">
+        <WmSectionCard title="已部署" :description="`${apps.length} 个实例`">
+          <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
+            <template #renderItem="{ item }">
+              <a-list-item class="store-list__item">
+                <div class="store-list__meta">
+                  <b class="wm-truncate">{{ item.app.name }}</b>
+                  <span class="wm-text-muted wm-truncate">{{ item.app.app_key }}</span>
+                </div>
+                <template #actions>
+                  <a-button type="link" size="small" @click="viewLogs(item)">日志</a-button>
+                </template>
+              </a-list-item>
+            </template>
+          </a-list>
+          <WmEmptyState v-else compact title="还没有部署容器" description="从左侧卡片选择模板并点击部署。" />
+        </WmSectionCard>
+
+        <WmSectionCard title="运行环境" description="Docker 与镜像加速状态">
+          <div class="store-env">
+            <div><span>引擎</span><WmStatusPill :label="docker.installed ? '已安装' : '未安装'" :tone="docker.installed ? 'success' : 'danger'" /></div>
+            <div><span>compose 插件</span><WmStatusPill :label="docker.compose ? '就绪' : '缺失'" :tone="docker.compose ? 'success' : 'warning'" /></div>
+            <div><span>模板来源</span><b>内置 {{ builtinCount }} · 镜像源 {{ remoteCount }}</b></div>
+          </div>
+          <WmNotice tone="neutral" class="wm-mt-4">镜像加速写入 daemon.json，修改前自动备份；保存后需重启 Docker，运行中的容器会短暂中断。</WmNotice>
+        </WmSectionCard>
+      </a-col>
+    </a-row>
+
+    <a-modal v-model:open="dlg" :title="`部署 ${cur?.name || ''}`" width="560px">
+      <a-form :label-col="{ style: { width: '130px' } }">
+        <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 my-redis" /></a-form-item>
+        <a-form-item label="镜像源">
+          <a-select v-model:value="instMirror" style="width: 100%">
+            <a-select-option v-for="m in dockerMirrors" :key="m.id" :value="m.id">{{ m.name }}</a-select-option>
+          </a-select>
           <div class="hint">部署时将 YAML 中的镜像改写为所选代理仓库拉取；也可在「镜像源配置」里设置全局 daemon.json 加速</div>
-        </el-form-item>
-        <el-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
-          <el-input v-model="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
-        </el-form-item>
-      </el-form>
+        </a-form-item>
+        <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
+          <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
+        </a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="deploying" @click="deploy">部署（拉取镜像可能较慢）</el-button>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="deploying" @click="deploy">部署（拉取镜像可能较慢）</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
 
-    <el-dialog v-model="logDlg" :title="`日志 - ${logName}`" width="820px">
+    <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
-    </el-dialog>
+    </a-modal>
 
-    <el-dialog v-model="mirrorDlg" title="Docker 镜像源配置（daemon.json）" width="680px">
+    <a-modal v-model:open="mirrorDlg" title="Docker 镜像源配置（daemon.json）" width="680px">
       <WmNotice v-if="mirrorInfo.docker_installed === false" tone="warning" title="尚未检测到 Docker" class="wm-mb-4">可先编辑配置文件，安装 Docker 后生效。</WmNotice>
-      <el-form label-width="110px">
-        <el-form-item label="加速镜像源">
-          <el-input v-model="mirrorForm.registry_mirrors" type="textarea" :rows="5" placeholder="每行一个，如 https://docker.m.daocloud.io" />
+      <a-form :label-col="{ style: { width: '110px' } }">
+        <a-form-item label="加速镜像源">
+          <a-textarea v-model:value="mirrorForm.registry_mirrors" :rows="5" placeholder="每行一个，如 https://docker.m.daocloud.io" />
           <div class="presets">
             <span class="hint">常用源（时效性强，按可用性自行取舍）：</span>
-            <el-tag v-for="m in mirrorPresets" :key="m" size="small" class="preset-tag" @click="addPreset(m)">{{ m }}</el-tag>
+            <a-tag v-for="m in mirrorPresets" :key="m" size="small" class="preset-tag" @click="addPreset(m)">{{ m }}</a-tag>
           </div>
-        </el-form-item>
-        <el-form-item label="私有仓库白名单">
-          <el-input v-model="mirrorForm.insecure_registries" type="textarea" :rows="3" placeholder="每行一个 HTTP 私有仓库，如 192.168.1.10:5000" />
-        </el-form-item>
-        <el-form-item v-if="mirrorInfo.live_mirrors && mirrorInfo.live_mirrors.length" label="当前生效">
+        </a-form-item>
+        <a-form-item label="私有仓库白名单">
+          <a-textarea v-model:value="mirrorForm.insecure_registries" :rows="3" placeholder="每行一个 HTTP 私有仓库，如 192.168.1.10:5000" />
+        </a-form-item>
+        <a-form-item v-if="mirrorInfo.live_mirrors && mirrorInfo.live_mirrors.length" label="当前生效">
           <div class="live-mirrors">
             <WmStatusPill v-for="m in mirrorInfo.live_mirrors" :key="m" :label="m" tone="success" :dot="false" mono />
           </div>
-        </el-form-item>
-        <el-form-item label="配置文件"><span class="hint wm-mono">{{ mirrorInfo.path }}</span><span class="hint">其余配置项保持不变，修改前自动备份</span></el-form-item>
-      </el-form>
+        </a-form-item>
+        <a-form-item label="配置文件"><span class="hint wm-mono">{{ mirrorInfo.path }}</span><span class="hint">其余配置项保持不变，修改前自动备份</span></a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="mirrorDlg = false">取消</el-button>
-        <el-button type="primary" :loading="mirrorSaving" @click="saveMirrors">保存并重启 Docker</el-button>
+        <a-button @click="mirrorDlg = false">取消</a-button>
+        <a-button type="primary" :loading="mirrorSaving" @click="saveMirrors">保存并重启 Docker</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
 import { useAuth } from '../stores/auth'
@@ -133,6 +178,18 @@ const logContent = ref('')
 
 const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
 const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
+
+const keyword = ref('')
+const sourceFilter = ref<'all' | 'builtin' | 'remote'>('all')
+const filteredTemplates = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  return templates.value.filter((t) => {
+    if (sourceFilter.value === 'builtin' && t.source === 'remote') return false
+    if (sourceFilter.value === 'remote' && t.source !== 'remote') return false
+    if (!q) return true
+    return [t.name, t.key, t.desc].some((v: any) => String(v || '').toLowerCase().includes(q))
+  })
+})
 
 const mirrorPresets = [
   'https://docker.m.daocloud.io',
