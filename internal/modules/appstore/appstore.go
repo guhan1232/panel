@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	goruntime "runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -490,11 +491,28 @@ volumes:
 		Key: "nginx-pkg", Name: "Nginx", DefaultVersion: "distro", Desc: "Web 服务器/反向代理（发行版 / nginx.org stable / mainline）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
-			return []AppVersion{
-				{Version: "distro", Note: "发行版源"},
-				{Version: "stable", Note: "nginx.org 稳定版"},
-				{Version: "mainline", Note: "nginx.org 主线版"},
-			}, nil
+			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
+			entries := nginxPoolEntries()
+			if len(entries) > 0 {
+				maxMinor := 0
+				for _, e := range entries {
+					if parts := strings.Split(e.Ver, "."); len(parts) >= 2 {
+						if mi, _ := strconv.Atoi(parts[1]); mi > maxMinor {
+							maxMinor = mi
+						}
+					}
+				}
+				for _, e := range entries {
+					note := "nginx.org 历史稳定版"
+					if parts := strings.Split(e.Ver, "."); len(parts) >= 2 {
+						if mi, _ := strconv.Atoi(parts[1]); mi == maxMinor {
+							note = "nginx.org 当前稳定版"
+						}
+					}
+					out = append(out, AppVersion{Version: e.Ver, Note: note})
+				}
+			}
+			return out, nil
 		},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"nginx"}, "nginx", nil
@@ -502,6 +520,23 @@ volumes:
 		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
 			if distro != "apt" {
 				return nil, []string{"nginx"}, nil, "nginx", "nginx.org 官方源", nil
+			}
+			if nginxRe.MatchString(ver) {
+				fname := nginxPoolCache.byVer[ver]
+				if fname == "" {
+					return nil, nil, nil, "", "", fmt.Errorf("nginx %s 在 nginx.org 仓库中不存在（当前发行版/架构）", ver)
+				}
+				deb := "/tmp/webmblx-nginx-" + ver + ".deb"
+				pre = []string{
+					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " https://nginx.org/packages/ubuntu/pool/nginx/n/nginx/" + fname,
+					"systemctl stop nginx 2>/dev/null || true",
+					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 purge -y nginx nginx-common nginx-core 2>/dev/null || true",
+				}
+				pkgs = []string{deb}
+				unit = "nginx"
+				post = []string{"rm -f " + deb}
+				note = "nginx.org " + ver
+				return pre, pkgs, post, unit, note, nil
 			}
 			repo := "http://nginx.org/packages"
 			if ver == "mainline" {
@@ -1647,8 +1682,125 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 	return msg, pkgs, unit, nil
 }
 
+// osRelease 读取 /etc/os-release 的 ID 与 VERSION_CODENAME（进程内缓存）。
+var osRelOnce struct {
+	once sync.Once
+	id   string
+	cod  string
+}
+
+func osRelease() (id, codename string) {
+	osRelOnce.once.Do(func() {
+		data, err := os.ReadFile("/etc/os-release")
+		if err != nil {
+			return
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "ID=") {
+				osRelOnce.id = strings.Trim(strings.TrimPrefix(line, "ID="), `"`)
+			} else if strings.HasPrefix(line, "VERSION_CODENAME=") {
+				osRelOnce.cod = strings.Trim(strings.TrimPrefix(line, "VERSION_CODENAME="), `"`)
+			}
+		}
+	})
+	return osRelOnce.id, osRelOnce.cod
+}
+
+// nginxDeb nginx.org pool 中的一个 deb：Ver 为上游版本号，File 为完整文件名。
+type nginxDeb struct {
+	Ver  string
+	File string
+}
+
+var nginxPoolCache struct {
+	mu    sync.Mutex
+	byVer map[string]string // 版本号 → 最高修订的 deb 文件名
+	at    time.Time
+}
+
+// nginxPoolEntries 拉取 nginx.org packages pool 目录，按当前发行版代号与架构过滤（缓存 10 分钟）。
+func nginxPoolEntries() []nginxDeb {
+	nginxPoolCache.mu.Lock()
+	defer nginxPoolCache.mu.Unlock()
+	if nginxPoolCache.byVer != nil && time.Since(nginxPoolCache.at) < 10*time.Minute {
+		return poolList(nginxPoolCache.byVer)
+	}
+	_, cn := osRelease()
+	if cn == "" || detectPkgManager() != "apt" {
+		return nil
+	}
+	distroPath := "ubuntu"
+	if id, _ := osRelease(); id == "debian" {
+		distroPath = "debian"
+	}
+	base := "https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/"
+	data, err := httpGet(base, 20*time.Second, 4<<20)
+	if err != nil {
+		return nil
+	}
+	re := regexp.MustCompile(`nginx_(\d+(?:\.\d+){2})-(\d+)~([a-z0-9]+)_(amd64|arm64)\.deb`)
+	arch := runtime.GOARCH
+	byVer := map[string]string{}
+	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+		if m[3] != cn || m[4] != arch {
+			continue
+		}
+		if old, ok := byVer[m[1]]; ok {
+			if debRev(old) >= m[2] {
+				continue
+			}
+		}
+		byVer[m[1]] = m[0]
+	}
+	if len(byVer) == 0 {
+		return nil
+	}
+	nginxPoolCache.byVer = byVer
+	nginxPoolCache.at = time.Now()
+	return poolList(byVer)
+}
+
+func poolList(byVer map[string]string) []nginxDeb {
+	out := make([]nginxDeb, 0, len(byVer))
+	for v, f := range byVer {
+		out = append(out, nginxDeb{Ver: v, File: f})
+	}
+	sort.Slice(out, func(i, j int) bool { return verLess(out[j].Ver, out[i].Ver) })
+	return out
+}
+
+// debRev 从 deb 文件名提取包修订号。
+func debRev(file string) string {
+	m := regexp.MustCompile(`-(\d+)~`).FindStringSubmatch(file)
+	if m == nil {
+		return "0"
+	}
+	return m[1]
+}
+
+// verLess 数值版语义比较 a < b（点分数字）。
+func verLess(a, b string) bool {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		ai, bi := 0, 0
+		if i < len(pa) {
+			ai, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			bi, _ = strconv.Atoi(pb[i])
+		}
+		if ai != bi {
+			return ai < bi
+		}
+	}
+	return false
+}
+
 // cleanVerRe 合法版本号（过滤 GitHub tag 噪声）。
 var cleanVerRe = regexp.MustCompile(`^\d+(\.\d+)*$`)
+
+var nginxRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
 	client := &http.Client{Timeout: timeout}
