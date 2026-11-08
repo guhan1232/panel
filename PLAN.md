@@ -266,6 +266,8 @@ webmblx/
 > v0.16 已交付：依赖漏洞修复（go-jose/quic-go/echarts 升级 + Go 工具链 1.26.10，govulncheck 清零）。
 > v0.17 已交付：软件商店新增「系统包」安装形态——Nginx/MySQL(MariaDB)/PHP-FPM/Redis/PostgreSQL/Memcached 走 apt/dnf，与二进制应用统一管理界面。
 
+> v0.20 已交付：PHP 全历史版本（5.6→8.5，17 分支）+ Composer 安装/源管理 + PECL 源配置。
+
 ### P2 收官后展望（未排期）
 
 - 任务/告警按节点维度下发（agent exec 通道已就绪，需 cron/告警模块加节点维度）

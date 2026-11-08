@@ -586,6 +586,11 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/:lang/registry", m.setRegistry)
 	g.GET("/:lang/pypi", m.getPypi)
 	g.POST("/:lang/pypi", m.setPypi)
+	g.GET("/:lang/composer", m.getComposer)
+	g.POST("/:lang/composer", m.setComposer)
+	g.POST("/:lang/composer/install", m.installComposer)
+	g.GET("/:lang/pecl", m.getPecl)
+	g.POST("/:lang/pecl", m.setPecl)
 	g.POST("/:lang/install", m.install)
 	g.POST("/:lang/set-default", m.setDefault)
 	g.DELETE("/:id", m.remove)
@@ -1137,16 +1142,28 @@ func listHuaweiOpenJDK(base, goarch, vendor string) ([]runtimeVersion, error) {
 	return out, nil
 }
 // phpBranches 已知的 PHP 稳定/EOL 分支（安装按分支装发行版包）。
-var phpBranches = []string{"8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"}
+// phpSourceDirs 提供 PHP 全历史版本(tar.gz)的镜像站目录。
+var phpSourceDirs = []sourceDef{
+	{ID: "sohu", Name: "搜狐镜像", Base: "https://mirrors.sohu.com/php"},
+	{ID: "official", Name: "php.net", Base: "https://www.php.net/distributions"},
+}
 
-// listPHP 版本清单：静态分支列表 + php.net JSON 补充最新补丁日期。
+var phpBranchesFallback = []string{"8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4", "7.3", "7.2", "7.1", "7.0", "5.6"}
+
+// listPHP 版本清单：全历史分支（搜狐目录解析，失败回退静态表）+ php.net JSON 补日期。
 func listPHP(source, goarch, vendor string) ([]runtimeVersion, error) {
 	dates := map[string]string{}
 	if data, err := httpGet("https://www.php.net/releases/index.php?json&max=100", 20*time.Second, 8<<20); err == nil {
 		dates = parsePHPJson(data)
 	}
+	branches := phpBranchesFallback
+	if html, err := httpGet(phpSourceDirs[0].Base+"/", 30*time.Second, 8<<20); err == nil {
+		if dyn := branchesFromPHPListing(string(html), phpBranchesFallback); len(dyn) > 0 {
+			branches = dyn
+		}
+	}
 	out := []runtimeVersion{}
-	for _, br := range phpBranches {
+	for _, br := range branches {
 		out = append(out, runtimeVersion{Version: br, Date: dates[br]})
 	}
 	return out, nil
@@ -1249,6 +1266,9 @@ func (m *Module) installPHP(version string) ([]string, error) {
 		return nil, fmt.Errorf("php%s-fpm 未进入 active 状态，请检查 journalctl -u %s", version, unit)
 	}
 	_, _, _ = execx.Run("runtime", 30*time.Second, "systemctl", "start", "unattended-upgrades")
+	if err := ensureComposer(); err != nil {
+		slog.Warn("Composer 自动安装失败（不影响 PHP 使用）", "err", err)
+	}
 	var dup int64
 	m.db.Model(&RuntimeInst{}).Where("lang = ? AND version = ?", "php", version).Count(&dup)
 	if dup == 0 {
@@ -1307,4 +1327,194 @@ func tailOf(s string) string {
 		return "..." + s[len(s)-1024:]
 	}
 	return s
+}
+
+// branchesFromPHPListing 从镜像站目录 HTML 提取 PHP 分支列表（如 7.4/8.3），纯函数。
+var phpTarRe = regexp.MustCompile(`php-(\d+)\.(\d+)\.\d+\.tar\.gz`)
+
+func branchesFromPHPListing(html string, fallback []string) []string {
+	seen := map[string]bool{}
+	for _, m := range phpTarRe.FindAllStringSubmatch(html, -1) {
+		br := m[1] + "." + m[2]
+		seen[br] = true
+	}
+	if len(seen) == 0 {
+		return fallback
+	}
+	out := []string{}
+	for br := range seen {
+		out = append(out, br)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := versionNums(out[i]), versionNums(out[j])
+		for k := 0; k < 2; k++ {
+			if a[k] != b[k] {
+				return a[k] > b[k]
+			}
+		}
+		return false
+	})
+	return out
+}
+// composerPhar / composerBin 路径。
+func composerPhar() string  { return "/usr/local/share/composer.phar" }
+func composerBin() string   { return "/usr/local/bin/composer" }
+
+// ensureComposer 下载 composer.phar（阿里云优先，官方回退）并创建包装脚本。
+func ensureComposer() error {
+	if _, err := os.Stat(composerPhar()); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(composerPhar()), 0o755); err != nil {
+		return err
+	}
+	urls := []string{
+		"https://mirrors.aliyun.com/composer/composer.phar",
+		"https://getcomposer.org/composer-stable.phar",
+	}
+	var lastErr error
+	for _, u := range urls {
+		if _, _, err := execx.Run("runtime", 10*time.Minute, "curl", "-fSL", "--retry", "2", "--connect-timeout", "20", "-o", composerPhar(), u); err == nil {
+			lastErr = nil
+			break
+		} else {
+			lastErr = fmt.Errorf("下载失败: %s", u)
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	wrapper := "#!/bin/bash\nexec /usr/bin/php " + composerPhar() + " \"$@\"\n"
+	if err := os.WriteFile(composerBin(), []byte(wrapper), 0o755); err != nil {
+		return err
+	}
+	return nil
+}
+
+// getComposer Composer 安装状态与当前 packagist 源。
+func (m *Module) getComposer(c *gin.Context) {
+	installed := false
+	if _, err := os.Stat(composerPhar()); err == nil {
+		if _, err2 := os.Stat(composerBin()); err2 == nil {
+			installed = true
+		}
+	}
+	url := ""
+	if installed {
+		home := os.Getenv("HOME")
+		for _, cfgPath := range []string{filepath.Join(home, ".config", "composer", "config.json"), filepath.Join(home, ".composer", "config.json")} {
+			data, err := os.ReadFile(cfgPath)
+			if err != nil {
+				continue
+			}
+			var cfg struct {
+				Repositories []struct {
+					Packagist any `json:"packagist.org"`
+					URL       string `json:"url"`
+				} `json:"repositories"`
+			}
+			if json.Unmarshal(data, &cfg) != nil {
+				continue
+			}
+			for _, repo := range cfg.Repositories {
+				if repo.URL != "" {
+					url = repo.URL
+					break
+				}
+			}
+			if url != "" {
+				break
+			}
+		}
+	}
+	core.OK(c, gin.H{"installed": installed, "url": url})
+}
+
+// setComposer 设置 Composer packagist 源（url 为空则清除自定义源）。
+func (m *Module) setComposer(c *gin.Context) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if _, err := os.Stat(composerBin()); err != nil {
+		core.Err(c, 400, "Composer 未安装，请先安装 PHP（会自动附带）或使用安装按钮")
+		return
+	}
+	if req.URL != "" && !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+		core.Err(c, 400, "源地址需以 http(s):// 开头")
+		return
+	}
+	var args []string
+	if req.URL == "" {
+		args = []string{"config", "-g", "--unset", "repos.packagist"}
+	} else {
+		args = []string{"config", "-g", "repo.packagist", "composer", req.URL}
+	}
+	if out, code, err := execx.Run("runtime", 60*time.Second, composerBin(), args...); err != nil {
+		core.Err(c, 500, fmt.Sprintf("设置失败(exit %d): %s", code, out))
+		return
+	}
+	slog.Info("Composer 源已设置", "url", req.URL, "by", c.GetString("user"))
+	core.OK(c, gin.H{"url": req.URL})
+}
+
+// installComposer 为已装 PHP 补装 Composer。
+func (m *Module) installComposer(c *gin.Context) {
+	if goruntime.GOOS != "linux" {
+		core.Err(c, 400, "Composer 安装仅支持在 Linux 服务器上执行")
+		return
+	}
+	if err := ensureComposer(); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if out, code, err := execx.Run("runtime", 60*time.Second, composerBin(), "-V"); err != nil {
+		core.Err(c, 500, fmt.Sprintf("Composer 验证失败(exit %d): %s", code, out))
+		return
+	}
+	core.OK(c, gin.H{"bin": composerBin()})
+}
+
+// getPecl PECL 源状态（需 php-pear 包提供 pear/pecl 命令）。
+func (m *Module) getPecl(c *gin.Context) {
+	installed := false
+	mirror := ""
+	if _, err := os.Stat("/usr/bin/pecl"); err == nil {
+		installed = true
+		if out, code, err := execx.Run("runtime", 30*time.Second, "pear", "config-get", "preferred_mirror"); err == nil && code == 0 {
+			mirror = strings.TrimSpace(out)
+		}
+	}
+	core.OK(c, gin.H{"installed": installed, "mirror": mirror})
+}
+
+// setPecl 设置 PECL 镜像（pear config-set preferred_mirror）。
+func (m *Module) setPecl(c *gin.Context) {
+	var req struct {
+		Mirror string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if _, err := os.Stat("/usr/bin/pecl"); err != nil {
+		core.Err(c, 400, "未找到 pear/pecl（需先安装 php-pear 包）")
+		return
+	}
+	host := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(req.Mirror), "https://"), "http://")
+	host = strings.Trim(host, "/")
+	if strings.ContainsAny(host, " /\\") {
+		core.Err(c, 400, "镜像地址非法")
+		return
+	}
+	_, _, _ = execx.Run("runtime", 60*time.Second, "pear", "channel-update", "pecl.php.net")
+	if out, code, err := execx.Run("runtime", 30*time.Second, "pear", "config-set", "preferred_mirror", host); err != nil {
+		core.Err(c, 500, fmt.Sprintf("设置失败(exit %d): %s", code, out))
+		return
+	}
+	slog.Info("PECL 镜像已设置", "mirror", host, "by", c.GetString("user"))
+	core.OK(c, gin.H{"mirror": host})
 }

@@ -89,6 +89,14 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 | 🧩 解压树定位 | goproxy 工具链 zip 顶层目录不同，二进制按文件名在解压树中探索回退 |
 | 📝 实例入库 | PHP 覆盖安装补 RuntimeInst 入库（重装幂等） |
 
+### v0.20 PHP 生态镜像源（Composer/PECL）+ 全历史版本
+
+| 模块 | 说明 |
+|---|---|
+| 🧬 PHP 全历史版本 | 运行时版本列表扩至 **5.6→8.5 全部 17 个分支**（搜狐镜像目录解析，php.net JSON 补日期），老分支经 ondrej/Remi 仓库安装 |
+| 🎼 Composer | 安装 PHP 自动附带 Composer（阿里云 phar 优先下载 + wrapper 脚本），**Composer 源选择**：阿里云/腾讯云/华为云/Packagist CN/官方，写入 composer 全局 config，读回回显 |
+| 🧩 PECL 源 | PECL 镜像选择：官方/阿里云/清华 TUNA（pear config-set preferred_mirror） |
+
 ### v0.8 多节点 Agent
 
 | 模块 | 说明 |

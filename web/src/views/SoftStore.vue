@@ -73,6 +73,17 @@
               <el-option v-for="o in pypiOptions" :key="o.id" :label="o.name" :value="o.id" />
             </el-select>
           </template>
+          <template v-if="rtLang?.key === 'php'">
+            <span class="hint">Composer源</span>
+            <el-select v-model="composerUrl" placeholder="未设置" style="width: 210px" :loading="composerLoading" @change="saveComposer">
+              <el-option v-for="o in composerMirrorOptions" :key="o.id" :label="o.name" :value="o.id" />
+            </el-select>
+            <el-button v-if="!composerInstalled" size="small" type="primary" plain :loading="composerInstalling" @click="installComposer">安装 Composer</el-button>
+            <span class="hint">PECL源</span>
+            <el-select v-model="peclMirror" placeholder="未设置" style="width: 190px" @change="savePecl">
+              <el-option v-for="o in peclOptions" :key="o.id" :label="o.name" :value="o.id" />
+            </el-select>
+          </template>
           <template v-if="rtInstalled.length && rtLang?.key === 'nodejs'">
             <span class="hint">命令行版本</span>
             <el-select v-model="defaultInstId" style="width: 160px" @change="setDefaultById">
@@ -214,6 +225,23 @@ const pypiOptions = [
 ]
 const pypiIndex = ref('')
 const pypiLoading = ref(false)
+const composerUrl = ref('')
+const composerLoading = ref(false)
+const composerInstalling = ref(false)
+const composerInstalled = ref(false)
+const peclMirror = ref('')
+const composerMirrorOptions = [
+  { id: 'https://mirrors.aliyun.com/composer/', name: '阿里云镜像（首选）' },
+  { id: 'https://mirrors.cloud.tencent.com/composer/', name: '腾讯云镜像' },
+  { id: 'https://repo.huaweicloud.com/repository/php/', name: '华为云镜像' },
+  { id: 'https://packagist.cn', name: 'Packagist CN' },
+  { id: 'https://packagist.org', name: 'Packagist 官方' }
+]
+const peclOptions = [
+  { id: 'https://pecl.php.net', name: 'PECL 官方' },
+  { id: 'https://mirrors.aliyun.com/pecl/', name: '阿里云镜像' },
+  { id: 'https://mirrors.tuna.tsinghua.edu.cn/pecl/', name: '清华 TUNA' }
+]
 const defaultInstId = computed(() => {
   const d = rtInstalled.value.find((i) => i.is_default)
   return d ? d.id : undefined
@@ -250,6 +278,7 @@ function openRt(r: any) {
   loadVersions()
   if (r.key === 'nodejs') loadRegistry()
   if (r.key === 'python') loadPypi()
+  if (r.key === 'php') { loadComposerInfo(); loadPecl() }
 }
 
 async function loadRegistry() {
@@ -424,3 +453,44 @@ onMounted(load)
   margin-bottom: 8px;
 }
 </style>
+
+async function loadComposerInfo() {
+  composerLoading.value = true
+  try {
+    const d: any = await api.get('/runtimes/php/composer')
+    composerInstalled.value = !!d.installed
+    composerUrl.value = d.url || ''
+  } finally {
+    composerLoading.value = false
+  }
+}
+
+async function saveComposer(val: string) {
+  await api.post('/runtimes/php/composer', { url: val })
+  ElMessage.success('Composer 源已设置')
+}
+
+async function installComposer() {
+  composerInstalling.value = true
+  try {
+    await api.post('/runtimes/php/composer/install', {}, { timeout: 900000 })
+    ElMessage.success('Composer 已安装')
+    composerInstalled.value = true
+  } finally {
+    composerInstalling.value = false
+  }
+}
+
+async function loadPecl() {
+  try {
+    const d: any = await api.get('/runtimes/php/pecl')
+    peclMirror.value = d.mirror || ''
+  } catch {
+    peclMirror.value = ''
+  }
+}
+
+async function savePecl(val: string) {
+  await api.post('/runtimes/php/pecl', { mirror: val })
+  ElMessage.success('PECL 镜像已设置')
+}
