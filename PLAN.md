@@ -268,6 +268,8 @@ webmblx/
 
 > v0.20 已交付：PHP 全历史版本（5.6→8.5，17 分支）+ Composer 安装/源管理 + PECL 源配置。
 
+> v0.24 已交付：软件商店全量版本选择——所有原生应用（Caddy/node_exporter/FRP）拉取 GitHub Releases 全版本清单（10 分钟缓存），Nginx 支持 nginx.org stable/mainline 源，PostgreSQL 支持 PGDG 13-17，安装请求携带 version 字段按版本下载/建仓库；原生压缩包路径支持 {ver} 占位；版本化下载同样走 GitHub 加速通道。真实服务器验收：PG16（PGDG）与 node_exporter 1.12.1（非默认版本）均安装成功且 systemd active。
+
 ### P2 收官后展望（未排期）
 
 - 任务/告警按节点维度下发（agent exec 通道已就绪，需 cron/告警模块加节点维度）

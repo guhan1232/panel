@@ -103,6 +103,13 @@ Go + Vue3 的全功能 Linux 服务器管理面板，编译为**单个二进制*
 |---|---|
 | 🖧 多节点 | 独立 `webmblx-agent` 二进制经 **WebSocket 反连**面板（token 鉴权，穿透 NAT 无需开放被控端口），每 15s 上报 CPU/内存/网络/负载；节点管理页提供接入命令一键复制、token 重置、在线状态、指标图表、**远程命令执行**（operator+，全程审计）；指标 SQLite 入库，3 天保留自动清理；仪表盘支持本机/远程节点切换。Agent 支持 amd64/arm64，断线自动重连（指数退避） |
 
+### v0.24 软件商店全量版本选择
+
+| 模块 | 说明 |
+|---|---|
+| 🔢 版本选择 | 安装弹窗新增**版本下拉**：原生应用（Caddy/node_exporter/FRP）拉取 GitHub Releases 全版本清单（内存缓存 10 分钟），系统包 Nginx 支持 nginx.org **stable/mainline** 源，PostgreSQL 支持 **PGDG 13-17**，未提供清单的应用显示默认版本 |
+| 📦 按版本安装 | 安装请求携带 version 字段：原生走版本化下载 URL（压缩包路径支持 `{ver}` 占位），系统包自动配置对应仓库（nginx.org 签名源 / PGDG apt+dnf）再安装指定版本；版本化下载同样走 GitHub 加速通道 |
+
 ## 快速开始
 
 ### 安装（Linux 服务器）

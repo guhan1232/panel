@@ -203,6 +203,13 @@
     <a-modal v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" width="560px">
       <a-form :label-col="{ style: { width: '110px' } }">
         <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
+        <a-form-item v-if="cur?.versions?.length" label="版本">
+          <a-select v-model:value="instVer" style="width: 100%">
+            <a-select-option v-for="v in cur.versions" :key="v.version" :value="v.version">
+              {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
+            </a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item v-if="cur?.kind !== 'package'" label="下载源">
           <a-select v-model:value="instSource" style="width: 100%">
             <a-select-option v-for="s in sources" :key="s.id"
@@ -245,6 +252,7 @@ const deploying = ref(false)
 const cur = ref<any>(null)
 const instName = ref('')
 const instSource = ref('auto')
+const instVer = ref('')
 const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
 const logName = ref('')
@@ -443,13 +451,22 @@ async function load() {
   }
 }
 
-function openInstall(t: any) {
+async function openInstall(t: any) {
   cur.value = t
   instName.value = t.key
   instSource.value = 'auto'
+  instVer.value = (t as any).default_version || ''
   Object.keys(instParams).forEach((k) => delete instParams[k])
   for (const p of t.params || []) instParams[p.key] = p.def || ''
   dlg.value = true
+  // native/package 拉取可选版本清单
+  if (t.kind === 'native' || t.kind === 'package') {
+    try {
+      const d: any = await api.get('/apps/versions', { params: { key: t.key } })
+      cur.value = { ...t, versions: d.versions || [] }
+      if (d.default && !instVer.value) instVer.value = d.default
+    } catch { /* 拉取失败时无版本选择 */ }
+  }
 }
 
 async function deploy() {
@@ -459,7 +476,7 @@ async function deploy() {
   }
   deploying.value = true
   try {
-    await api.post('/apps', { app_key: cur.value.key, name: instName.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 900000 })
+    await api.post('/apps', { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 900000 })
     ElMessage.success('安装完成')
     dlg.value = false
     load()

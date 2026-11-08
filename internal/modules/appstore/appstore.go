@@ -5,15 +5,18 @@ package appstore
 
 import (
 	"encoding/json"
-	goruntime "runtime"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	goruntime "runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +29,12 @@ import (
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`)
 
+// AppVersion 应用可选版本。
+type AppVersion struct {
+	Version string `json:"version"`
+	Note    string `json:"note,omitempty"`
+}
+
 // Param 模板参数定义。
 type Param struct {
 	Key      string `json:"key"`
@@ -36,14 +45,14 @@ type Param struct {
 
 // NativeSpec 原生二进制应用的安装描述。
 type NativeSpec struct {
-	URLs      map[string]string                       // arch(amd64/arm64) → 下载地址（tar.gz 或裸二进制）
-	Archive   bool                                    // 是否为 tar.gz 压缩包
-	InArchive string                                  // 压缩包内二进制相对路径，{arch}=goarch，{vendor_arch}=厂商命名
-	Binary    string                                  // 目标二进制文件名
-	Args      func(p map[string]string) []string      // ExecStart 参数
+	URLs      map[string]string                  // arch(amd64/arm64) → 下载地址（tar.gz 或裸二进制）
+	Archive   bool                               // 是否为 tar.gz 压缩包
+	InArchive string                             // 压缩包内二进制相对路径，{arch}=goarch，{vendor_arch}=厂商命名
+	Binary    string                             // 目标二进制文件名
+	Args      func(p map[string]string) []string // ExecStart 参数
 	Env       func(p map[string]string) map[string]string
 	Files     func(name string, p map[string]string) map[string]string // 附加配置文件（相对安装目录）
-	Dirs      []string                                // 需预创建的子目录（如 www/data）
+	Dirs      []string                                                 // 需预创建的子目录（如 www/data）
 
 	// Tool=true 表示工具类（如 Node.js/Go 工具链）：解压后软链到 /usr/local/bin，
 	// 不创建 systemd 服务；false 为服务类，systemd 托管。
@@ -56,14 +65,21 @@ type NativeSpec struct {
 
 // Template 应用模板。
 type Template struct {
-	Key    string      `json:"key"`
-	Name   string      `json:"name"`
-	Desc   string      `json:"desc"`
-	Kind   string      `json:"kind"` // compose | native | package
-	Params []Param     `json:"params"`
-	Gen    func(p map[string]string) (string, error) // compose 用
-	Native *NativeSpec                               // native 用
+	Key    string                                        `json:"key"`
+	Name   string                                        `json:"name"`
+	Desc   string                                        `json:"desc"`
+	Kind   string                                        `json:"kind"` // compose | native | package
+	Params []Param                                       `json:"params"`
+	Gen    func(p map[string]string) (string, error)     // compose 用
+	Native *NativeSpec                                   // native 用
 	Pkg    func(distro string) ([]string, string, error) // package 用: 返回(包列表, systemd 单元)
+
+	// ---- 版本选择支持（nil = 仅默认版本）----
+	DefaultVersion   string                                                                                        // 默认版本（未选时使用）
+	VersionList      func() ([]AppVersion, error)                                                                  // 拉取可选版本清单
+	NativeVersionURL func(ver, goarch string) (string, error)                                                      // native: 按版本返回下载地址
+	PkgVersions      func(distro string) ([]AppVersion, error)                                                     // package: 按发行版返回版本选项
+	PkgInstallVer    func(ver, distro string) (pre []string, pkgs []string, post []string, unit string, err error) // package: 按版本安装
 }
 
 // AppInst 已安装实例。
@@ -471,21 +487,45 @@ volumes:
 		},
 	},
 	{
-		Key: "nginx-pkg", Name: "Nginx", Desc: "Web 服务器/反向代理（系统包，apt/dnf 安装）", Kind: "package",
+		Key: "nginx-pkg", Name: "Nginx", DefaultVersion: "distro", Desc: "Web 服务器/反向代理（发行版 / nginx.org stable / mainline）", Kind: "package",
 		Params: []Param{},
+		VersionList: func() ([]AppVersion, error) {
+			return []AppVersion{
+				{Version: "distro", Note: "发行版源"},
+				{Version: "stable", Note: "nginx.org 稳定版"},
+				{Version: "mainline", Note: "nginx.org 主线版"},
+			}, nil
+		},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"nginx"}, "nginx", nil
 		},
+		PkgInstallVer: func(ver, distro string) (pre []string, pkgs []string, post []string, unit string, err error) {
+			if distro != "apt" {
+				return nil, []string{"nginx"}, nil, "nginx", nil
+			}
+			repo := "http://nginx.org/packages"
+			if ver == "mainline" {
+				repo += "/mainline"
+			}
+			pre = []string{
+				"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y curl gnupg2 ca-certificates",
+				"curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor --yes -o /usr/share/keyrings/nginx_signing.key",
+				`os=$(. /etc/os-release && echo $ID); codename=$(. /etc/os-release && echo $VERSION_CODENAME); echo "deb [signed-by=/usr/share/keyrings/nginx_signing.key] ` + repo + `/$os $codename nginx" > /etc/apt/sources.list.d/nginx-org.list`,
+			}
+			pkgs = []string{"nginx"}
+			unit = "nginx"
+			return pre, pkgs, post, unit, nil
+		},
 	},
 	{
-		Key: "mariadb", Name: "MySQL / MariaDB", Desc: "关系型数据库（系统包 mariadb-server， systemd 托管）", Kind: "package",
+		Key: "mariadb", Name: "MySQL / MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（系统包 mariadb-server， systemd 托管）", Kind: "package",
 		Params: []Param{},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"mariadb-server", "mariadb-client"}, "mariadb", nil
 		},
 	},
 	{
-		Key: "redis-pkg", Name: "Redis", Desc: "内存数据库/缓存（系统包）", Kind: "package",
+		Key: "redis-pkg", Name: "Redis", DefaultVersion: "distro", Desc: "内存数据库/缓存（系统包）", Kind: "package",
 		Params: []Param{},
 		Pkg: func(distro string) ([]string, string, error) {
 			if distro == "apt" {
@@ -495,25 +535,61 @@ volumes:
 		},
 	},
 	{
-		Key: "postgresql-pkg", Name: "PostgreSQL", Desc: "关系型数据库（系统包）", Kind: "package",
+		Key: "postgresql-pkg", Name: "PostgreSQL", DefaultVersion: "distro", Desc: "关系型数据库（发行版 / PGDG 13-17）", Kind: "package",
 		Params: []Param{},
+		VersionList: func() ([]AppVersion, error) {
+			return []AppVersion{
+				{Version: "distro", Note: "发行版源"},
+				{Version: "13", Note: "PGDG"},
+				{Version: "14", Note: "PGDG"},
+				{Version: "15", Note: "PGDG"},
+				{Version: "16", Note: "PGDG"},
+				{Version: "17", Note: "PGDG 最新"},
+			}, nil
+		},
 		Pkg: func(distro string) ([]string, string, error) {
 			if distro == "apt" {
 				return []string{"postgresql"}, "postgresql", nil
 			}
 			return []string{"postgresql-server"}, "postgresql", nil
 		},
+		PkgInstallVer: func(ver, distro string) (pre []string, pkgs []string, post []string, unit string, err error) {
+			if distro == "apt" {
+				pre = []string{
+					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg",
+					"install -d /usr/share/postgresql-common/pgdg && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt-postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc",
+					`. /etc/os-release && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt-postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main" > /etc/apt/sources.list.d/pgdg.list`,
+				}
+				pkgs = []string{"postgresql-" + ver}
+				unit = "postgresql@" + ver + "-main"
+				return pre, pkgs, post, unit, nil
+			}
+			pre = []string{
+				"dnf -qy install https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel} 2>/dev/null || echo 9)-x86_64/pgdg-redhat-repo-latest.noarch.rpm || yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm",
+				"dnf -qy module disable postgresql 2>/dev/null || true",
+			}
+			pkgs = []string{"postgresql" + ver + "-server"}
+			unit = "postgresql-" + ver
+			post = []string{fmt.Sprintf("/usr/pgsql-%s/bin/postgresql-%s-setup initdb || true", ver, ver)}
+			return pre, pkgs, post, unit, nil
+		},
 	},
 	{
-		Key: "memcached-pkg", Name: "Memcached", Desc: "内存缓存（系统包）", Kind: "package",
+		Key: "memcached-pkg", Name: "Memcached", DefaultVersion: "distro", Desc: "内存缓存（系统包）", Kind: "package",
 		Params: []Param{},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"memcached"}, "memcached", nil
 		},
 	},
 	{
-		Key: "caddy", Name: "Caddy", Desc: "Web 服务器，自动 HTTPS（原生 v2.8.4）", Kind: "native",
+		Key: "caddy", Name: "Caddy", DefaultVersion: "2.8.4", Desc: "Web 服务器，自动 HTTPS（原生，GitHub 全版本可选）", Kind: "native",
 		Params: []Param{{Key: "port", Label: "HTTP 端口", Def: "2015", Required: true}},
+		VersionList: func() ([]AppVersion, error) {
+			return ghVerList("caddyserver/caddy"), nil
+		},
+		NativeVersionURL: func(ver, goarch string) (string, error) {
+			return fmt.Sprintf("https://github.com/caddyserver/caddy/releases/download/v%s/caddy_%s_linux_%s.tar.gz", ver, ver, goarch), nil
+		},
 		Native: &NativeSpec{
 			URLs: map[string]string{
 				"amd64": "https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz",
@@ -539,7 +615,7 @@ volumes:
 		},
 	},
 	{
-		Key: "minio", Name: "MinIO", Desc: "S3 兼容对象存储（原生，RELEASE 版）", Kind: "native",
+		Key: "minio", Name: "MinIO", DefaultVersion: "latest", Desc: "S3 兼容对象存储（原生，RELEASE 版）", Kind: "native",
 		Params: []Param{
 			{Key: "port", Label: "API 端口", Def: "9000", Required: true},
 			{Key: "console_port", Label: "控制台端口", Def: "9001", Required: true},
@@ -567,14 +643,20 @@ volumes:
 		},
 	},
 	{
-		Key: "node_exporter", Name: "node_exporter", Desc: "Prometheus 主机指标采集（原生 v1.8.2）", Kind: "native",
+		Key: "node_exporter", Name: "node_exporter", DefaultVersion: "1.8.2", Desc: "Prometheus 主机指标采集（原生，GitHub 全版本可选）", Kind: "native",
 		Params: []Param{{Key: "port", Label: "监听端口", Def: "9100", Required: true}},
+		VersionList: func() ([]AppVersion, error) {
+			return ghVerList("prometheus/node_exporter"), nil
+		},
+		NativeVersionURL: func(ver, goarch string) (string, error) {
+			return fmt.Sprintf("https://github.com/prometheus/node_exporter/releases/download/v%s/node_exporter-%s.linux-%s.tar.gz", ver, ver, goarch), nil
+		},
 		Native: &NativeSpec{
 			URLs: map[string]string{
 				"amd64": "https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz",
 				"arm64": "https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-arm64.tar.gz",
 			},
-			Archive: true, InArchive: "node_exporter-1.8.2.linux-{arch}/node_exporter", Binary: "node_exporter",
+			Archive: true, InArchive: "node_exporter-{ver}.linux-{arch}/node_exporter", Binary: "node_exporter",
 			Args: func(p map[string]string) []string {
 				port, _ := portOf(p, "port", "9100")
 				return []string{"--web.listen-address", ":" + port}
@@ -582,7 +664,13 @@ volumes:
 		},
 	},
 	{
-		Key: "frps", Name: "FRP 服务端", Desc: "内网穿透服务端（原生 v0.61.1）", Kind: "native",
+		Key: "frps", Name: "FRP 服务端", DefaultVersion: "0.61.1", Desc: "内网穿透服务端（原生，GitHub 全版本可选）", Kind: "native",
+		VersionList: func() ([]AppVersion, error) {
+			return ghVerList("fatedier/frp"), nil
+		},
+		NativeVersionURL: func(ver, goarch string) (string, error) {
+			return fmt.Sprintf("https://github.com/fatedier/frp/releases/download/v%s/frp_%s_linux_%s.tar.gz", ver, ver, goarch), nil
+		},
 		Params: []Param{
 			{Key: "port", Label: "绑定端口", Def: "7000", Required: true},
 			{Key: "token", Label: "认证 Token", Required: true},
@@ -592,7 +680,7 @@ volumes:
 				"amd64": "https://github.com/fatedier/frp/releases/download/v0.61.1/frp_0.61.1_linux_amd64.tar.gz",
 				"arm64": "https://github.com/fatedier/frp/releases/download/v0.61.1/frp_0.61.1_linux_arm64.tar.gz",
 			},
-			Archive: true, InArchive: "frp_0.61.1_linux_{arch}/frps", Binary: "frps",
+			Archive: true, InArchive: "frp_{ver}_linux_{arch}/frps", Binary: "frps",
 			Args: func(p map[string]string) []string { return []string{"-c", "frps.toml"} },
 			Files: func(name string, p map[string]string) map[string]string {
 				port, _ := portOf(p, "port", "7000")
@@ -629,6 +717,7 @@ func (m *Module) Start() error {
 func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g := api.Group("/apps")
 	g.GET("/templates", m.listTemplates)
+	g.GET("/versions", m.listVersions)
 	g.GET("/mirrors", listMirrors)
 	g.GET("/soft-sources", listSoftSources)
 	g.GET("/source", m.getSource)
@@ -880,6 +969,27 @@ func installDocker(c *gin.Context) {
 
 // ---- 路由处理 ----
 
+// listVersions 拉取指定模板的可选版本清单。
+func (m *Module) listVersions(c *gin.Context) {
+	key := c.Query("key")
+	tpl := m.findTemplate(key)
+	if tpl == nil {
+		core.Err(c, 404, "模板不存在")
+		return
+	}
+	def := tpl.DefaultVersion
+	if tpl.VersionList == nil {
+		core.OK(c, gin.H{"versions": []AppVersion{{Version: def, Note: "最新/默认版本"}}, "default": def})
+		return
+	}
+	vers, err := tpl.VersionList()
+	if err != nil {
+		core.Err(c, 500, "获取版本清单失败: "+err.Error())
+		return
+	}
+	core.OK(c, gin.H{"versions": vers, "default": def})
+}
+
 func (m *Module) listTemplates(c *gin.Context) {
 	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO；合并远程应用源（内置优先去重）
 	out := make([]gin.H, 0, len(templates))
@@ -982,10 +1092,11 @@ func (m *Module) statusText(r *AppInst) string {
 
 func (m *Module) install(c *gin.Context) {
 	var req struct {
-		AppKey string            `json:"app_key" binding:"required"`
-		Name   string            `json:"name" binding:"required"`
-		Mirror string            `json:"mirror"`
-		Params map[string]string `json:"params"`
+		AppKey  string            `json:"app_key" binding:"required"`
+		Name    string            `json:"name" binding:"required"`
+		Version string            `json:"version"`
+		Mirror  string            `json:"mirror"`
+		Params  map[string]string `json:"params"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)
@@ -1011,14 +1122,16 @@ func (m *Module) install(c *gin.Context) {
 	var status string
 	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
 	if tpl.Kind == "package" {
-		s, err := m.installPackage(tpl, req.Name, p)
+		s, pkgs, unit, err := m.installPackage(tpl, req.Name, req.Version, p)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
 		}
 		status = s
+		row.Binary = unit
+		row.Pkgs = strings.Join(pkgs, " ")
 	} else if tpl.Kind == "native" {
-		s, err := m.installNative(tpl, req.Name, p, req.Mirror)
+		s, err := m.installNative(tpl, req.Name, req.Version, p, req.Mirror)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
@@ -1083,15 +1196,47 @@ func (m *Module) installCompose(tpl *Template, name string, p map[string]string,
 
 // ---- native 安装 ----
 
-func (m *Module) installNative(tpl *Template, name string, p map[string]string, srcID string) (string, error) {
+func (m *Module) installNative(tpl *Template, name, version string, p map[string]string, srcID string) (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("原生应用部署仅支持在 Linux 服务器上执行")
 	}
 	spec := tpl.Native
 	arch := runtime.GOARCH
-	rawURL, sourceNote, err := resolveNativeURL(spec.URLs, spec.MirrorPaths, arch, srcID, p)
-	if err != nil {
-		return "", err
+	var rawURL, sourceNote string
+	if version != "" && version != tpl.DefaultVersion && tpl.NativeVersionURL != nil {
+		u, uerr := tpl.NativeVersionURL(version, arch)
+		if uerr != nil {
+			return "", uerr
+		}
+		// 与 resolveNativeURL 相同的 GitHub 加速语义
+		sourceNote = "指定版本 " + version
+		switch srcID {
+		case "", "auto":
+			for _, s := range softwareSources {
+				if s.GitHub != "" && strings.Contains(u, "github.com/") {
+					u = applyGitHubMirror(u, s.GitHub)
+					sourceNote += "（" + s.Name + "）"
+					break
+				}
+			}
+		default:
+			for _, s := range softwareSources {
+				if s.ID == srcID {
+					if s.GitHub != "" && strings.Contains(u, "github.com/") {
+						u = applyGitHubMirror(u, s.GitHub)
+						sourceNote += "（" + s.Name + "）"
+					}
+					break
+				}
+			}
+		}
+		rawURL = u
+	} else {
+		var rerr error
+		rawURL, sourceNote, rerr = resolveNativeURL(spec.URLs, spec.MirrorPaths, arch, srcID, p)
+		if rerr != nil {
+			return "", rerr
+		}
 	}
 	dir, _ := filepath.Abs(m.nativeDir(name))
 	_ = os.MkdirAll(dir, 0o755)
@@ -1119,7 +1264,11 @@ func (m *Module) installNative(tpl *Template, name string, p map[string]string, 
 			return "", fail(fmt.Errorf("解压失败: %w", err))
 		}
 		_ = os.Remove(local)
-		inArchive := strings.ReplaceAll(strings.ReplaceAll(spec.InArchive, "{arch}", arch), "{vendor_arch}", alias)
+		ver := version
+		if ver == "" {
+			ver = tpl.DefaultVersion
+		}
+		inArchive := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(spec.InArchive, "{arch}", arch), "{vendor_arch}", alias), "{ver}", ver)
 		src := filepath.Join(dir, inArchive)
 		if _, err := os.Stat(src); err != nil {
 			return "", fail(fmt.Errorf("压缩包内未找到 %s", inArchive))
@@ -1377,20 +1526,41 @@ func detectPkgManager() string {
 }
 
 // installPackage 系统包安装：包管理器安装 → systemctl enable --now。
-func (m *Module) installPackage(tpl *Template, name string, p map[string]string) (string, error) {
+func (m *Module) installPackage(tpl *Template, name, version string, p map[string]string) (string, []string, string, error) {
 	if goruntime.GOOS != "linux" {
-		return "", fmt.Errorf("系统包安装仅支持在 Linux 服务器上执行")
+		return "", nil, "", fmt.Errorf("系统包安装仅支持在 Linux 服务器上执行")
 	}
 	distro := detectPkgManager()
 	if distro == "" {
-		return "", fmt.Errorf("未找到 apt-get/dnf/yum 包管理器")
+		return "", nil, "", fmt.Errorf("未找到 apt-get/dnf/yum 包管理器")
 	}
-	pkgs, unit, err := tpl.Pkg(distro)
-	if err != nil {
-		return "", err
+	var pkgs []string
+	var unit string
+	if tpl.PkgInstallVer != nil && version != "" && version != "distro" {
+		pre, pk, post, u, err := tpl.PkgInstallVer(version, distro)
+		if err != nil {
+			return "", nil, "", err
+		}
+		for _, cmd := range pre {
+			if out, code, err := execx.RunShell("appstore:pkg", 20*time.Minute, cmd); err != nil {
+				return "", nil, "", fmt.Errorf("仓库准备失败(exit %d): %s", code, tailOf(out))
+			}
+		}
+		pkgs, unit = pk, u
+		defer func() {
+			for _, cmd := range post {
+				_, _, _ = execx.RunShell("appstore:pkg", 10*time.Minute, cmd)
+			}
+		}()
+	} else {
+		var perr error
+		pkgs, unit, perr = tpl.Pkg(distro)
+		if perr != nil {
+			return "", nil, "", perr
+		}
 	}
 	if len(pkgs) == 0 || unit == "" {
-		return "", fmt.Errorf("模板包定义不完整")
+		return "", nil, "", fmt.Errorf("模板包定义不完整")
 	}
 	var installCmd string
 	switch distro {
@@ -1402,16 +1572,90 @@ func (m *Module) installPackage(tpl *Template, name string, p map[string]string)
 		installCmd = "yum install -y " + strings.Join(pkgs, " ")
 	}
 	if out, code, err := execx.RunShell("appstore:pkg", 20*time.Minute, installCmd); err != nil {
-		return "", fmt.Errorf("包安装失败(exit %d): %s", code, tailOf(out))
+		return "", nil, "", fmt.Errorf("包安装失败(exit %d): %s", code, tailOf(out))
 	}
 	if _, code, err := execx.Run("appstore", 60*time.Second, "systemctl", "enable", "--now", unit); err != nil {
-		return "", fmt.Errorf("服务启动失败(exit %d): %s", code, unit)
+		return "", nil, "", fmt.Errorf("服务启动失败(exit %d): %s", code, unit)
 	}
 	time.Sleep(2 * time.Second)
 	stateOut, _, _ := execx.Run("appstore", 10*time.Second, "systemctl", "is-active", unit)
 	state := strings.TrimSpace(stateOut)
 	if state != "active" {
-		return "", fmt.Errorf("服务未进入 active 状态（当前 %s），请检查 journalctl -u %s", state, unit)
+		return "", nil, "", fmt.Errorf("服务未进入 active 状态（当前 %s），请检查 journalctl -u %s", state, unit)
 	}
-	return fmt.Sprintf("已安装并启动（%s，服务 %s）", strings.Join(pkgs, " "), unit), nil
+	return fmt.Sprintf("已安装并启动（%s，服务 %s）", strings.Join(pkgs, " "), unit), pkgs, unit, nil
+}
+
+// cleanVerRe 合法版本号（过滤 GitHub tag 噪声）。
+var cleanVerRe = regexp.MustCompile(`^\d+(\.\d+)*$`)
+
+func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
+	client := &http.Client{Timeout: timeout}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "webmblx-panel")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
+type ghTagEntry struct {
+	tags []string
+	at   time.Time
+}
+
+var ghTagCache sync.Map
+
+// githubTags 拉取 GitHub 仓库 releases tag 列表（内存缓存 10 分钟）。
+func githubTags(repo string) ([]string, error) {
+	if v, ok := ghTagCache.Load(repo); ok {
+		e := v.(ghTagEntry)
+		if time.Since(e.at) < 10*time.Minute {
+			return e.tags, nil
+		}
+	}
+	data, err := httpGet("https://api.github.com/repos/"+repo+"/releases?per_page=30", 20*time.Second, 8<<20)
+	if err != nil {
+		return nil, err
+	}
+	var arr []struct {
+		TagName    string `json:"tag_name"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	if json.Unmarshal(data, &arr) != nil {
+		return nil, fmt.Errorf("GitHub releases 解析失败")
+	}
+	tags := []string{}
+	for _, r := range arr {
+		if r.TagName != "" && !r.Prerelease {
+			tags = append(tags, r.TagName)
+		}
+	}
+	ghTagCache.Store(repo, ghTagEntry{tags: tags, at: time.Now()})
+	return tags, nil
+}
+
+// ghVerList 把 GitHub tag 列表转为版本清单（过滤噪声 tag）。
+func ghVerList(repo string) []AppVersion {
+	tags, err := githubTags(repo)
+	if err != nil || len(tags) == 0 {
+		return []AppVersion{}
+	}
+	out := []AppVersion{}
+	for _, tg := range tags {
+		v := strings.TrimPrefix(tg, "v")
+		if !cleanVerRe.MatchString(v) {
+			continue
+		}
+		out = append(out, AppVersion{Version: v, Note: "GitHub Release"})
+	}
+	return out
 }
