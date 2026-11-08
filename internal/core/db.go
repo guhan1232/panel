@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.21.0"
+const Version = "0.22.0"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
@@ -63,6 +63,8 @@ type AuditLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Username  string    `json:"username"`
 	Role      string    `gorm:"size:16" json:"role"`
+	Action    string    `gorm:"size:128" json:"action"`
+	Body      string    `gorm:"type:text" json:"body"`
 	Method    string    `gorm:"size:8" json:"method"`
 	Path      string    `gorm:"size:256" json:"path"`
 	IP        string    `gorm:"size:64" json:"ip"`
@@ -70,6 +72,14 @@ type AuditLog struct {
 	Status    int       `json:"status"`
 	CostMS    int64     `json:"cost_ms"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// TerminalLog Web 终端命令行记录（按回车逐条落库）。
+type TerminalLog struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Username  string    `gorm:"size:64;index" json:"username"`
+	Line      string    `gorm:"size:512" json:"line"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
 
 type Setting struct {
@@ -91,7 +101,7 @@ func OpenDB(dataDir string) (*gorm.DB, error) {
 	if err := db.Exec("PRAGMA journal_mode=WAL;").Error; err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&User{}, &Session{}, &AuditLog{}, &Setting{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &Session{}, &AuditLog{}, &Setting{}, &TerminalLog{}); err != nil {
 		return nil, err
 	}
 	return db, nil

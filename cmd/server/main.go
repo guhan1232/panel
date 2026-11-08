@@ -77,9 +77,9 @@ func main() {
 	r.GET("/s/:code", authSvc.HandleEntrance)
 
 	// API：全部经过入口防护；登录之外的接口需要会话
-	api := r.Group("/api", authSvc.EntranceRequired())
+	api := r.Group("/api", authSvc.EntranceRequired(), audit.Middleware(db))
 	authSvc.Register(api)
-	protected := api.Group("", authSvc.Middleware(), audit.Middleware(db))
+	protected := api.Group("", authSvc.Middleware())
 	authSvc.RegisterAdmin(protected) // 用户管理（仅 admin）
 
 	cronMod := cron.New(db, cfg.DataDir)
@@ -90,12 +90,13 @@ func main() {
 	cronMod.Register(protected)
 	filem.New(cfg.DataDir).Register(protected)
 	// 终端为系统 shell，viewer 角色禁止
-	term.Register(protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator)))
+	term.Register(protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator)), db)
 	proc.Register(protected)
 	setting.New(db, cfg).Register(protected)
 
 	// P1 模块
 	auditMod := audit.New(db)
+	auditMod.Start()
 	auditMod.Register(protected)
 	notify.New(db).Register(protected)
 	objectstore.New(db).Register(protected)
