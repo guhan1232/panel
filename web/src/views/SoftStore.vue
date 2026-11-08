@@ -99,7 +99,7 @@
           <el-table-column label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
           <el-table-column label="操作" width="180">
             <template #default="{ row }">
-              <el-button size="small" :disabled="row.is_default" @click="setDefault(row)">设为默认</el-button>
+              <el-button size="small" :disabled="row.is_default || rtLang?.key === 'php'" @click="setDefault(row)">设为默认</el-button>
               <el-button size="small" type="danger" @click="rmRuntime(row)">卸载</el-button>
             </template>
           </el-table-column>
@@ -244,7 +244,7 @@ function openRt(r: any) {
   rtSource.value = r.sources?.[0]?.id || ''
   rtVersions.value = []
   rtFilter.value = ''
-  rtFilterMode.value = 'common'
+  rtFilterMode.value = r.key === 'nodejs' ? 'common' : 'all'
   npmRegistry.value = ''
   rtDlg.value = true
   loadVersions()

@@ -34,6 +34,8 @@ type RuntimeInst struct {
 	Lang      string    `gorm:"size:32;index" json:"lang"`
 	Version   string    `gorm:"size:64" json:"version"`
 	Dir       string    `gorm:"size:256" json:"dir"`
+	Binary    string    `gorm:"size:128" json:"binary"` // 服务单元名（phpX.Y-fpm 等）
+	Pkgs      string    `gorm:"size:512" json:"pkgs"`   // 安装的包（卸载用）
 	IsDefault bool      `json:"is_default"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -71,10 +73,16 @@ type langDef struct {
 	Resolve func(version, source, goarch, vendor string) (string, error)
 	// DirName 版本对应的安装目录名
 	DirName func(version string) string
+	// InstallOverride 非下载式安装（如 PHP 经发行版仓库装 FPM），nil 走通用下载流程
+	InstallOverride   func(m *Module, version, source string) ([]string, error)
+	// UninstallOverride 非下载式卸载
+	UninstallOverride func(m *Module, version string) ([]string, error)
+	// NoDefault true 表示该语言多版本独立运行，无“默认版本”概念（如 PHP-FPM）
+	NoDefault bool
 }
 
 var langs = map[string]*langDef{}
-var langOrder = []string{"nodejs", "golang", "python", "openjdk"}
+var langOrder = []string{"nodejs", "golang", "python", "openjdk", "php"}
 
 var httpUA = "webmblx-panel/" + core.Version
 
@@ -505,6 +513,18 @@ func init() {
 	for _, js := range jdkSources {
 		jdkSrcs = append(jdkSrcs, sourceDef{ID: js.ID, Name: js.Name})
 	}
+	langs["php"] = &langDef{
+		Key: "php", Name: "PHP",
+		Desc:   "多版本 PHP-FPM；Debian/Ubuntu 经 ondrej/sury 仓库，RHEL 经 Remi 仓库安装，各版本独立 systemd 服务",
+		Sources: []sourceDef{{ID: "repo", Name: "发行版仓库 (ondrej/Remi)"}},
+		Bins:    []binLink{},
+		List:    listPHP,
+		InstallOverride: func(m *Module, version, source string) ([]string, error) {
+		return m.installPHP(version)
+	},
+		UninstallOverride: (*Module).uninstallPHP,
+		NoDefault: true,
+	}
 	langs["openjdk"] = &langDef{
 		Key: "openjdk", Name: "OpenJDK",
 		Desc:   "Java 开发工具包；Temurin(清华)与华为云通用构建",
@@ -648,6 +668,10 @@ func (m *Module) setDefault(c *gin.Context) {
 		core.Err(c, 404, "未知语言")
 		return
 	}
+	if l.NoDefault {
+		core.Err(c, 400, "该运行时各版本独立 systemd 服务，无需设默认")
+		return
+	}
 	vendor := vendorArchOf(inst.Lang, goruntime.GOARCH)
 	for _, b := range binsFor(inst.Lang, inst.Version, vendor) {
 		target := filepath.Join(inst.Dir, filepath.FromSlash(b.Rel))
@@ -671,6 +695,15 @@ func (m *Module) remove(c *gin.Context) {
 		return
 	}
 	l := langs[inst.Lang]
+	if l != nil && l.UninstallOverride != nil {
+		if _, err := l.UninstallOverride(m, inst.Version); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		m.db.Delete(&inst)
+		core.OK(c, nil)
+		return
+	}
 	if l != nil {
 		vendor := vendorArchOf(inst.Lang, goruntime.GOARCH)
 		for _, b := range binsFor(inst.Lang, inst.Version, vendor) {
@@ -731,6 +764,9 @@ func versionNums(v string) [3]int {
 // installRuntime 下载→解压→软链→入库，返回软链路径列表。
 func (m *Module) installRuntime(lang, version, source string) ([]string, error) {
 	l := langs[lang]
+	if l.InstallOverride != nil {
+		return l.InstallOverride(m, version, source)
+	}
 	var count int64
 	m.db.Model(&RuntimeInst{}).Where("lang = ? AND version = ?", lang, version).Count(&count)
 	if count > 0 {
@@ -784,10 +820,21 @@ func (m *Module) installRuntime(lang, version, source string) ([]string, error) 
 	}
 	m.db.Model(&RuntimeInst{}).Where("lang = ?", lang).Update("is_default", false)
 	inst := RuntimeInst{Lang: lang, Version: version, Dir: dir, IsDefault: true}
+	if !l.Tool() {
+		inst.Binary = m.unitNameRT(lang + "-" + version)
+	}
 	if err := m.db.Create(&inst).Error; err != nil {
 		return nil, fail(err)
 	}
 	return links, nil
+}
+
+// unitNameRT 运行时服务的 systemd 单元名。
+func (m *Module) unitNameRT(name string) string { return "webmblx-rt-" + name }
+
+// Tool 判断该语言是否工具类（仅 nodejs/golang/python 为解压工具/运行时）。
+func (l *langDef) Tool() bool {
+	return l.Key == "nodejs" || l.Key == "golang" || l.Key == "python"
 }
 
 // parseGoListing 解析镜像站 golang/ 目录列表（纯函数）。
@@ -1087,4 +1134,174 @@ func listHuaweiOpenJDK(base, goarch, vendor string) ([]runtimeVersion, error) {
 		})
 	}
 	return out, nil
+}
+// phpBranches 已知的 PHP 稳定/EOL 分支（安装按分支装发行版包）。
+var phpBranches = []string{"8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"}
+
+// listPHP 版本清单：静态分支列表 + php.net JSON 补充最新补丁日期。
+func listPHP(source, goarch, vendor string) ([]runtimeVersion, error) {
+	dates := map[string]string{}
+	if data, err := httpGet("https://www.php.net/releases/index.php?json&max=100", 20*time.Second, 8<<20); err == nil {
+		dates = parsePHPJson(data)
+	}
+	out := []runtimeVersion{}
+	for _, br := range phpBranches {
+		out = append(out, runtimeVersion{Version: br, Date: dates[br]})
+	}
+	return out, nil
+}
+
+// parsePHPJson 解析 php.net releases JSON（键为major），返回分支 → 最新补丁日期。
+func parsePHPJson(data []byte) map[string]string {
+	out := map[string]string{}
+	var m map[string]struct {
+		Date   string `json:"date"`
+		Source []struct {
+			Filename string `json:"filename"`
+			Date     string `json:"date"`
+		} `json:"source"`
+	}
+	if json.Unmarshal(data, &m) != nil {
+		return out
+	}
+	for _, files := range m {
+		for _, f := range files.Source {
+			name := f.Filename
+			if !strings.HasPrefix(name, "php-") || !strings.HasSuffix(name, ".tar.gz") {
+				continue
+			}
+			ver := strings.TrimSuffix(strings.TrimPrefix(name, "php-"), ".tar.gz")
+			parts := strings.Split(ver, ".")
+			if len(parts) < 2 {
+				continue
+			}
+			br := parts[0] + "." + parts[1]
+			if _, exists := out[br]; !exists {
+				out[br] = f.Date
+			}
+			break
+		}
+	}
+	return out
+}
+// installPHP 经发行版仓库安装指定分支的 PHP-FPM（多版本共存，各自独立 systemd 服务）。
+func (m *Module) installPHP(version string) ([]string, error) {
+	if goruntime.GOOS != "linux" {
+		return nil, fmt.Errorf("PHP 安装仅支持在 Linux 服务器上执行")
+	}
+	br := strings.ReplaceAll(version, ".", "") // 8.3 → php83
+	osID, verID, codename := osRelease()
+	var cmds []string
+	var unit string
+	var pkgs []string
+	switch osID {
+	case "ubuntu":
+		cmds = append(cmds,
+			"DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common || true",
+			"add-apt-repository ppa:ondrej/php -y",
+			"apt-get update",
+		)
+		pkgs = []string{"php" + br + "-fpm", "php" + br + "-mysql", "php" + br + "-curl", "php" + br + "-gd", "php" + br + "-xml", "php" + br + "-mbstring"}
+		unit = "php" + br + "-fpm"
+	case "debian":
+		if codename == "" {
+			codename = shellOut("lsb_release -cs")
+		}
+		if codename == "" {
+			return nil, fmt.Errorf("无法识别 Debian 发行版代号")
+		}
+		cmds = append(cmds,
+			"apt-get install -y gnupg curl ca-certificates",
+			"curl -sSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg",
+			"echo \"deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ " + codename + " main\" > /etc/apt/sources.list.d/sury-php.list",
+			"apt-get update",
+		)
+		pkgs = []string{"php" + br + "-fpm", "php" + br + "-mysql", "php" + br + "-curl", "php" + br + "-gd", "php" + br + "-xml", "php" + br + "-mbstring"}
+		unit = "php" + br + "-fpm"
+	case "centos", "rocky", "almalinux", "rhel", "ol", "fedora":
+		el := verID
+		if i := strings.Index(el, "."); i > 0 {
+			el = el[:i]
+		}
+		cmds = append(cmds,
+			"dnf install -y epel-release https://rpms.remirepo.net/enterprise/remi-release-" + el + ".rpm",
+			"dnf module reset php -y",
+			"dnf module enable php:remi-" + version + " -y",
+		)
+		pkgs = []string{"php-fpm", "php-mysqlnd", "php-gd", "php-curl", "php-xml", "php-mbstring"}
+		unit = "php-fpm"
+	default:
+		return nil, fmt.Errorf("暂不支持发行版 %s 的 PHP 仓库安装", osID)
+	}
+	for _, cmd := range cmds {
+		if out, code, err := execx.RunShell("runtime:php", 20*time.Minute, cmd); err != nil {
+			return nil, fmt.Errorf("仓库准备失败(exit %d): %s", code, tailOf(out))
+		}
+	}
+	installCmd := "DEBIAN_FRONTEND=noninteractive apt-get install -y " + strings.Join(pkgs, " ")
+	if osID != "ubuntu" && osID != "debian" {
+		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
+	}
+	if out, code, err := execx.RunShell("runtime:php", 20*time.Minute, installCmd); err != nil {
+		return nil, fmt.Errorf("php%s-fpm 安装失败(exit %d): %s", br, code, tailOf(out))
+	}
+	if _, code, err := execx.Run("runtime", 60*time.Second, "systemctl", "enable", "--now", unit); err != nil {
+		return nil, fmt.Errorf("服务启动失败(exit %d): %s", code, unit)
+	}
+	time.Sleep(2 * time.Second)
+	if stateOut, _, _ := execx.Run("runtime", 10*time.Second, "systemctl", "is-active", unit); strings.TrimSpace(stateOut) != "active" {
+		return nil, fmt.Errorf("php%s-fpm 未进入 active 状态，请检查 journalctl -u %s", br, unit)
+	}
+	return []string{unit + " 服务已启动"}, nil
+}
+
+// shellOut 执行 shell 命令并返回 trim 后输出（内部辅助）。
+func shellOut(cmd string) string {
+	out, _, err := execx.RunShell("runtime", 30*time.Second, cmd)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// osRelease 读取 /etc/os-release 关键字段。
+func osRelease() (id, versionID, codename string) {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "", "", ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		switch {
+		case strings.HasPrefix(line, "ID="):
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+		case strings.HasPrefix(line, "VERSION_ID="):
+			versionID = strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
+		case strings.HasPrefix(line, "VERSION_CODENAME="):
+			codename = strings.Trim(strings.TrimPrefix(line, "VERSION_CODENAME="), "\"")
+		}
+	}
+	return
+}
+
+// uninstallPHP 卸载指定分支的 PHP（停服 + 移除包）。
+func (m *Module) uninstallPHP(version string) ([]string, error) {
+	br := strings.ReplaceAll(version, ".", "")
+	osID, _, _ := osRelease()
+	unit := "php" + br + "-fpm"
+	_, _, _ = execx.Run("runtime", 60*time.Second, "systemctl", "disable", "--now", unit)
+	switch osID {
+	case "ubuntu", "debian":
+		_, _, _ = execx.RunShell("runtime:php", 10*time.Minute, "DEBIAN_FRONTEND=noninteractive apt-get purge -y php" + br + "-*")
+	case "centos", "rocky", "almalinux", "rhel", "ol", "fedora":
+		_, _, _ = execx.RunShell("runtime:php", 10*time.Minute, "dnf remove -y php-*")
+	}
+	return []string{"php" + br + " 已卸载"}, nil
+}
+// tailOf 截取输出末尾（错误提示用）。
+func tailOf(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 1024 {
+		return "..." + s[len(s)-1024:]
+	}
+	return s
 }

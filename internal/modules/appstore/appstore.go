@@ -485,16 +485,6 @@ volumes:
 		},
 	},
 	{
-		Key: "php-pkg", Name: "PHP", Desc: "PHP-FPM + 常用扩展（系统包，配合网站模块建 PHP 站）", Kind: "package",
-		Params: []Param{},
-		Pkg: func(distro string) ([]string, string, error) {
-			if distro == "apt" {
-				return []string{"php-fpm", "php-mysql", "php-gd", "php-curl", "php-xml", "php-mbstring"}, "php-fpm", nil
-			}
-			return []string{"php-fpm", "php-mysqlnd", "php-gd", "php-curl", "php-xml", "php-mbstring"}, "php-fpm", nil
-		},
-	},
-	{
 		Key: "redis-pkg", Name: "Redis", Desc: "内存数据库/缓存（系统包）", Kind: "package",
 		Params: []Param{},
 		Pkg: func(distro string) ([]string, string, error) {
