@@ -210,12 +210,12 @@
             </a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item v-if="cur?.kind !== 'package'" label="下载源">
+        <a-form-item label="下载源">
           <a-select v-model:value="instSource" style="width: 100%">
             <a-select-option v-for="s in sources" :key="s.id"
               :value="s.id" :disabled="cur && cur.soft_sources && !cur.soft_sources.includes(s.id)">{{ s.name }}</a-select-option>
           </a-select>
-          <div class="hint">镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道</div>
+          <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
         </a-form-item>
         <a-form-item v-if="cur?.kind === 'package'" label="安装方式">
           <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
@@ -476,8 +476,8 @@ async function deploy() {
   }
   deploying.value = true
   try {
-    await api.post('/apps', { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 900000 })
-    ElMessage.success('安装完成')
+    const d: any = await api.post('/apps', { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 900000 })
+    ElMessage.success(d?.status || '安装完成')
     dlg.value = false
     load()
   } finally {

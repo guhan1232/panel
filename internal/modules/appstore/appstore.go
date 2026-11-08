@@ -75,11 +75,11 @@ type Template struct {
 	Pkg    func(distro string) ([]string, string, error) // package 用: 返回(包列表, systemd 单元)
 
 	// ---- 版本选择支持（nil = 仅默认版本）----
-	DefaultVersion   string                                                                                        // 默认版本（未选时使用）
-	VersionList      func() ([]AppVersion, error)                                                                  // 拉取可选版本清单
-	NativeVersionURL func(ver, goarch string) (string, error)                                                      // native: 按版本返回下载地址
-	PkgVersions      func(distro string) ([]AppVersion, error)                                                     // package: 按发行版返回版本选项
-	PkgInstallVer    func(ver, distro string) (pre []string, pkgs []string, post []string, unit string, err error) // package: 按版本安装
+	DefaultVersion   string                                                                                                            // 默认版本（未选时使用）
+	VersionList      func() ([]AppVersion, error)                                                                                      // 拉取可选版本清单
+	NativeVersionURL func(ver, goarch string) (string, error)                                                                          // native: 按版本返回下载地址
+	PkgVersions      func(distro string) ([]AppVersion, error)                                                                         // package: 按发行版返回版本选项
+	PkgInstallVer    func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) // package: 按版本安装（note=实际生效源说明）
 }
 
 // AppInst 已安装实例。
@@ -499,9 +499,9 @@ volumes:
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"nginx"}, "nginx", nil
 		},
-		PkgInstallVer: func(ver, distro string) (pre []string, pkgs []string, post []string, unit string, err error) {
+		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
 			if distro != "apt" {
-				return nil, []string{"nginx"}, nil, "nginx", nil
+				return nil, []string{"nginx"}, nil, "nginx", "nginx.org 官方源", nil
 			}
 			repo := "http://nginx.org/packages"
 			if ver == "mainline" {
@@ -514,7 +514,8 @@ volumes:
 			}
 			pkgs = []string{"nginx"}
 			unit = "nginx"
-			return pre, pkgs, post, unit, nil
+			note = "nginx.org 官方源（各镜像站未收录 nginx.org 仓库）"
+			return pre, pkgs, post, unit, note, nil
 		},
 	},
 	{
@@ -553,16 +554,22 @@ volumes:
 			}
 			return []string{"postgresql-server"}, "postgresql", nil
 		},
-		PkgInstallVer: func(ver, distro string) (pre []string, pkgs []string, post []string, unit string, err error) {
+		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
 			if distro == "apt" {
+				repoBase := "https://apt.postgresql.org/pub/repos/apt"
+				note = "PGDG 官方源"
+				if msrc, ok := aptMirrorSource(srcID); ok && msrc.PgdgApt != "" {
+					repoBase = msrc.PgdgApt
+					note = "PGDG → " + msrc.Name
+				}
 				pre = []string{
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg",
 					"install -d /usr/share/postgresql-common/pgdg && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt-postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc",
-					`. /etc/os-release && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt-postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main" > /etc/apt/sources.list.d/pgdg.list`,
+					`. /etc/os-release && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt-postgresql.org.asc] ` + repoBase + ` $VERSION_CODENAME-pgdg main" > /etc/apt/sources.list.d/pgdg.list`,
 				}
 				pkgs = []string{"postgresql-" + ver}
 				unit = "postgresql@" + ver + "-main"
-				return pre, pkgs, post, unit, nil
+				return pre, pkgs, post, unit, note, nil
 			}
 			pre = []string{
 				"dnf -qy install https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel} 2>/dev/null || echo 9)-x86_64/pgdg-redhat-repo-latest.noarch.rpm || yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm",
@@ -571,7 +578,8 @@ volumes:
 			pkgs = []string{"postgresql" + ver + "-server"}
 			unit = "postgresql-" + ver
 			post = []string{fmt.Sprintf("/usr/pgsql-%s/bin/postgresql-%s-setup initdb || true", ver, ver)}
-			return pre, pkgs, post, unit, nil
+			note = "PGDG 官方源（dnf 镜像暂未接入）"
+			return pre, pkgs, post, unit, note, nil
 		},
 	},
 	{
@@ -995,7 +1003,9 @@ func (m *Module) listTemplates(c *gin.Context) {
 	out := make([]gin.H, 0, len(templates))
 	for _, t := range templates {
 		item := gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin"}
-		if t.Kind == "native" && t.Native != nil {
+		if t.Kind == "package" {
+			item["soft_sources"] = supportedPkgSources()
+		} else if t.Kind == "native" && t.Native != nil {
 			item["soft_sources"] = supportedSoftSources(t.Native.URLs, t.Native.MirrorPaths)
 			item["tool"] = t.Native.Tool
 		}
@@ -1013,13 +1023,41 @@ func (m *Module) listTemplates(c *gin.Context) {
 			continue
 		}
 		item := gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version}
-		if d.Kind == "native" && d.Native != nil {
+		if d.Kind == "package" {
+			item["soft_sources"] = supportedPkgSources()
+		} else if d.Kind == "native" && d.Native != nil {
 			item["soft_sources"] = supportedSoftSources(d.Native.URLs, d.Native.MirrorPaths)
 			item["tool"] = d.Native.Tool
 		}
 		out = append(out, item)
 	}
 	core.OK(c, out)
+}
+
+// supportedPkgSources 系统包应用可用软件源：官方/自动 + 收录了 apt 仓库的镜像站。
+func supportedPkgSources() []string {
+	ids := []string{"auto", "official"}
+	for _, s := range softwareSources {
+		if s.AptUbuntu != "" {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
+}
+
+// aptMirrorInstallShell 构造 apt 镜像定向安装命令：临时 sources.list 指向镜像站，
+// 仅本次安装生效（-o Dir::Etc 覆盖），完成后删除，不改动系统全局源。
+func aptMirrorInstallShell(msrc SoftwareSource, pkgs []string) string {
+	m := msrc.AptUbuntu
+	return "systemctl stop unattended-upgrades || true; " +
+		"os=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); " +
+		"comps=\"main universe restricted multiverse\"; [ \"$os\" = debian ] && comps=\"main contrib non-free non-free-firmware\"; " +
+		"if [ \"$os\" = debian ]; then sec=\"" + m + "-security $cn-security\"; else sec=\"" + m + " $cn-security\"; fi; " +
+		"{ echo \"deb " + m + " $cn $comps\"; echo \"deb " + m + " $cn-updates $comps\"; echo \"deb $sec $comps\"; } > /etc/apt/sources.list.d/webmblx-mirror.list; " +
+		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/webmblx-mirror.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -o DPkg::Lock::Timeout=600 update && " +
+		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/webmblx-mirror.list -o Dir::Etc::sourceparts=- -o DPkg::Lock::Timeout=600 install -y " +
+		strings.Join(pkgs, " ") + "; rc=$?; rm -f /etc/apt/sources.list.d/webmblx-mirror.list; " +
+		"systemctl start unattended-upgrades || true; exit $rc"
 }
 
 // supportedSoftSources 计算原生应用可用的软件源 ID（官方/自动恒可用，其余按发布渠道与镜像站收录判断）。
@@ -1122,7 +1160,7 @@ func (m *Module) install(c *gin.Context) {
 	var status string
 	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
 	if tpl.Kind == "package" {
-		s, pkgs, unit, err := m.installPackage(tpl, req.Name, req.Version, p)
+		s, pkgs, unit, err := m.installPackage(tpl, req.Name, req.Version, req.Mirror, p)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
@@ -1526,7 +1564,7 @@ func detectPkgManager() string {
 }
 
 // installPackage 系统包安装：包管理器安装 → systemctl enable --now。
-func (m *Module) installPackage(tpl *Template, name, version string, p map[string]string) (string, []string, string, error) {
+func (m *Module) installPackage(tpl *Template, name, version, srcID string, p map[string]string) (string, []string, string, error) {
 	if goruntime.GOOS != "linux" {
 		return "", nil, "", fmt.Errorf("系统包安装仅支持在 Linux 服务器上执行")
 	}
@@ -1536,8 +1574,9 @@ func (m *Module) installPackage(tpl *Template, name, version string, p map[strin
 	}
 	var pkgs []string
 	var unit string
+	var srcNote string
 	if tpl.PkgInstallVer != nil && version != "" && version != "distro" {
-		pre, pk, post, u, err := tpl.PkgInstallVer(version, distro)
+		pre, pk, post, u, note, err := tpl.PkgInstallVer(version, distro, srcID)
 		if err != nil {
 			return "", nil, "", err
 		}
@@ -1547,6 +1586,7 @@ func (m *Module) installPackage(tpl *Template, name, version string, p map[strin
 			}
 		}
 		pkgs, unit = pk, u
+		srcNote = note
 		defer func() {
 			for _, cmd := range post {
 				_, _, _ = execx.RunShell("appstore:pkg", 10*time.Minute, cmd)
@@ -1558,6 +1598,13 @@ func (m *Module) installPackage(tpl *Template, name, version string, p map[strin
 		if perr != nil {
 			return "", nil, "", perr
 		}
+		if msrc, ok := aptMirrorSource(srcID); ok {
+			if distro == "apt" {
+				srcNote = "mirror:" + msrc.Name
+			} else {
+				srcNote = msrc.Name + "（该镜像未收录 dnf/yum 系统包源，已用官方源）"
+			}
+		}
 	}
 	if len(pkgs) == 0 || unit == "" {
 		return "", nil, "", fmt.Errorf("模板包定义不完整")
@@ -1565,7 +1612,13 @@ func (m *Module) installPackage(tpl *Template, name, version string, p map[strin
 	var installCmd string
 	switch distro {
 	case "apt":
-		installCmd = "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; systemctl start unattended-upgrades || true"
+		aptBase := "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; systemctl start unattended-upgrades || true"
+		if strings.HasPrefix(srcNote, "mirror:") {
+			msrc, _ := aptMirrorSource(srcID)
+			installCmd = aptMirrorInstallShell(msrc, pkgs)
+		} else {
+			installCmd = aptBase
+		}
 	case "dnf":
 		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
 	default:
@@ -1583,7 +1636,15 @@ func (m *Module) installPackage(tpl *Template, name, version string, p map[strin
 	if state != "active" {
 		return "", nil, "", fmt.Errorf("服务未进入 active 状态（当前 %s），请检查 journalctl -u %s", state, unit)
 	}
-	return fmt.Sprintf("已安装并启动（%s，服务 %s）", strings.Join(pkgs, " "), unit), pkgs, unit, nil
+	msg := fmt.Sprintf("已安装并启动（%s，服务 %s）", strings.Join(pkgs, " "), unit)
+	switch {
+	case strings.HasPrefix(srcNote, "mirror:"):
+		msrc, _ := aptMirrorSource(srcID)
+		msg += "，安装源: " + msrc.Name
+	case srcNote != "":
+		msg += "，安装源: " + srcNote
+	}
+	return msg, pkgs, unit, nil
 }
 
 // cleanVerRe 合法版本号（过滤 GitHub tag 噪声）。

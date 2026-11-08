@@ -17,8 +17,8 @@ import (
 type MirrorDef struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
-	Docker string `json:"docker"`  // 如 docker.m.daocloud.io（空=不支持 Docker 加速）
-	GitHub string `json:"github"`  // 如 https://ghfast.top（空=不支持 GitHub 加速）
+	Docker string `json:"docker"` // 如 docker.m.daocloud.io（空=不支持 Docker 加速）
+	GitHub string `json:"github"` // 如 https://ghfast.top（空=不支持 GitHub 加速）
 	Desc   string `json:"desc"`
 }
 
@@ -38,6 +38,29 @@ func findMirror(id string) (MirrorDef, bool) {
 		}
 	}
 	return MirrorDef{}, false
+}
+
+// findSoftSource 按 ID 查软件源。
+func findSoftSource(id string) (SoftwareSource, bool) {
+	for _, s := range softwareSources {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return SoftwareSource{}, false
+}
+
+// aptMirrorSource 解析系统包安装所选镜像站；未选择或未收录 apt 仓库时返回 false。
+func aptMirrorSource(srcID string) (SoftwareSource, bool) {
+	switch srcID {
+	case "", "auto", "official", "off":
+		return SoftwareSource{}, false
+	}
+	s, ok := findSoftSource(srcID)
+	if !ok || s.AptUbuntu == "" {
+		return SoftwareSource{}, false
+	}
+	return s, true
 }
 
 // resolveMirror 解析用户选择的镜像源。kind: compose | native。
@@ -139,6 +162,12 @@ type SoftwareSource struct {
 	GitHub string `json:"github,omitempty"`
 	// 镜像站根地址（如 https://mirrors.aliyun.com），命中模板 MirrorPaths 时使用
 	Base string `json:"base,omitempty"`
+
+	// 系统包（apt）镜像仓库地址（空=未收录，回退官方源）
+	AptUbuntu string `json:"-"`
+	AptDebian string `json:"-"`
+	PgdgApt   string `json:"-"`
+
 	Desc string `json:"desc"`
 }
 
@@ -147,10 +176,18 @@ var softwareSources = []SoftwareSource{
 	{ID: "official", Name: "官方直连", Desc: "不经任何加速"},
 	{ID: "ghfast", Name: "GitHub 加速 ghfast", GitHub: "https://ghfast.top", Desc: "GitHub Release 下载加速"},
 	{ID: "ghproxy", Name: "GitHub 加速 gh-proxy", GitHub: "https://gh-proxy.com", Desc: "GitHub Release 下载加速"},
-	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com", Desc: "mirrors.aliyun.com"},
-	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com", Desc: "mirrors.cloud.tencent.com"},
-	{ID: "tuna", Name: "清华大学镜像站", Base: "https://mirrors.tuna.tsinghua.edu.cn", Desc: "mirrors.tuna.tsinghua.edu.cn"},
-	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn", Desc: "mirrors.ustc.edu.cn"},
+	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com",
+		AptUbuntu: "http://mirrors.aliyun.com/ubuntu", AptDebian: "http://mirrors.aliyun.com/debian",
+		PgdgApt: "https://mirrors.aliyun.com/postgresql/repos/apt", Desc: "mirrors.aliyun.com"},
+	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com",
+		AptUbuntu: "https://mirrors.cloud.tencent.com/ubuntu", AptDebian: "https://mirrors.cloud.tencent.com/debian",
+		PgdgApt: "https://mirrors.cloud.tencent.com/postgresql/repos/apt", Desc: "mirrors.cloud.tencent.com"},
+	{ID: "tuna", Name: "清华大学镜像站", Base: "https://mirrors.tuna.tsinghua.edu.cn",
+		AptUbuntu: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu", AptDebian: "https://mirrors.tuna.tsinghua.edu.cn/debian",
+		Desc: "mirrors.tuna.tsinghua.edu.cn"},
+	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn",
+		AptUbuntu: "https://mirrors.ustc.edu.cn/ubuntu", AptDebian: "https://mirrors.ustc.edu.cn/debian",
+		Desc: "mirrors.ustc.edu.cn"},
 }
 
 func listSoftSources(c *gin.Context) {
@@ -189,19 +226,19 @@ func resolveNativeURL(urls map[string]string, mirrorPaths map[string]map[string]
 	default:
 		for _, s := range softwareSources {
 			if s.ID == srcID && s.Base != "" {
-			paths, ok := mirrorPaths[srcID]
-			if !ok {
-				return "", "", fmt.Errorf("%s 未收录此软件（该源无对应目录），请改用 GitHub 加速或官方直连", s.Name)
-			}
-			u, ok := paths[arch]
-			if !ok || u == "" {
-				return "", "", fmt.Errorf("%s 未收录架构 %s 的此软件", s.Name, arch)
-			}
-			u = substitute(u, p)
-			if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-				u = strings.TrimRight(s.Base, "/") + "/" + strings.TrimLeft(u, "/")
-			}
-			return u, s.Name, nil
+				paths, ok := mirrorPaths[srcID]
+				if !ok {
+					return "", "", fmt.Errorf("%s 未收录此软件（该源无对应目录），请改用 GitHub 加速或官方直连", s.Name)
+				}
+				u, ok := paths[arch]
+				if !ok || u == "" {
+					return "", "", fmt.Errorf("%s 未收录架构 %s 的此软件", s.Name, arch)
+				}
+				u = substitute(u, p)
+				if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+					u = strings.TrimRight(s.Base, "/") + "/" + strings.TrimLeft(u, "/")
+				}
+				return u, s.Name, nil
 			}
 		}
 		return "", "", fmt.Errorf("未知软件源: %s", srcID)

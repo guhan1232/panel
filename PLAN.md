@@ -270,6 +270,8 @@ webmblx/
 
 > v0.24 已交付：软件商店全量版本选择——所有原生应用（Caddy/node_exporter/FRP）拉取 GitHub Releases 全版本清单（10 分钟缓存），Nginx 支持 nginx.org stable/mainline 源，PostgreSQL 支持 PGDG 13-17，安装请求携带 version 字段按版本下载/建仓库；原生压缩包路径支持 {ver} 占位；版本化下载同样走 GitHub 加速通道。真实服务器验收：PG16（PGDG）与 node_exporter 1.12.1（非默认版本）均安装成功且 systemd active。
 
+> v0.24.3 已交付：系统包应用镜像站/官方源选择——apt 临时 sources.list 定向安装（不污染系统源），Ubuntu/Debian 阿里云/腾讯云/清华/中科大四镜像实测；PGDG 仓库支持阿里云/腾讯云镜像（其余回退官方并提示），nginx.org 仓库无镜像收录自动回退。
+
 ### P2 收官后展望（未排期）
 
 - 任务/告警按节点维度下发（agent exec 通道已就绪，需 cron/告警模块加节点维度）
