@@ -1,6 +1,7 @@
 package appstore
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -156,6 +157,28 @@ func TestMinioVersionURL(t *testing.T) {
 	got, err := minioVersionURL("RELEASE.2025-01-01T00-00-00Z", "arm64")
 	if err != nil || got != "https://github.com/minio/minio/releases/download/RELEASE.2025-01-01T00-00-00Z/minio.linux-arm64.RELEASE.2025-01-01T00-00-00Z" {
 		t.Errorf("archive URL = %q", got)
+	}
+}
+
+func TestCrossPlatformVersionParsers(t *testing.T) {
+	maria := parseMariaDBRepoVersions(`<a href="10.6/">10.6/</a><a href="10.11/">10.11/</a><a href="10.6/">10.6/</a><a href="10.rolling/">10.rolling/</a>`)
+	if !reflect.DeepEqual(maria, []string{"10.6", "10.11", "10.rolling"}) {
+		t.Fatalf("mariadb versions = %v", maria)
+	}
+
+	nginx := parseNginxDownloadVersions(`<a href="nginx-1.26.2.tar.gz">1.26.2</a><a href="nginx-1.27.4.tar.gz">1.27.4</a><a href="nginx-1.26.2.tar.gz">duplicate</a>`)
+	if !reflect.DeepEqual(nginx, []string{"1.27.4", "1.26.2"}) {
+		t.Fatalf("nginx versions = %v", nginx)
+	}
+
+	redis := parseRedisArchiveVersions(`<a href="redis-7.2.5.tar.gz">redis-7.2.5.tar.gz</a><a href="redis-6.2.14.tar.gz">redis-6.2.14.tar.gz</a>`)
+	if !reflect.DeepEqual(redis, []string{"7.2.5", "6.2.14"}) {
+		t.Fatalf("redis versions = %v", redis)
+	}
+
+	github := parseGitHubVersionTags([]byte(`[{"name":"v1.6.24"},{"name":"1.6.23"},{"name":"latest"},{"name":"v1.6.24"}]`))
+	if !reflect.DeepEqual(github, []string{"1.6.24", "1.6.23"}) {
+		t.Fatalf("github versions = %v", github)
 	}
 }
 

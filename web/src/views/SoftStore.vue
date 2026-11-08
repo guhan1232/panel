@@ -209,6 +209,7 @@
               {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
             </a-select-option>
           </a-select>
+          <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
         </a-form-item>
         <a-form-item label="下载源">
           <a-select v-model:value="instSource" style="width: 100%">

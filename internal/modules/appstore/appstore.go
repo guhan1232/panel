@@ -495,7 +495,11 @@ volumes:
 		VersionList: func() ([]AppVersion, error) {
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
 			entries := nginxPoolEntries()
-			if len(entries) > 0 {
+			if len(entries) == 0 {
+				for _, v := range nginxDownloadVersions() {
+					out = append(out, AppVersion{Version: v, Note: "nginx.org 官方发布版本"})
+				}
+			} else {
 				maxMinor := 0
 				for _, e := range entries {
 					if parts := strings.Split(e.Ver, "."); len(parts) >= 2 {
@@ -613,6 +617,9 @@ volumes:
 		VersionList: func() ([]AppVersion, error) {
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
 			_, order := redisVersions()
+			if len(order) == 0 {
+				order = redisArchiveVersions()
+			}
 			for _, v := range order {
 				out = append(out, AppVersion{Version: v, Note: "Redis 官方仓库"})
 			}
@@ -1154,7 +1161,7 @@ func (m *Module) listTemplates(c *gin.Context) {
 	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO；合并远程应用源（内置优先去重）
 	out := make([]gin.H, 0, len(templates))
 	for _, t := range templates {
-		item := gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin"}
+		item := gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin", "default_version": t.DefaultVersion}
 		if t.Kind == "package" {
 			item["soft_sources"] = supportedPkgSources()
 		} else if t.Kind == "native" && t.Native != nil {
@@ -1174,7 +1181,7 @@ func (m *Module) listTemplates(c *gin.Context) {
 		if dup {
 			continue
 		}
-		item := gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version}
+		item := gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version, "default_version": d.Version}
 		if d.Kind == "package" {
 			item["soft_sources"] = supportedPkgSources()
 		} else if d.Kind == "native" && d.Native != nil {
@@ -1829,31 +1836,12 @@ func mariadbVersions() []string {
 	if mariadbCache.vers != nil && time.Since(mariadbCache.at) < 10*time.Minute {
 		return mariadbCache.vers
 	}
-	id, cn := osRelease()
-	if cn == "" || detectPkgManager() != "apt" || (id != "ubuntu" && id != "debian") {
-		return nil
-	}
 	base := "https://mirrors.aliyun.com/mariadb/repo/"
 	data, err := httpGet(base, 20*time.Second, 4<<20)
 	if err != nil {
 		return nil
 	}
-	re := regexp.MustCompile(`href="\d+(?:\.\d+)*(?:\.rolling)?"`)
-	seen := map[string]bool{}
-	out := []string{}
-	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
-		v := strings.TrimSuffix(strings.TrimPrefix(m[0], `href="`), `"`)
-		if seen[v] {
-			continue
-		}
-		seen[v] = true
-		rel := base + v + "/" + id + "/dists/" + cn + "/Release"
-		rb, rerr := httpGet(rel, 15*time.Second, 512)
-		if rerr != nil || len(rb) == 0 {
-			continue
-		}
-		out = append(out, v)
-	}
+	out := parseMariaDBRepoVersions(string(data))
 	if len(out) == 0 {
 		return nil
 	}
@@ -1862,6 +1850,20 @@ func mariadbVersions() []string {
 	})
 	mariadbCache.vers = out
 	mariadbCache.at = time.Now()
+	return out
+}
+
+func parseMariaDBRepoVersions(html string) []string {
+	re := regexp.MustCompile(`href="(\d+(?:\.\d+)*(?:\.rolling)?)/?"`)
+	seen := map[string]bool{}
+	out := []string{}
+	for _, m := range re.FindAllStringSubmatch(html, -1) {
+		if len(m) < 2 || seen[m[1]] {
+			continue
+		}
+		seen[m[1]] = true
+		out = append(out, m[1])
+	}
 	return out
 }
 
@@ -2001,6 +2003,29 @@ func nginxPoolEntries() []nginxDeb {
 	return poolList(byVer)
 }
 
+func nginxDownloadVersions() []string {
+	data, err := httpGet("https://nginx.org/download/", 20*time.Second, 4<<20)
+	if err != nil {
+		return nil
+	}
+	return parseNginxDownloadVersions(string(data))
+}
+
+func parseNginxDownloadVersions(html string) []string {
+	re := regexp.MustCompile(`nginx-(\d+(?:\.\d+){2})\.tar\.gz`)
+	seen := map[string]bool{}
+	out := []string{}
+	for _, m := range re.FindAllStringSubmatch(html, -1) {
+		if len(m) < 2 || seen[m[1]] {
+			continue
+		}
+		seen[m[1]] = true
+		out = append(out, m[1])
+	}
+	sort.Slice(out, func(i, j int) bool { return verLess(out[j], out[i]) })
+	return out
+}
+
 func poolList(byVer map[string]string) []nginxDeb {
 	out := make([]nginxDeb, 0, len(byVer))
 	for v, f := range byVer {
@@ -2103,16 +2128,42 @@ func aptVersionAvailable(pkg, version string) bool {
 // memcachedVersions 返回当前发行版 apt 索引中可锁定安装的 Memcached 版本。
 func memcachedVersions() []AppVersion {
 	out := []AppVersion{{Version: "distro", Note: "发行版最新"}}
-	if detectPkgManager() != "apt" {
-		return out
+	if detectPkgManager() == "apt" {
+		raw, _, err := execx.Run("appstore", 20*time.Second, "apt-cache", "madison", "memcached")
+		if err == nil {
+			for _, v := range parseAptMadisonVersions(raw) {
+				out = append(out, AppVersion{Version: v, Note: "发行版精确包版本"})
+			}
+		}
 	}
-	raw, _, err := execx.Run("appstore", 20*time.Second, "apt-cache", "madison", "memcached")
+	if len(out) == 1 {
+		for _, v := range githubVersionList("memcached/memcached") {
+			out = append(out, AppVersion{Version: v, Note: "Memcached 官方发布版本"})
+		}
+	}
+	return out
+}
+
+func redisArchiveVersions() []string {
+	data, err := httpGet("https://download.redis.io/releases/", 20*time.Second, 4<<20)
 	if err != nil {
-		return out
+		return nil
 	}
-	for _, v := range parseAptMadisonVersions(raw) {
-		out = append(out, AppVersion{Version: v, Note: "发行版精确包版本"})
+	return parseRedisArchiveVersions(string(data))
+}
+
+func parseRedisArchiveVersions(html string) []string {
+	re := regexp.MustCompile(`redis-(\d+(?:\.\d+){2})\.tar\.gz`)
+	seen := map[string]bool{}
+	out := []string{}
+	for _, m := range re.FindAllStringSubmatch(html, -1) {
+		if len(m) < 2 || seen[m[1]] {
+			continue
+		}
+		seen[m[1]] = true
+		out = append(out, m[1])
 	}
+	sort.Slice(out, func(i, j int) bool { return verLess(out[j], out[i]) })
 	return out
 }
 
@@ -2225,5 +2276,34 @@ func ghVerList(repo string) []AppVersion {
 		}
 		out = append(out, AppVersion{Version: v, Note: "GitHub Release"})
 	}
+	return out
+}
+
+func githubVersionList(repo string) []string {
+	data, err := httpGet("https://api.github.com/repos/"+repo+"/tags?per_page=100", 20*time.Second, 4<<20)
+	if err != nil {
+		return nil
+	}
+	return parseGitHubVersionTags(data)
+}
+
+func parseGitHubVersionTags(data []byte) []string {
+	var tags []struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(data, &tags) != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, tag := range tags {
+		v := strings.TrimPrefix(tag.Name, "v")
+		if !cleanVerRe.MatchString(v) || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return verLess(out[j], out[i]) })
 	return out
 }
