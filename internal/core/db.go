@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.30.0"
+const Version = "0.31.0"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
@@ -23,6 +23,7 @@ const (
 	KNodeToken      = "nodes_token"
 	KAppSourceURL   = "appstore_source_url"
 	KAppSourceCache = "appstore_source_cache"
+	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）
 )
 
 // GetSetting 读取一个 KV 配置（不存在返回空串）。

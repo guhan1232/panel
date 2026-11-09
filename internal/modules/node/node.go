@@ -4,12 +4,14 @@ package node
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,10 +90,13 @@ type execResult struct {
 }
 
 type Hub struct {
-	mu      sync.Mutex
-	conns   map[uint]*agentConn
-	pending map[string]chan execResult
-	execSeq atomic.Uint64
+	mu          sync.Mutex
+	conns       map[uint]*agentConn
+	pending     map[string]chan execResult
+	pendingFile map[string]chan fileResult
+	terms       map[string]*websocket.Conn // termID → 浏览器 WS 桥
+	termSeq     atomic.Uint64
+	execSeq     atomic.Uint64
 }
 
 func (h *Hub) add(id uint, a *agentConn) { h.mu.Lock(); h.conns[id] = a; h.mu.Unlock() }
@@ -119,7 +124,7 @@ type Module struct {
 func New(db *gorm.DB) *Module {
 	return &Module{
 		db:  db,
-		hub: Hub{conns: map[uint]*agentConn{}, pending: map[string]chan execResult{}},
+		hub: Hub{conns: map[uint]*agentConn{}, pending: map[string]chan execResult{}, pendingFile: map[string]chan fileResult{}, terms: map[string]*websocket.Conn{}},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true }, // agent 无浏览器 Origin
 		},
@@ -189,6 +194,27 @@ type agentMsg struct {
 		Sent     uint64  `json:"sent"`
 		Load1    float64 `json:"load1"`
 	} `json:"sample"`
+	Data    string      `json:"data,omitempty"`    // file write base64 / term_in
+	Force   bool        `json:"force,omitempty"`   // file delete 确认
+	Entries []fileEntry `json:"entries,omitempty"` // file ls
+	DataB64 bool        `json:"data_b64,omitempty"`
+}
+
+// fileEntry 节点文件条目。
+type fileEntry struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	IsDir   bool   `json:"is_dir"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"mod_time"`
+}
+
+// fileResult 节点文件操作结果。
+type fileResult struct {
+	Err     string      `json:"err"`
+	Data    string      `json:"data"`
+	DataB64 bool        `json:"data_b64"`
+	Entries []fileEntry `json:"entries"`
 }
 
 func (m *Module) HandleAgent(c *gin.Context) {
@@ -250,6 +276,26 @@ func (m *Module) HandleAgent(c *gin.Context) {
 				ch <- execResult{Output: msg.Output, Exit: msg.Exit, Err: msg.Err}
 			}
 			m.hub.mu.Unlock()
+		case "file_result":
+			m.hub.mu.Lock()
+			if ch, ok := m.hub.pendingFile[msg.ID]; ok {
+				delete(m.hub.pendingFile, msg.ID)
+				ch <- fileResult{Err: msg.Err, Data: msg.Data, DataB64: msg.DataB64, Entries: msg.Entries}
+			}
+			m.hub.mu.Unlock()
+		case "term_out":
+			m.hub.mu.Lock()
+			bw := m.hub.terms[msg.ID]
+			m.hub.mu.Unlock()
+			if bw != nil {
+				payload := msg.Output
+				if msg.DataB64 {
+					if dec, err := base64.StdEncoding.DecodeString(msg.Output); err == nil {
+						payload = string(dec)
+					}
+				}
+				_ = bw.WriteMessage(websocket.TextMessage, []byte(payload))
+			}
 		}
 	}
 }
@@ -456,4 +502,163 @@ func (m *Module) metricsHourly(c *gin.Context) {
 	var rows []NodeMetricHourly
 	m.db.Where("node_id = ? AND hour > ?", id, time.Now().AddDate(0, 0, -days)).Order("hour").Find(&rows)
 	core.OK(c, rows)
+}
+
+// fileOp 向节点下发文件操作并等待结果（ls/read/write/delete）。
+func (m *Module) fileOp(nodeID uint, op, path, data string, force bool) (*fileResult, error) {
+	ac := m.hub.get(nodeID)
+	if ac == nil {
+		return nil, fmt.Errorf("节点离线或不存在")
+	}
+	id := fmt.Sprintf("f%d", m.hub.termSeq.Add(1))
+	ch := make(chan fileResult, 1)
+	m.hub.mu.Lock()
+	m.hub.pendingFile[id] = ch
+	m.hub.mu.Unlock()
+	defer func() {
+		m.hub.mu.Lock()
+		delete(m.hub.pendingFile, id)
+		m.hub.mu.Unlock()
+	}()
+	if err := ac.send(map[string]any{
+		"type": "file", "id": id, "script": op, "path": path, "data": data, "force": force,
+	}); err != nil {
+		return nil, err
+	}
+	select {
+	case r := <-ch:
+		return &r, nil
+	case <-time.After(30 * time.Second):
+		return nil, fmt.Errorf("节点文件操作超时")
+	}
+}
+
+// files 列目录：GET /nodes/:id/files?path=
+func (m *Module) files(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	path := c.DefaultQuery("path", "/")
+	r, err := m.fileOp(uint(id), "ls", path, "", false)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if r.Err != "" {
+		core.Err(c, 400, r.Err)
+		return
+	}
+	core.OK(c, gin.H{"path": path, "entries": r.Entries})
+}
+
+// fileRead 读取文件（base64）：GET /nodes/:id/file?path=
+func (m *Module) fileRead(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	path := c.Query("path")
+	if strings.Contains(path, "..") {
+		core.Err(c, 400, "路径不允许包含 ..")
+		return
+	}
+	r, err := m.fileOp(uint(id), "read", path, "", false)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if r.Err != "" {
+		core.Err(c, 400, r.Err)
+		return
+	}
+	core.OK(c, gin.H{"path": path, "data": r.Data})
+}
+
+// fileWrite 写文件：POST /nodes/:id/file {path, data(base64)}
+func (m *Module) fileWrite(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var req struct {
+		Path string `binding:"required"`
+		Data string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if strings.Contains(req.Path, "..") {
+		core.Err(c, 400, "路径不允许包含 ..")
+		return
+	}
+	r, err := m.fileOp(uint(id), "write", req.Path, req.Data, false)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if r.Err != "" {
+		core.Err(c, 400, r.Err)
+		return
+	}
+	core.OK(c, gin.H{"ok": true})
+}
+
+// fileDelete 删除：DELETE /nodes/:id/file?path=&force=1
+func (m *Module) fileDelete(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	path := c.Query("path")
+	force := c.Query("force") == "1"
+	if strings.Contains(path, "..") {
+		core.Err(c, 400, "路径不允许包含 ..")
+		return
+	}
+	r, err := m.fileOp(uint(id), "delete", path, "", force)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if r.Err != "" {
+		core.Err(c, 400, r.Err)
+		return
+	}
+	core.OK(c, gin.H{"ok": true})
+}
+
+// HandleNodeTerm 节点终端 WS 桥：浏览器 ↔ 面板 ↔ agent。
+// 路由：GET /api/ws/nodeterm/:id（会话鉴权中间件之后）。
+func (m *Module) HandleNodeTerm(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	ac := m.hub.get(uint(id))
+	if ac == nil {
+		c.String(http.StatusServiceUnavailable, "node offline")
+		return
+	}
+	ws, err := m.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer ws.Close()
+	termID := fmt.Sprintf("t%d", m.hub.termSeq.Add(1))
+	if err := ac.send(map[string]any{"type": "term_open", "id": termID}); err != nil {
+		return
+	}
+	defer func() {
+		_ = ac.send(map[string]any{"type": "term_close", "id": termID})
+		m.hub.mu.Lock()
+		delete(m.hub.terms, termID)
+		m.hub.mu.Unlock()
+	}()
+	m.hub.mu.Lock()
+	m.hub.terms[termID] = ws
+	m.hub.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			mt, msg, err := ws.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = mt
+			data := base64.StdEncoding.EncodeToString(msg)
+			_ = ac.send(map[string]any{"type": "term_in", "id": termID, "data": data})
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Hour):
+	}
 }

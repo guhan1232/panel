@@ -92,6 +92,7 @@ func main() {
 	}
 	r.GET("/api/ws/agent", nodeMod.HandleAgent)
 	nodeMod.Register(protected, protectedRW, protectedAdmin)
+	r.GET("/api/ws/nodeterm/:id", authSvc.EntranceRequired(), authSvc.Middleware(), nodeMod.HandleNodeTerm)
 
 	// 计划任务（依赖节点执行通道，需在 nodeMod 之后组装）
 	cronMod := cron.New(db, cfg.DataDir, nodeMod.ExecOnNode)

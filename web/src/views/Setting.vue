@@ -15,7 +15,23 @@
       </WmSectionCard>
 
 
-    <WmSectionCard title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
+
+    <WmSectionCard title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
+      <template #actions>
+        <a-button size="small" @click="checkUpgrade">检查更新</a-button>
+        <a-button v-if="upInfo.has_update" size="small" type="primary" :loading="upApplying" @click="applyUpgrade">升级到 {{ upInfo.remote }}</a-button>
+      </template>
+      <div v-if="upInfo.current">
+        <p>当前版本 <b class="wm-mono">{{ upInfo.current }}</b>
+          <template v-if="upInfo.remote"> · 清单版本 <b class="wm-mono">{{ upInfo.remote }}</b>
+          <WmStatusPill v-if="upInfo.has_update" label="有更新" tone="warning" />
+          <WmStatusPill v-else-if="upInfo.reachable" label="已是最新" tone="success" />
+          </template></p>
+        <p v-if="upInfo.notes" class="wm-text-muted">{{ upInfo.notes }}</p>
+        <p v-if="upInfo.err" class="wm-text-muted">清单不可达：{{ upInfo.err }}（可在配置 upgrade_manifest_url 更换升级源）</p>
+      </div>
+      <WmNotice tone="warning" class="wm-mt-4">升级会自动备份当前二进制为 *.bak 并重启服务，重启期间面板短暂不可访问。</WmNotice>
+    </WmSectionCard>    <WmSectionCard title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
       <template #actions>
         <a-button size="small" type="primary" @click="setup2fa">开始绑定</a-button>
         <a-button size="small" data-tone="danger" @click="disable2fa">解除绑定</a-button>
@@ -117,5 +133,25 @@ async function disable2fa() {
     await api.post('/setting/2fa/disable', { password: r.value })
     ElMessage.success('已解除')
   } catch { /* 取消或密码错误 */ }
+}
+
+const upInfo = ref<any>({})
+const upApplying = ref(false)
+
+async function checkUpgrade() {
+  upInfo.value = (await api.get('/setting/upgrade/check')) as any
+}
+
+async function applyUpgrade() {
+  try {
+    await ElMessageBox.confirm('升级会替换面板二进制并自动重启（约数秒不可访问），继续？', "在线升级", { type: 'warning' })
+  } catch { return }
+  upApplying.value = true
+  try {
+    await api.post('/setting/upgrade/apply', { binary_url: upInfo.value.binary_url, sha256: upInfo.value.sha256 || '' }, { timeout: 900000 })
+    ElMessage.success('二进制已替换，面板正在重启，稍后刷新页面并核对版本')
+  } finally {
+    upApplying.value = false
+  }
 }
 </script>

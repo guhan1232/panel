@@ -2,10 +2,19 @@
 package setting
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +40,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/info", m.info)
 	g.POST("/password", m.changePassword)
 	g.GET("/panel-backup", m.panelBackup)
+	g.GET("/upgrade/check", m.upgradeCheck)
+	g.POST("/upgrade/apply", m.upgradeApply)
 }
 
 func (m *Module) info(c *gin.Context) {
@@ -127,4 +138,142 @@ func (m *Module) panelBackup(c *gin.Context) {
 	}
 	name := "hanyuxin-panel-backup-" + time.Now().Format("20060102-150405") + ".zip"
 	c.FileAttachment(out, name)
+}
+
+// ---- 面板在线自升级：清单 JSON {version, binary_url, sha256?} ----
+
+type upgradeManifest struct {
+	Version   string `json:"version"`
+	BinaryURL string `json:"binary_url"`
+	SHA256    string `json:"sha256"`
+	Notes     string `json:"notes"`
+}
+
+func (m *Module) upgradeCheck(c *gin.Context) {
+	url := core.GetSetting(m.db, core.KUpgradeURL)
+	if url == "" {
+		url = "https://cnb.cool/hanyuxin/panel/-/git/raw/main/upgrade.json"
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		core.OK(c, gin.H{"configured": true, "reachable": false, "err": err.Error(), "current": core.Version})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		core.OK(c, gin.H{"configured": true, "reachable": false, "err": fmt.Sprintf("清单地址 HTTP %d", resp.StatusCode), "current": core.Version})
+		return
+	}
+	var mf upgradeManifest
+	if err := json.NewDecoder(resp.Body).Decode(&mf); err != nil {
+		core.OK(c, gin.H{"configured": true, "reachable": false, "err": "清单解析失败: " + err.Error(), "current": core.Version})
+		return
+	}
+	core.OK(c, gin.H{
+		"configured": true, "reachable": true,
+		"current": core.Version, "remote": mf.Version,
+		"binary_url": mf.BinaryURL, "sha256": mf.SHA256,
+		"notes":      mf.Notes,
+		"has_update": mf.Version != "" && mf.Version != core.Version,
+	})
+}
+
+// upgradeApply 执行自升级：下载 → SHA256 校验（可选）→ 备份 → 原子替换 → 重启。
+func (m *Module) upgradeApply(c *gin.Context) {
+	var req struct {
+		BinaryURL string `binding:"required"`
+		SHA256    string `json:"sha256"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	tmp, err := os.CreateTemp("", "hanyuxin-upgrade-*")
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Get(req.BinaryURL)
+	if err != nil {
+		core.Err(c, 500, "下载失败: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		core.Err(c, 500, fmt.Sprintf("下载失败: HTTP %d", resp.StatusCode))
+		return
+	}
+	n, err := io.Copy(tmp, resp.Body)
+	if err != nil {
+		core.Err(c, 500, "保存失败: "+err.Error())
+		return
+	}
+	if n < 1024 {
+		core.Err(c, 500, "下载内容过小，疑似无效二进制")
+		return
+	}
+
+	if req.SHA256 != "" {
+		tmp.Seek(0, 0)
+		h := sha256.New()
+		if _, err := io.Copy(h, tmp); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		got := hex.EncodeToString(h.Sum(nil))
+		if !strings.EqualFold(got, req.SHA256) {
+			core.Err(c, 400, "SHA256 校验失败: got "+got)
+			return
+		}
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	exePath, _ := filepath.Abs(exe)
+	// 备份当前二进制
+	data, err := os.ReadFile(exePath)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	_ = os.WriteFile(exePath+".bak", data, 0o755)
+	// 校验 + 赋权 + 原子替换
+	tmp.Seek(0, 0)
+	if _, err := tmp.Seek(0, 0); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	newBin, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if err := os.WriteFile(exePath+".new", newBin, 0o755); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if err := os.Rename(exePath+".new", exePath); err != nil {
+		core.Err(c, 500, "替换二进制失败: "+err.Error())
+		return
+	}
+	slog.Info("面板二进制已替换，准备重启", "from", core.Version, "size", n)
+
+	// 响应先行，随后异步重启（systemd 环境由守护进程拉起；否则 exec 自身）
+	core.OK(c, gin.H{"ok": true, "restarting": true})
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		cmd2 := exec.Command("sh", "-c", "systemctl restart hanyuxin || systemctl restart digong 2>/dev/null")
+		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
+			slog.Warn("systemctl 重启不可用，改用 exec 自重启", "out", strings.TrimSpace(string(out2)))
+			_ = syscall.Exec(exePath, os.Args, os.Environ())
+		}
+	}()
 }

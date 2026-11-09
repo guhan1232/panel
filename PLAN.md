@@ -286,9 +286,10 @@ hanyuxin/
 
 > v0.30 已交付：Telegram Bot 通知（Bot Token + Chat ID）、节点指标月视图前端（小时聚合图表切换）。
 
+> v0.31 已交付：节点文件管理与终端（agent 协议下沉——file 消息四操作 + bash 流式终端；面板 file API 与 /api/ws/nodeterm WS 桥；Nodes 页文件/终端抽屉）。
+
 ### P2 收官后展望（未排期）
 
-- 节点文件管理与终端（复用 filem/term 模块协议下沉到 agent）
 - 节点指标月级视图前端（v0.30 已交付图表切换，月级导出可扩展）
 
 ### 关键里程碑

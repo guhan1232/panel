@@ -29,6 +29,8 @@
           <template #default="{ row }">
             <a-button size="small" @click="openMetrics(row)">指标</a-button>
             <a-button size="small" data-tone="success" :disabled="!row.online || auth.role === 'viewer'" @click="openExec(row)">命令</a-button>
+            <a-button size="small" :disabled="!row.online || auth.role === 'viewer'" @click="openFiles(row)">文件</a-button>
+            <a-button size="small" :disabled="!row.online || auth.role === 'viewer'" @click="openNodeTerm(row)">终端</a-button>
             <a-button size="small" data-tone="danger" v-if="auth.role === 'admin'" @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
@@ -50,6 +52,37 @@
       <WmSectionCard v-show="mRange === 'hour'" title="网络流量" dense quiet>
         <div ref="netEl" class="wm-chart" style="height: 240px"></div>
       </WmSectionCard>
+    </a-drawer>
+
+    <a-drawer v-model:open="fDlg" width="62%" :title="`节点文件 - ${fNode?.name || ''}`">
+      <WmToolbar>
+        <a-input v-model:value="fPath" placeholder="绝对路径，如 /root" style="width: 420px" @press-enter="loadFiles" />
+        <a-button size="small" @click="loadFiles">前往</a-button>
+        <a-button size="small" @click="fUp()">上级</a-button>
+        <a-upload :before-upload="uploadFile" :show-upload-list="false"><a-button size="small" type="primary">上传到当前目录</a-button></a-upload>
+      </WmToolbar>
+      <WmTable :data="files" v-loading="fLoading" size="small" max-height="480" empty-title="空目录">
+        <WmColumn label="名称" min-width="240">
+          <template #default="{ row }">
+            <a v-if="row.is_dir" class="wm-mono" @click="enterDir(row)">{{ row.name }}/</a>
+            <span v-else class="wm-mono">{{ row.name }}</span>
+          </template>
+        </WmColumn>
+        <WmColumn label="大小" width="110"><template #default="{ row }">{{ row.is_dir ? '-' : fmtSize(row.size) }}</template></WmColumn>
+        <WmColumn label="权限" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.mode }}</span></template></WmColumn>
+        <WmColumn label="修改时间" width="160"><template #default="{ row }"><span class="wm-mono">{{ row.mod_time }}</span></template></WmColumn>
+        <WmColumn label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <a-button v-if="!row.is_dir" size="small" @click="downloadFile(row)">下载</a-button>
+            <a-button size="small" data-tone="danger" @click="deleteFile(row)">删除</a-button>
+          </template>
+        </WmColumn>
+      </WmTable>
+      <WmNotice tone="warning" class="wm-mt-4">远程文件操作经 Agent 通道执行并审计；删除为递归删除，请谨慎。</WmNotice>
+    </a-drawer>
+
+    <a-drawer v-model:open="tDlg" width="62%" :title="`节点终端 - ${tNode?.name || ''}`" @close="closeNodeTerm">
+      <div ref="ntBox" style="height: 460px; background: #14181f"></div>
     </a-drawer>
 
     <a-modal v-model:open="eDlg" :title="`远程命令 - ${eNode?.node?.name || ''}`" width="720px">
@@ -245,4 +278,127 @@ onBeforeUnmount(() => {
 })
 
 onMounted(load)
+
+const fDlg = ref(false)
+const fNode = ref<any>(null)
+const fPath = ref('/root')
+const files = ref<any[]>([])
+const fLoading = ref(false)
+const tDlg = ref(false)
+const tNode = ref<any>(null)
+let ntTerm: any = null
+let ntWS: WebSocket | null = null
+let ntBox: any = null
+let ntFit: any = null
+
+function fmtSize(x: number) {
+  if (x >= 1048576) return (x / 1048576).toFixed(1) + ' MB'
+  if (x >= 1024) return (x / 1024).toFixed(1) + ' KB'
+  return x + ' B'
+}
+
+function openFiles(row: any) {
+  fNode.value = { id: row.node.id, name: row.node.name }
+  fPath.value = '/root'
+  fDlg.value = true
+  loadFiles()
+}
+
+async function loadFiles() {
+  fLoading.value = true
+  try {
+    const d: any = await api.get(`/nodes/${fNode.value.id}/files`, { params: { path: fPath.value } })
+    files.value = d.entries || []
+    fPath.value = d.path
+  } catch (e: any) {
+    ElMessage.error(e?.msg || '目录读取失败')
+  } finally {
+    fLoading.value = false
+  }
+}
+
+function enterDir(row: any) {
+  fPath.value = (fPath.value.replace(/\/+$/, '')) + '/' + row.name
+  loadFiles()
+}
+
+function fUp() {
+  fPath.value = fPath.value.replace(/\/+$/, '').split('/').slice(0, -1).join('/') || '/'
+  loadFiles()
+}
+
+async function downloadFile(row: any) {
+  const d: any = await api.get(`/nodes/${fNode.value.id}/file`, { params: { path: fPath.value.replace(/\/+$/, '') + '/' + row.name } })
+  const bin = atob(d.data)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([arr]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = row.name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function deleteFile(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除远程文件「${row.name}」？（目录递归删除）`, '删除', { type: 'warning' })
+  } catch { return }
+  await api.delete(`/nodes/${fNode.value.id}/file`, { params: { path: fPath.value.replace(/\/+$/, '') + '/' + row.name, force: 1 } })
+  ElMessage.success('已删除')
+  loadFiles()
+}
+
+async function uploadFile(file: File) {
+  const reader = new FileReader()
+  reader.onload = async () => {
+    const b64 = btoa(new Uint8Array(reader.result as ArrayBuffer).reduce((s, b) => s + String.fromCharCode(b), ''))
+    const name = fPath.value.replace(/\/+$/, '') + '/' + file.name
+    await api.post(`/nodes/${fNode.value.id}/file`, { path: name, data: b64 })
+    ElMessage.success('已上传 ' + file.name)
+    loadFiles()
+  }
+  reader.readAsArrayBuffer(file)
+  return false
+}
+
+function openNodeTerm(row: any) {
+  tNode.value = { id: row.node.id, name: row.node.name }
+  tDlg.value = true
+  setTimeout(() => {
+    connectNodeTerm()
+  }, 300)
+}
+
+async function connectNodeTerm() {
+  if (!ntBox.value) {
+    await nextTick()
+  }
+  const XTerm = await import('@xterm/xterm').then((m) => m.Terminal)
+  const XFit = await import('@xterm/addon-fit').then((m) => m.FitAddon)
+  await import('@xterm/xterm/css/xterm.css').catch(() => {})
+  ntTerm = new XTerm({ cursorBlink: true, fontSize: 13, theme: { background: '#14181f' } })
+  ntFit = new XFit()
+  ntTerm.loadAddon(ntFit)
+  if (ntBox.value) {
+    ntTerm.open(ntBox.value)
+    ntFit.fit()
+  }
+  ntTerm.onData((d: string) => {
+    if (ntWS && ntWS.readyState === 1) ntWS.send(d)
+  })
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  ntWS = new WebSocket(`${proto}://${location.host}/api/ws/nodeterm/${tNode.value.id}`)
+  ntWS.onmessage = (ev: MessageEvent) => {
+    ntTerm?.write(ev.data)
+  }
+  ntTerm.writeln('\x1b[36m寒语馨面板 · 节点终端\x1b[0m  连接中...')
+}
+
+function closeNodeTerm() {
+  ntWS?.close()
+  ntWS = null
+  ntTerm?.dispose()
+  ntTerm = null
+}
 </script>

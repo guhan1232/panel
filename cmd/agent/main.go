@@ -5,11 +5,14 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
@@ -27,17 +30,28 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/execx"
 )
 
+type fileEntry struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	IsDir   bool   `json:"is_dir"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"mod_time"`
+}
+
 type msgOut struct {
-	Type     string  `json:"type"`
-	Hostname string  `json:"hostname,omitempty"`
-	OS       string  `json:"os,omitempty"`
-	Arch     string  `json:"arch,omitempty"`
-	Version  string  `json:"version,omitempty"`
-	ID       string  `json:"id,omitempty"`
-	Output   string  `json:"output,omitempty"`
-	Exit     int     `json:"exit,omitempty"`
-	Err      string  `json:"err,omitempty"`
-	Sample   *sample `json:"sample,omitempty"`
+	Type     string      `json:"type"`
+	Hostname string      `json:"hostname,omitempty"`
+	OS       string      `json:"os,omitempty"`
+	Arch     string      `json:"arch,omitempty"`
+	Version  string      `json:"version,omitempty"`
+	ID       string      `json:"id,omitempty"`
+	Output   string      `json:"output,omitempty"`
+	Exit     int         `json:"exit,omitempty"`
+	Err      string      `json:"err,omitempty"`
+	Sample   *sample     `json:"sample,omitempty"`
+	Data     string      `json:"data,omitempty"`     // file read 的 base64
+	Entries  []fileEntry `json:"entries,omitempty"`  // file ls
+	DataB64  bool        `json:"data_b64,omitempty"` // Output 是否 base64（term_out 二进制安全）
 }
 
 type sample struct {
@@ -55,6 +69,9 @@ type msgIn struct {
 	ID         string `json:"id"`
 	Script     string `json:"script"`
 	TimeoutSec int    `json:"timeout_sec"`
+	Path       string `json:"path,omitempty"`
+	Data       string `json:"data,omitempty"` // file write 的 base64 内容 / term_in 输入
+	Force      bool   `json:"force,omitempty"`
 }
 
 type conn struct {
@@ -148,8 +165,17 @@ func run(server, token, nodeName, hostname string, quit <-chan os.Signal) error 
 		if err := ws.ReadJSON(&in); err != nil {
 			return err
 		}
-		if in.Type == "exec" {
+		switch in.Type {
+		case "exec":
 			go handleExec(c, in)
+		case "file":
+			go handleFile(c, in)
+		case "term_open":
+			handleTermOpen(c, in)
+		case "term_in":
+			handleTermIn(in)
+		case "term_close":
+			handleTermClose(in)
 		}
 	}
 }
@@ -168,6 +194,168 @@ func handleExec(c *conn, in msgIn) {
 	}
 	if err := c.send(res); err != nil {
 		slog.Warn("回传执行结果失败", "id", in.ID, "err", err)
+	}
+}
+
+// handleFile 文件操作：ls | read | write | delete。
+func handleFile(c *conn, in msgIn) {
+	res := msgOut{Type: "file_result", ID: in.ID}
+	defer func() {
+		if r := recover(); r != nil {
+			res.Err = fmt.Sprintf("panic: %v", r)
+			_ = c.send(res)
+		}
+	}()
+	// 路径安全：禁止 .. 穿越
+	if strings.Contains(in.Path, "..") {
+		res.Err = "路径不允许包含 .."
+		_ = c.send(res)
+		return
+	}
+	// Script 字段在此协议中作为 file op 传递（ls/read/write/delete）
+	switch in.Script {
+	case "ls":
+		entries, err := os.ReadDir(in.Path)
+		if err != nil {
+			res.Err = err.Error()
+			break
+		}
+		out := []fileEntry{}
+		for _, e := range entries {
+			fi, _ := e.Info()
+			var size int64
+			var mode, mt string
+			if fi != nil {
+				size = fi.Size()
+				mode = fi.Mode().String()
+				mt = fi.ModTime().Format("2006-01-02 15:04:05")
+			}
+			out = append(out, fileEntry{Name: e.Name(), Size: size, IsDir: e.IsDir(), Mode: mode, ModTime: mt})
+		}
+		res.Entries = out
+	case "read":
+		data, err := os.ReadFile(in.Path)
+		if err != nil {
+			res.Err = err.Error()
+			break
+		}
+		if len(data) > 8<<20 {
+			res.Err = "文件超过 8MB，请用其他方式传输"
+			break
+		}
+		res.Data = base64.StdEncoding.EncodeToString(data)
+		res.DataB64 = true
+	case "write":
+		data, err := base64.StdEncoding.DecodeString(in.Data)
+		if err != nil {
+			res.Err = err.Error()
+			break
+		}
+		if err := os.WriteFile(in.Path, data, 0o644); err != nil {
+			res.Err = err.Error()
+			break
+		}
+	case "delete":
+		if !in.Force {
+			res.Err = "删除需确认"
+			break
+		}
+		if err := os.RemoveAll(in.Path); err != nil {
+			res.Err = err.Error()
+		}
+	default:
+		res.Err = "未知文件操作"
+	}
+	if err := c.send(res); err != nil {
+		slog.Warn("回传文件结果失败", "id", in.ID, "err", err)
+	}
+}
+
+// ---- 节点终端：bash 子进程流式转发 ----
+
+type agentTerm struct {
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	c     *conn
+}
+
+var terms = struct {
+	mu sync.Mutex
+	m  map[string]*agentTerm
+}{m: map[string]*agentTerm{}}
+
+func handleTermOpen(c *conn, in msgIn) {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		if _, err := os.Stat("/bin/bash"); err == nil {
+			shell = "/bin/bash"
+		} else {
+			shell = "/bin/sh"
+		}
+	}
+	cmd := exec.Command(shell, "-i")
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		_ = c.send(msgOut{Type: "term_out", ID: in.ID, Output: "打开终端失败: " + err.Error()})
+		return
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = c.send(msgOut{Type: "term_out", ID: in.ID, Output: "打开终端失败: " + err.Error()})
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		_ = c.send(msgOut{Type: "term_out", ID: in.ID, Output: "启动 shell 失败: " + err.Error()})
+		return
+	}
+	t := &agentTerm{cmd: cmd, stdin: stdin, c: c}
+	terms.mu.Lock()
+	terms.m[in.ID] = t
+	terms.mu.Unlock()
+	slog.Info("节点终端会话开启", "id", in.ID)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			nr, err := stdout.Read(buf)
+			if nr > 0 {
+				chunk := base64.StdEncoding.EncodeToString(buf[:nr])
+				if err := c.send(msgOut{Type: "term_out", ID: in.ID, Output: chunk, DataB64: true}); err != nil {
+					break
+				}
+			}
+			if err != nil {
+				_ = c.send(msgOut{Type: "term_out", ID: in.ID, Output: "\r\n[会话已结束]"})
+				break
+			}
+		}
+		terms.mu.Lock()
+		delete(terms.m, in.ID)
+		terms.mu.Unlock()
+		_ = cmd.Wait()
+	}()
+}
+
+func handleTermIn(in msgIn) {
+	terms.mu.Lock()
+	t := terms.m[in.ID]
+	terms.mu.Unlock()
+	if t == nil {
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(in.Data)
+	if err == nil {
+		_, _ = t.stdin.Write(data)
+	}
+}
+
+func handleTermClose(in msgIn) {
+	terms.mu.Lock()
+	t := terms.m[in.ID]
+	terms.mu.Unlock()
+	if t != nil {
+		_ = t.cmd.Process.Kill()
 	}
 }
 

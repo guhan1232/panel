@@ -72,7 +72,7 @@ Agent 已有 `metric` / `exec_result` 双消息通道，扩展消息类型即可
 
 - [x] **计划任务按节点下发**（v0.27：shell 类任务可选节点，经 ExecOnNode 通道）
 - [x] **告警规则按节点**（v0.27：规则绑定节点，5 分钟内最新指标判定，通知带节点名）
-- [ ] **节点文件管理与终端**：filem / term 的消息协议下沉到 agent（大文件走分片，终端走双向 WS 转发）
+- [x] **节点文件管理与终端**（v0.31：agent file 消息 ls/read/write/delete ≤8MB + bash 会话流式转发；面板文件 API、终端 WS 桥 /api/ws/nodeterm/:id、Nodes 页文件抽屉与 xterm 终端抽屉）
 - [x] **节点指标小时聚合**（v0.28：NodeMetricHourly 表随清理任务增量聚合，月视图 API /nodes/:id/metrics/hourly）
 
 ### P1-7 面板自身运维
