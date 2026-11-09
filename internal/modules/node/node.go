@@ -98,8 +98,8 @@ func (h *Hub) get(id uint) *agentConn {
 // ---- 模块 ----
 
 type Module struct {
-	db *gorm.DB
-	hub Hub
+	db       *gorm.DB
+	hub      Hub
 	upgrader websocket.Upgrader
 }
 

@@ -11,18 +11,18 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.25.0"
+const Version = "0.26.0"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
-	KNotifyEmail     = "notify_email_json"
-	KNotifyWebhook   = "notify_webhook_json"
-	KMysqlCfg        = "dbmgr_mysql_json"
-	KPgCfg           = "dbmgr_pg_json"
-	KS3Cfg           = "objectstore_s3_json"
-	KNodeToken       = "nodes_token"
-	KAppSourceURL    = "appstore_source_url"
-	KAppSourceCache  = "appstore_source_cache"
+	KNotifyEmail    = "notify_email_json"
+	KNotifyWebhook  = "notify_webhook_json"
+	KMysqlCfg       = "dbmgr_mysql_json"
+	KPgCfg          = "dbmgr_pg_json"
+	KS3Cfg          = "objectstore_s3_json"
+	KNodeToken      = "nodes_token"
+	KAppSourceURL   = "appstore_source_url"
+	KAppSourceCache = "appstore_source_cache"
 )
 
 // GetSetting 读取一个 KV 配置（不存在返回空串）。
@@ -42,7 +42,7 @@ func SetSetting(db *gorm.DB, key, value string) error {
 type User struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	Username   string    `gorm:"uniqueIndex;size:64" json:"username"`
-	Password   string    `json:"-"` // bcrypt 哈希
+	Password   string    `json:"-"`                                 // bcrypt 哈希
 	Role       string    `gorm:"size:16;default:admin" json:"role"` // admin | operator | viewer
 	Disabled   bool      `json:"disabled"`
 	TOTPSecret string    `json:"-"`

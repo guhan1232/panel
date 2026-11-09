@@ -3,12 +3,16 @@ package setting
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"cnb.cool/hanyuxin/panel/internal/archive"
 	"cnb.cool/hanyuxin/panel/internal/config"
 	"cnb.cool/hanyuxin/panel/internal/core"
 )
@@ -26,6 +30,7 @@ func (m *Module) Register(api gin.IRouter) {
 	g := api.Group("/setting")
 	g.GET("/info", m.info)
 	g.POST("/password", m.changePassword)
+	g.GET("/panel-backup", m.panelBackup)
 }
 
 func (m *Module) info(c *gin.Context) {
@@ -73,4 +78,39 @@ func (m *Module) changePassword(c *gin.Context) {
 	cur := c.GetString("session")
 	m.db.Where("user_id = ? AND token <> ?", uid, cur).Delete(&core.Session{})
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "密码已修改，其它会话已注销"})
+}
+
+// panelBackup 面板数据一键备份：SQLite VACUUM INTO 快照 + config.yaml + certs-managed 打包下载。
+func (m *Module) panelBackup(c *gin.Context) {
+	tmpDir, err := os.MkdirTemp("", "hanyuxin-backup-*")
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	snap := filepath.Join(tmpDir, "panel.db")
+	if err := m.db.Exec("VACUUM INTO ?", snap).Error; err != nil {
+		core.Err(c, 500, "数据库快照失败: "+err.Error())
+		return
+	}
+
+	paths := []string{snap}
+	if m.cfg.Path != "" {
+		if _, err := os.Stat(m.cfg.Path); err == nil {
+			paths = append(paths, m.cfg.Path)
+		}
+	}
+	certsDir := filepath.Join(m.cfg.DataDir, "certs-managed")
+	if _, err := os.Stat(certsDir); err == nil {
+		paths = append(paths, certsDir)
+	}
+
+	out := filepath.Join(tmpDir, "hanyuxin-panel-backup.zip")
+	if err := archive.ZipAt(c.Request.Context(), tmpDir, paths, out); err != nil {
+		core.Err(c, 500, "打包失败: "+err.Error())
+		return
+	}
+	name := "hanyuxin-panel-backup-" + time.Now().Format("20060102-150405") + ".zip"
+	c.FileAttachment(out, name)
 }

@@ -1,0 +1,23 @@
+# CNB 流水线：后端测试 + 前端构建（每次 push 触发）
+main:
+  push:
+    - name: backend-test
+      runner:
+        cpus: 4
+      docker:
+        image: golang:1.26
+      stages:
+        - name: vet
+          script: go vet ./...
+        - name: test
+          script: go test ./...
+        - name: build
+          script: CGO_ENABLED=0 go build ./...
+    - name: frontend-build
+      runner:
+        cpus: 4
+      docker:
+        image: node:22-alpine
+      stages:
+        - name: build
+          script: cd web && npm ci --no-audit --no-fund && npm run build

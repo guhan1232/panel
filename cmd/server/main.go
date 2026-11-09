@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	webui "cnb.cool/hanyuxin/panel"
 	"cnb.cool/hanyuxin/panel/internal/audit"
 	"cnb.cool/hanyuxin/panel/internal/auth"
 	"cnb.cool/hanyuxin/panel/internal/config"
@@ -37,7 +38,6 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/notify"
 	"cnb.cool/hanyuxin/panel/internal/objectstore"
 	"cnb.cool/hanyuxin/panel/internal/selfcert"
-	webui "cnb.cool/hanyuxin/panel"
 )
 
 func main() {
@@ -109,7 +109,7 @@ func main() {
 	certMod := cert.New(db, cfg.DataDir)
 	certMod.Register(protected)
 	certMod.Start()
-	dbmgr.New(db).Register(protected)
+	dbmgr.New(db, cfg.DataDir).Register(protected)
 
 	// 多节点（Agent 反连走独立端点，token 鉴权；管理面走会话权限）
 	protectedRW := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
@@ -130,7 +130,7 @@ func main() {
 	runtimeMod.Register(protected)
 
 	// P2 模块
-	dash := dashboard.New()
+	dash := dashboard.New(db)
 	dash.Register(protected)
 	alertMod := alert.New(db, dash)
 	if err := alertMod.Start(); err != nil {

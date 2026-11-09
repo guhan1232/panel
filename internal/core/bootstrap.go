@@ -20,7 +20,7 @@ func randomToken(n int) string {
 }
 
 // BootstrapAdmin 首次启动时创建管理员账号：用户名与密码均随机生成
-//（防爆破/防社工猜测），凭据打印到控制台并写入 data/initial_admin.txt。
+// （防爆破/防社工猜测），凭据打印到控制台并写入 data/initial_admin.txt。
 func BootstrapAdmin(db *gorm.DB, dataDir string) error {
 	var count int64
 	if err := db.Model(&User{}).Count(&count).Error; err != nil {
@@ -29,7 +29,7 @@ func BootstrapAdmin(db *gorm.DB, dataDir string) error {
 	if count > 0 {
 		return nil
 	}
-	user := "user_" + randomToken(4)  // 如 user_3fa2b1c8
+	user := "user_" + randomToken(4) // 如 user_3fa2b1c8
 	pass := randomToken(8)
 	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
 	if err != nil {
@@ -39,10 +39,8 @@ func BootstrapAdmin(db *gorm.DB, dataDir string) error {
 		return err
 	}
 	msg := fmt.Sprintf("初始管理员账号: %s  密码: %s\n", user, pass)
-	slog.Warn("首次启动已创建初始管理员账号 "+user+"，凭据已写入 "+filepath.Join(dataDir, "initial_admin.txt"))
+	slog.Warn("首次启动已创建初始管理员账号 " + user + "，凭据已写入 " + filepath.Join(dataDir, "initial_admin.txt"))
 	_ = os.WriteFile(filepath.Join(dataDir, "initial_admin.txt"), []byte(msg), 0o600)
 	fmt.Print(msg)
 	return nil
 }
-
-

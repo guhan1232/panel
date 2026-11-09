@@ -3,6 +3,7 @@ package dashboard
 
 import (
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -10,12 +11,14 @@ import (
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
-	gnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
+	gnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
+	"gorm.io/gorm"
 
 	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/modules/node"
 )
 
 const (
@@ -26,13 +29,13 @@ const (
 // Sample 一次系统采样。
 type Sample struct {
 	Time     int64   `json:"time"`
-	CPU      float64 `json:"cpu"`        // CPU 占用 %
-	MemPct   float64 `json:"mem_pct"`    // 内存占用 %
-	MemUsed  uint64  `json:"mem_used"`   // 字节
-	MemTotal uint64  `json:"mem_total"`  // 字节
-	Recv     uint64  `json:"recv"`       // 网络接收 B/s
-	Sent     uint64  `json:"sent"`       // 网络发送 B/s
-	Load1    float64 `json:"load1"`      // 1 分钟负载
+	CPU      float64 `json:"cpu"`       // CPU 占用 %
+	MemPct   float64 `json:"mem_pct"`   // 内存占用 %
+	MemUsed  uint64  `json:"mem_used"`  // 字节
+	MemTotal uint64  `json:"mem_total"` // 字节
+	Recv     uint64  `json:"recv"`      // 网络接收 B/s
+	Sent     uint64  `json:"sent"`      // 网络发送 B/s
+	Load1    float64 `json:"load1"`     // 1 分钟负载
 }
 
 type DiskInfo struct {
@@ -55,10 +58,11 @@ type Module struct {
 	history     []Sample
 	lastNet     gnet.IOCountersStat
 	lastNetTime time.Time
+	db          *gorm.DB // 可选：用于远程节点指标查询
 }
 
-func New() *Module {
-	m := &Module{}
+func New(db *gorm.DB) *Module {
+	m := &Module{db: db}
 	go m.run()
 	return m
 }
@@ -116,6 +120,11 @@ func (m *Module) Register(api gin.IRouter) {
 }
 
 func (m *Module) summary(c *gin.Context) {
+	// 远程节点模式：?node=<id> 时从 node_metrics 取最近 120 条（15s 采样 ≈ 30 分钟）
+	if nodeID, err := strconv.Atoi(c.Query("node")); err == nil && nodeID > 0 && m.db != nil {
+		m.summaryRemote(c, uint(nodeID))
+		return
+	}
 	m.mu.Lock()
 	h := append([]Sample(nil), m.history...)
 	m.mu.Unlock()
@@ -151,12 +160,12 @@ func (m *Module) summary(c *gin.Context) {
 	}
 
 	core.OK(c, gin.H{
-		"host":     hi,
-		"current":  lastOf(h),
-		"history":  h,
-		"disks":    disks,
-		"procs":    tops,
-		"mem_used": memUsed,
+		"host":      hi,
+		"current":   lastOf(h),
+		"history":   h,
+		"disks":     disks,
+		"procs":     tops,
+		"mem_used":  memUsed,
 		"mem_total": memTotal,
 	})
 }
@@ -201,4 +210,35 @@ func (m *Module) topProcesses() []ProcInfo {
 		list = list[:10]
 	}
 	return list
+}
+
+// summaryRemote 远程节点仪表盘数据：node_metrics 映射为 Sample 结构（字段名一致）。
+func (m *Module) summaryRemote(c *gin.Context, nodeID uint) {
+	var rows []node.NodeMetric
+	m.db.Where("node_id = ?", nodeID).Order("time DESC").Limit(120).Find(&rows)
+	history := make([]Sample, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		r := rows[i]
+		history = append(history, Sample{
+			Time:     r.Time.Unix(),
+			CPU:      r.CPU,
+			MemPct:   r.MemPct,
+			MemUsed:  r.MemUsed,
+			MemTotal: r.MemTotal,
+			Recv:     r.Recv,
+			Sent:     r.Sent,
+			Load1:    r.Load1,
+		})
+	}
+	var nodeName string
+	m.db.Model(&node.Node{}).Select("name").Where("id = ?", nodeID).Scan(&nodeName)
+	core.OK(c, gin.H{
+		"host":      gin.H{"hostname": nodeName, "remote": true},
+		"current":   lastOf(history),
+		"history":   history,
+		"disks":     []DiskInfo{},
+		"procs":     []ProcInfo{},
+		"mem_used":  lastOf(history).MemUsed,
+		"mem_total": lastOf(history).MemTotal,
+	})
 }

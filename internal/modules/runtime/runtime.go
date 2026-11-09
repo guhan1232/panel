@@ -5,9 +5,9 @@ package rtm
 
 import (
 	"encoding/json"
-	"log/slog"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -74,7 +74,7 @@ type langDef struct {
 	// DirName 版本对应的安装目录名
 	DirName func(version string) string
 	// InstallOverride 非下载式安装（如 PHP 经发行版仓库装 FPM），nil 走通用下载流程
-	InstallOverride   func(m *Module, version, source string) ([]string, error)
+	InstallOverride func(m *Module, version, source string) ([]string, error)
 	// UninstallOverride 非下载式卸载
 	UninstallOverride func(m *Module, version string) ([]string, error)
 	// NoDefault true 表示该语言多版本独立运行，无“默认版本”概念（如 PHP-FPM）
@@ -326,9 +326,9 @@ func listPython(source, goarch, vendor string) ([]runtimeVersion, error) {
 		return nil, err
 	}
 	var arr []struct {
-		TagName    string `json:"tag_name"`
-		Published  string `json:"published_at"`
-		Assets     []struct {
+		TagName   string `json:"tag_name"`
+		Published string `json:"published_at"`
+		Assets    []struct {
 			Name               string `json:"name"`
 			BrowserDownloadURL string `json:"browser_download_url"`
 		} `json:"assets"`
@@ -484,30 +484,30 @@ func vendorArchOf(lang, goarch string) string {
 func init() {
 	langs["nodejs"] = &langDef{
 		Key: "nodejs", Name: "Node.js",
-		Desc:   "JavaScript 运行时；版本清单来自官方或镜像站 index.json",
-		Sources: nodeSources,
-		Bins:   nil, // 依赖版本，运行时计算
+		Desc:       "JavaScript 运行时；版本清单来自官方或镜像站 index.json",
+		Sources:    nodeSources,
+		Bins:       nil, // 依赖版本，运行时计算
 		VendorArch: func(g string) string { return vendorArchOf("nodejs", g) },
-		List:    listNode,
-		Resolve: resolveNode,
+		List:       listNode,
+		Resolve:    resolveNode,
 	}
 	langs["golang"] = &langDef{
 		Key: "golang", Name: "Golang",
-		Desc:   "Go 编译工具链；镜像站目录解析版本清单",
-		Sources: goSources,
-		Bins:   []binLink{{Link: "go", Rel: "go/bin/go"}, {Link: "gofmt", Rel: "go/bin/gofmt"}},
+		Desc:       "Go 编译工具链；镜像站目录解析版本清单",
+		Sources:    goSources,
+		Bins:       []binLink{{Link: "go", Rel: "go/bin/go"}, {Link: "gofmt", Rel: "go/bin/gofmt"}},
 		VendorArch: func(g string) string { return g },
-		List:    listGo,
-		Resolve: resolveGo,
+		List:       listGo,
+		Resolve:    resolveGo,
 	}
 	langs["python"] = &langDef{
 		Key: "python", Name: "Python",
-		Desc:   "python-build-standalone 独立发行版；清单来自 GitHub Releases，下载可加速",
-		Sources: pythonSources,
-		Bins:   []binLink{{Link: "python3", Rel: "python/bin/python3"}, {Link: "python", Rel: "python/bin/python3"}},
+		Desc:       "python-build-standalone 独立发行版；清单来自 GitHub Releases，下载可加速",
+		Sources:    pythonSources,
+		Bins:       []binLink{{Link: "python3", Rel: "python/bin/python3"}, {Link: "python", Rel: "python/bin/python3"}},
 		VendorArch: func(g string) string { return vendorArchOf("python", g) },
-		List:    listPython,
-		Resolve: resolvePython,
+		List:       listPython,
+		Resolve:    resolvePython,
 	}
 	jdkSrcs := []sourceDef{}
 	for _, js := range jdkSources {
@@ -515,24 +515,24 @@ func init() {
 	}
 	langs["php"] = &langDef{
 		Key: "php", Name: "PHP",
-		Desc:   "多版本 PHP-FPM；Debian/Ubuntu 经 ondrej/sury 仓库，RHEL 经 Remi 仓库安装，各版本独立 systemd 服务",
+		Desc:    "多版本 PHP-FPM；Debian/Ubuntu 经 ondrej/sury 仓库，RHEL 经 Remi 仓库安装，各版本独立 systemd 服务",
 		Sources: []sourceDef{{ID: "repo", Name: "发行版仓库 (ondrej/Remi)"}},
 		Bins:    []binLink{},
 		List:    listPHP,
 		InstallOverride: func(m *Module, version, source string) ([]string, error) {
-		return m.installPHP(version)
-	},
+			return m.installPHP(version)
+		},
 		UninstallOverride: (*Module).uninstallPHP,
-		NoDefault: true,
+		NoDefault:         true,
 	}
 	langs["openjdk"] = &langDef{
 		Key: "openjdk", Name: "OpenJDK",
-		Desc:   "Java 开发工具包；Temurin(清华)与华为云通用构建",
-		Sources: jdkSrcs,
-		Bins:   nil, // 依赖版本
+		Desc:       "Java 开发工具包；Temurin(清华)与华为云通用构建",
+		Sources:    jdkSrcs,
+		Bins:       nil, // 依赖版本
 		VendorArch: func(g string) string { return vendorArchOf("openjdk", g) },
-		List:    listOpenJDK,
-		Resolve: resolveOpenJDK,
+		List:       listOpenJDK,
+		Resolve:    resolveOpenJDK,
 	}
 }
 
@@ -745,7 +745,6 @@ func (m *Module) installed(c *gin.Context) {
 	core.OK(c, items)
 }
 
-
 // execDownload 通过 curl 下载文件（统一走执行层，超时 15 分钟）。
 func execDownload(local, url string) (string, int, error) {
 	return execx.Run("runtime", 15*time.Minute, "curl", "-fSL", "--retry", "3", "--connect-timeout", "30", "-o", local, url)
@@ -880,6 +879,7 @@ func jdkVerFromFile(file string) (string, bool) {
 	}
 	return strings.ReplaceAll(tail, "_", "+"), true
 }
+
 // listPythonNpmmirror 从 npmmirror 镜像目录拉取 python-build-standalone 版本清单。
 func listPythonNpmmirror(vendor string) ([]runtimeVersion, error) {
 	base := "https://registry.npmmirror.com/-/binary/python-build-standalone"
@@ -945,6 +945,7 @@ func listPythonNpmmirror(vendor string) ([]runtimeVersion, error) {
 	})
 	return out, nil
 }
+
 // nodeNpmPath 默认 nodejs 实例的 npm 可执行路径（无默认实例返回空）。
 func (m *Module) nodeNpmPath() string {
 	var inst RuntimeInst
@@ -989,6 +990,7 @@ func (m *Module) setRegistry(c *gin.Context) {
 	slog.Info("npm registry 已设置", "registry", req.Registry, "by", c.GetString("user"))
 	core.OK(c, gin.H{"registry": req.Registry})
 }
+
 // parseToolchainList 解析 goproxy toolchain @v/list（纯函数，仅保留 linux-arch 条目）。
 func parseToolchainList(list string, goarch string) []runtimeVersion {
 	suffix := ".linux-" + goarch
@@ -1035,6 +1037,7 @@ func findInTree(root, name string) (string, error) {
 	}
 	return found, nil
 }
+
 // pythonPipPath 默认 python 实例的 pip3 路径（无默认实例返回空）。
 func (m *Module) pythonPipPath() string {
 	var inst RuntimeInst
@@ -1081,6 +1084,7 @@ func (m *Module) setPypi(c *gin.Context) {
 	slog.Info("pip index-url 已设置", "url", req.IndexURL, "by", c.GetString("user"))
 	core.OK(c, gin.H{"index_url": req.IndexURL})
 }
+
 // parseHuaweiOpenJDKDirs 从华为 /openjdk/ 目录列表提取版本目录（纯函数）。
 func parseHuaweiOpenJDKDirs(html string) []string {
 	out := []string{}
@@ -1097,8 +1101,12 @@ func parseHuaweiOpenJDKDirs(html string) []string {
 		a, b := versionNums(out[i]), versionNums(out[j])
 		for k := 0; k < 4; k++ {
 			var ai, bi int
-			if k < len(a) { ai = a[k] }
-			if k < len(b) { bi = b[k] }
+			if k < len(a) {
+				ai = a[k]
+			}
+			if k < len(b) {
+				bi = b[k]
+			}
 			if ai != bi {
 				return ai > bi
 			}
@@ -1141,6 +1149,7 @@ func listHuaweiOpenJDK(base, goarch, vendor string) ([]runtimeVersion, error) {
 	}
 	return out, nil
 }
+
 // phpBranches 已知的 PHP 稳定/EOL 分支（安装按分支装发行版包）。
 // phpSourceDirs 提供 PHP 全历史版本(tar.gz)的镜像站目录。
 var phpSourceDirs = []sourceDef{
@@ -1202,6 +1211,7 @@ func parsePHPJson(data []byte) map[string]string {
 	}
 	return out
 }
+
 // installPHP 经发行版仓库安装指定分支的 PHP-FPM（多版本共存，各自独立 systemd 服务）。
 func (m *Module) installPHP(version string) ([]string, error) {
 	if goruntime.GOOS != "linux" {
@@ -1231,7 +1241,7 @@ func (m *Module) installPHP(version string) ([]string, error) {
 		cmds = append(cmds,
 			"apt-get install -y gnupg curl ca-certificates",
 			"curl -sSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg",
-			"echo \"deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ " + codename + " main\" > /etc/apt/sources.list.d/sury-php.list",
+			"echo \"deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ "+codename+" main\" > /etc/apt/sources.list.d/sury-php.list",
 			"apt-get update",
 		)
 		pkgs = []string{"php" + version + "-fpm", "php" + version + "-mysql", "php" + version + "-curl", "php" + version + "-gd", "php" + version + "-xml", "php" + version + "-mbstring"}
@@ -1242,9 +1252,9 @@ func (m *Module) installPHP(version string) ([]string, error) {
 			el = el[:i]
 		}
 		cmds = append(cmds,
-			"dnf install -y epel-release https://rpms.remirepo.net/enterprise/remi-release-" + el + ".rpm",
+			"dnf install -y epel-release https://rpms.remirepo.net/enterprise/remi-release-"+el+".rpm",
 			"dnf module reset php -y",
-			"dnf module enable php:remi-" + version + " -y",
+			"dnf module enable php:remi-"+version+" -y",
 		)
 		pkgs = []string{"php-fpm", "php-mysqlnd", "php-gd", "php-curl", "php-xml", "php-mbstring"}
 		unit = "php-fpm"
@@ -1356,9 +1366,10 @@ func branchesFromPHPListing(html string, fallback []string) []string {
 	})
 	return out
 }
+
 // composerPhar / composerBin 路径。
-func composerPhar() string  { return "/usr/local/share/composer.phar" }
-func composerBin() string   { return "/usr/local/bin/composer" }
+func composerPhar() string { return "/usr/local/share/composer.phar" }
+func composerBin() string  { return "/usr/local/bin/composer" }
 
 // ensureComposer 下载 composer.phar（阿里云优先，官方回退）并创建包装脚本。
 func ensureComposer() error {
@@ -1409,7 +1420,7 @@ func (m *Module) getComposer(c *gin.Context) {
 			}
 			var cfg struct {
 				Repositories []struct {
-					Packagist any `json:"packagist.org"`
+					Packagist any    `json:"packagist.org"`
 					URL       string `json:"url"`
 				} `json:"repositories"`
 			}

@@ -33,25 +33,25 @@
 现状只有 Docker 安装 + 镜像源 + Compose 商店应用。补齐为真正的容器管理页：
 
 - [ ] 容器列表（`docker ps -a`）：状态/端口/镜像/资源占用，启停/重启/删除
-- [ ] 容器日志在线查看（`docker logs --tail`，复用 Compose 应用日志的交互）
-- [ ] 容器资源统计（`docker stats --no-stream`）
+- [x] 容器日志在线查看（v0.26）（`docker logs --tail`，复用 Compose 应用日志的交互）
+- [x] 容器资源统计（v0.26）（`docker stats --no-stream`）
 - [ ] 镜像列表（`docker images`）与清理（`docker image prune` / `system prune`，危险操作需确认 + 审计）
 - [ ] 网络/卷列表（只读展示起步）
-- [ ] Compose 应用 YAML **在线编辑** + `docker compose up -d` 应用变更
-- [ ] **自定义 Compose 应用**：用户粘贴 YAML 部署（当前只能装商店模板，无法部署自己的编排）
+- [x] Compose 应用 YAML **在线编辑** + 自定义部署（v0.26） + `docker compose up -d` 应用变更
+- [x] **自定义 Compose 应用**（v0.26）：用户粘贴 YAML 部署（当前只能装商店模板，无法部署自己的编排）
 
 ### P1-2 已安装应用的版本升级 / 回滚
 
 版本选择目前只在**安装时**生效；装完即固定。补齐：
 
 - [ ] 应用详情页展示当前版本（`nginx -v` / `redis-server --version` / systemd 单元版本探测）
-- [ ] 「升级到指定版本」动作：native 换 GitHub Release 下载重装；package 走对应仓库换版本（复用 PkgInstallVer 分发）；升级前提示影响（nginx 替换式升级会短暂停服）
+- [x] 「升级到指定版本」动作（v0.26）：native 换 GitHub Release 下载重装；package 走对应仓库换版本（复用 PkgInstallVer 分发）；升级前提示影响（nginx 替换式升级会短暂停服）
 - [ ] 版本历史记录（app_insts 增 version 字段 + 升级流水）
 
 ### P1-3 SSL 证书与网站联动（证书最常用的闭环）
 
 - [ ] **DNS-01 挑战**：lego 接 DNS Provider API（阿里云 / 腾讯云 DNSPod / Cloudflare），支持 `*.example.com` 泛域名（HTTP-01 无法签泛域名）
-- [ ] **证书一键部署到站点**：证书列表「部署到网站」→ 自动写入站点 `ssl_cert/ssl_key` + `force_https` + `nginx -s reload`（当前 Website.vue 仅手填路径，路径提示还是旧前缀）
+- [ ] **证书一键部署到站点**（待做；v0.26 已完成 WebSocket/即时备份等）：证书列表「部署到网站」→ 自动写入站点 `ssl_cert/ssl_key` + `force_https` + `nginx -s reload`（当前 Website.vue 仅手填路径，路径提示还是旧前缀）
 - [ ] 证书续期后自动 reload nginx（当前只续期不重载）
 
 ### P1-4 网站模块增强
@@ -77,7 +77,7 @@ Agent 已有 `metric` / `exec_result` 双消息通道，扩展消息类型即可
 
 ### P1-7 面板自身运维
 
-- [ ] **面板数据一键备份/恢复**：panel.db + config.yaml + certs-managed 打包下载 / 上传恢复（恢复后自动重启）
+- [x] **面板数据一键备份**（v0.26；恢复流程见下载包说明，自动恢复待做）：panel.db + config.yaml + certs-managed 打包下载 / 上传恢复（恢复后自动重启）
 - [ ] **在线自升级**：PLAN 里程碑已列（版本号 + 校验和 + 升级前自动备份面板数据）；下载新二进制 → 校验 → 替换 → 重启服务，失败自动回滚
 - [ ] 审计日志 / 终端命令日志 **导出 CSV**（留存合规用）
 

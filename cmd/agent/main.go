@@ -19,25 +19,25 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
-	gnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
+	gnet "github.com/shirou/gopsutil/v4/net"
 
 	"cnb.cool/hanyuxin/panel/internal/core"
 	"cnb.cool/hanyuxin/panel/internal/execx"
 )
 
 type msgOut struct {
-	Type     string    `json:"type"`
-	Hostname string    `json:"hostname,omitempty"`
-	OS       string    `json:"os,omitempty"`
-	Arch     string    `json:"arch,omitempty"`
-	Version  string    `json:"version,omitempty"`
-	ID       string    `json:"id,omitempty"`
-	Output   string    `json:"output,omitempty"`
-	Exit     int       `json:"exit,omitempty"`
-	Err      string    `json:"err,omitempty"`
-	Sample   *sample   `json:"sample,omitempty"`
+	Type     string  `json:"type"`
+	Hostname string  `json:"hostname,omitempty"`
+	OS       string  `json:"os,omitempty"`
+	Arch     string  `json:"arch,omitempty"`
+	Version  string  `json:"version,omitempty"`
+	ID       string  `json:"id,omitempty"`
+	Output   string  `json:"output,omitempty"`
+	Exit     int     `json:"exit,omitempty"`
+	Err      string  `json:"err,omitempty"`
+	Sample   *sample `json:"sample,omitempty"`
 }
 
 type sample struct {

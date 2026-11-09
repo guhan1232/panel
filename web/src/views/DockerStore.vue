@@ -23,11 +23,14 @@
       </div>
     </WmSectionCard>
 
+    <a-tabs v-model:activeKey="activeTab" class="store-tabs">
+      <a-tab-pane key="apps" tab="应用编排">
     <a-row :gutter="16" class="store-grid">
       <a-col :xs="24" :xl="16">
         <WmSectionCard title="容器模板" description="Docker Compose 编排，部署时可为镜像选择加速源">
           <template #actions>
             <a-button v-if="!docker.installed" size="small" data-tone="warning" :loading="installing" @click="installDocker">一键安装 Docker</a-button>
+            <a-button size="small" :disabled="!docker.installed || !docker.compose" @click="openCustom">部署自定义 Compose</a-button>
             <span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span>
           </template>
           <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
@@ -65,6 +68,7 @@
                 <a-button size="small" data-tone="warning" @click="act(row, 'stop')">停止</a-button>
                 <a-button size="small" @click="act(row, 'restart')">重启</a-button>
                 <a-button size="small" @click="viewLogs(row)">日志</a-button>
+                <a-button v-if="row.app.kind === 'compose'" size="small" @click="editCompose(row)">编排</a-button>
                 <a-button size="small" data-tone="danger" @click="uninstall(row)">卸载</a-button>
               </template>
             </WmColumn>
@@ -100,6 +104,47 @@
         </WmSectionCard>
       </a-col>
     </a-row>
+      </a-tab-pane>
+
+      <a-tab-pane key="containers" tab="容器">
+        <WmSectionCard title="容器列表" description="docker ps -a 全量容器，支持启停/日志/删除" flush>
+          <template #actions>
+            <a-button size="small" @click="viewStats">资源统计</a-button>
+            <a-button size="small" @click="loadContainers"><ReloadOutlined />刷新</a-button>
+          </template>
+          <WmTable :data="containers" v-loading="ctLoading" empty-title="没有容器" empty-description="先部署 Compose 应用或 docker run。">
+            <WmColumn label="名称" min-width="160"><template #default="{ row }"><b>{{ row.Names }}</b></template></WmColumn>
+            <WmColumn label="镜像" min-width="200"><template #default="{ row }"><span class="wm-mono">{{ row.Image }}</span></template></WmColumn>
+            <WmColumn label="状态" width="150"><template #default="{ row }"><WmStatusPill :label="stateLabel(row.State)" :tone="row.State === 'running' ? 'success' : row.State === 'exited' ? 'danger' : 'warning'" :dot="row.State === 'running'" /></template></WmColumn>
+            <WmColumn label="端口" min-width="180"><template #default="{ row }"><span class="wm-mono wm-truncate">{{ row.Ports || '-' }}</span></template></WmColumn>
+            <WmColumn label="操作" width="280" fixed="right">
+              <template #default="{ row }">
+                <a-button v-if="row.State !== 'running'" size="small" data-tone="success" @click="ctAct(row, 'start')">启动</a-button>
+                <a-button v-else size="small" data-tone="warning" @click="ctAct(row, 'stop')">停止</a-button>
+                <a-button size="small" @click="ctAct(row, 'restart')">重启</a-button>
+                <a-button size="small" @click="ctLogs(row)">日志</a-button>
+                <a-button size="small" data-tone="danger" @click="ctRemove(row)">删除</a-button>
+              </template>
+            </WmColumn>
+          </WmTable>
+        </WmSectionCard>
+      </a-tab-pane>
+
+      <a-tab-pane key="images" tab="镜像">
+        <WmSectionCard title="镜像列表" description="docker images 全量镜像与清理" flush>
+          <template #actions>
+            <a-button size="small" data-tone="danger" @click="pruneImages">清理未使用镜像</a-button>
+            <a-button size="small" @click="loadImages"><ReloadOutlined />刷新</a-button>
+          </template>
+          <WmTable :data="images" v-loading="imgLoading" empty-title="没有镜像" empty-description="部署应用后自动拉取镜像。">
+            <WmColumn label="仓库" min-width="240"><template #default="{ row }"><span class="wm-mono">{{ row.Repository }}</span></template></WmColumn>
+            <WmColumn label="标签" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.Tag }}</span></template></WmColumn>
+            <WmColumn label="大小" width="110"><template #default="{ row }">{{ row.Size }}</template></WmColumn>
+            <WmColumn label="创建于" width="150"><template #default="{ row }">{{ row.CreatedSince }}</template></WmColumn>
+          </WmTable>
+        </WmSectionCard>
+      </a-tab-pane>
+    </a-tabs>
 
     <a-modal v-model:open="dlg" :title="`部署 ${cur?.name || ''}`" width="560px">
       <a-form :label-col="{ style: { width: '130px' } }">
@@ -122,6 +167,42 @@
 
     <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
+    </a-modal>
+
+    <a-modal v-model:open="composeDlg" :title="`编排编辑 - ${composeName}`" width="860px">
+      <WmNotice tone="warning" class="wm-mb-4">保存后立即执行 docker compose up -d 应用变更，可能重建容器。</WmNotice>
+      <a-textarea v-model:value="composeContent" :rows="20" class="wm-mono" style="font-family: Consolas, Monaco, monospace; font-size: 12px" />
+      <template #footer>
+        <a-button @click="composeDlg = false">取消</a-button>
+        <a-button type="primary" :loading="composeSaving" @click="saveCompose">保存并应用</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal v-model:open="customDlg" title="部署自定义 Compose 应用" width="860px">
+      <a-form :label-col="{ style: { width: '110px' } }">
+        <a-form-item label="实例名称"><a-input v-model:value="customName" placeholder="如 my-stack" /></a-form-item>
+        <a-form-item label="Compose YAML">
+          <a-textarea v-model:value="customContent" :rows="16" style="font-family: Consolas, Monaco, monospace; font-size: 12px" placeholder='services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"' />
+        </a-form-item>
+      </a-form>
+      <template #footer>
+        <a-button @click="customDlg = false">取消</a-button>
+        <a-button type="primary" :loading="customDeploying" @click="deployCustom">部署</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal v-model:open="statsDlg" title="容器资源统计（快照）" width="760px">
+      <WmTable :data="statsRows" v-loading="statsLoading" empty-title="暂无数据" empty-description="">
+        <WmColumn label="容器" min-width="180"><template #default="{ row }"><b>{{ row.Name }}</b></template></WmColumn>
+        <WmColumn label="CPU" width="100"><template #default="{ row }">{{ row.CPUPerc }}</template></WmColumn>
+        <WmColumn label="内存" width="140"><template #default="{ row }">{{ row.MemUsage }} / {{ row.MemPerc }}</template></WmColumn>
+        <WmColumn label="网络 I/O" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row.NetIO }}</span></template></WmColumn>
+        <WmColumn label="磁盘 I/O" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row.BlockIO }}</span></template></WmColumn>
+      </WmTable>
     </a-modal>
 
     <a-modal v-model:open="mirrorDlg" title="Docker 镜像源配置（daemon.json）" width="680px">
@@ -154,7 +235,7 @@
 
 <script setup lang="ts">
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
@@ -175,6 +256,137 @@ const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
 const logName = ref('')
 const logContent = ref('')
+
+const activeTab = ref('apps')
+const containers = ref<any[]>([])
+const images = ref<any[]>([])
+const ctLoading = ref(false)
+const imgLoading = ref(false)
+const statsDlg = ref(false)
+const statsLoading = ref(false)
+const statsRows = ref<any[]>([])
+const composeDlg = ref(false)
+const composeName = ref('')
+const composeContent = ref('')
+const composeSaving = ref(false)
+const customDlg = ref(false)
+const customName = ref('')
+const customContent = ref('')
+const customDeploying = ref(false)
+
+function stateLabel(st: string) {
+  const m: Record<string, string> = { running: '运行中', exited: '已退出', paused: '已暂停', created: '已创建', restarting: '重启中', dead: '异常' }
+  return m[st] || st
+}
+
+async function loadContainers() {
+  ctLoading.value = true
+  try {
+    containers.value = (await api.get('/apps/docker/containers')) as any
+  } finally {
+    ctLoading.value = false
+  }
+}
+
+async function loadImages() {
+  imgLoading.value = true
+  try {
+    images.value = (await api.get('/apps/docker/images')) as any
+  } finally {
+    imgLoading.value = false
+  }
+}
+
+async function switchTab(k: string | number) {
+  if (k === 'containers') await loadContainers()
+  else if (k === 'images') await loadImages()
+}
+
+async function ctAct(row: any, action: string) {
+  await api.post(`/apps/docker/containers/${encodeURIComponent(row.Names)}/${action}`)
+  ElMessage.success('已' + (action === 'start' ? '启动' : action === 'stop' ? '停止' : '重启'))
+  loadContainers()
+}
+
+async function ctRemove(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除容器「${row.Names}」？（数据卷不受影响）`, '删除容器', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.post(`/apps/docker/containers/${encodeURIComponent(row.Names)}/remove?force=1`)
+  ElMessage.success('已删除')
+  loadContainers()
+}
+
+async function ctLogs(row: any) {
+  const d: any = await api.get(`/apps/docker/containers/${encodeURIComponent(row.Names)}/logs`, { params: { tail: 300 } })
+  logName.value = row.Names
+  logContent.value = d.logs
+  logDlg.value = true
+}
+
+async function viewStats() {
+  statsDlg.value = true
+  statsLoading.value = true
+  try {
+    statsRows.value = (await api.get('/apps/docker/stats')) as any
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+async function pruneImages() {
+  try {
+    await ElMessageBox.confirm('清理所有未被容器引用的镜像？不可恢复。', '清理镜像', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.post('/apps/docker/images/prune?force=1')
+  ElMessage.success('已清理')
+  loadImages()
+}
+
+async function editCompose(row: any) {
+  const d: any = await api.get('/apps/docker/compose', { params: { name: row.app.name } })
+  composeName.value = d.name
+  composeContent.value = d.content
+  composeDlg.value = true
+}
+
+async function saveCompose() {
+  composeSaving.value = true
+  try {
+    await api.post('/apps/docker/compose', { name: composeName.value, content: composeContent.value }, { timeout: 900000 })
+    ElMessage.success('已保存并应用')
+    composeDlg.value = false
+  } finally {
+    composeSaving.value = false
+  }
+}
+
+function openCustom() {
+  customName.value = ''
+  customContent.value = 'services:\n  web:\n    image: nginx:alpine\n    ports:\n      - "8080:80"'
+  customDlg.value = true
+}
+
+async function deployCustom() {
+  if (!customName.value) {
+    ElMessage.warning('请填写实例名称')
+    return
+  }
+  customDeploying.value = true
+  try {
+    await api.post('/apps/docker/compose-deploy', { name: customName.value, content: customContent.value }, { timeout: 900000 })
+    ElMessage.success('部署完成')
+    customDlg.value = false
+    load()
+    activeTab.value = 'apps'
+  } finally {
+    customDeploying.value = false
+  }
+}
 
 const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
 const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
@@ -339,9 +551,14 @@ async function installDocker() {
 }
 
 onMounted(load)
+watch(activeTab, switchTab)
 </script>
 
 <style scoped>
+.store-tabs :deep(.ant-tabs-content-holder) {
+  padding-top: 8px;
+}
+
 .wm-tpl-card__pills {
   display: flex;
   gap: 4px;

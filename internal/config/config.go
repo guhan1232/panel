@@ -51,6 +51,7 @@ type ServerConfig struct {
 }
 
 type Config struct {
+	Path     string       `yaml:"-"` // 配置文件路径（Load 时记录，面板备份用）
 	Server   ServerConfig `yaml:"server"`
 	DataDir  string       `yaml:"data_dir"`
 	LogDir   string       `yaml:"log_dir"`
@@ -86,6 +87,7 @@ func Load(path string) (*Config, error) {
 			return nil, err
 		}
 	}
+	cfg.Path = path
 	return cfg, nil
 }
 

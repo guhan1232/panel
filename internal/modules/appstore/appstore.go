@@ -95,6 +95,7 @@ type AppInst struct {
 	Binary    string    `gorm:"size:64" json:"binary"` // native 二进制名 / package 的 systemd 单元
 	Pkgs      string    `gorm:"size:256" json:"pkgs"`  // package 空格分隔的包名（卸载用）
 	Params    string    `gorm:"type:text" json:"params"`
+	Version   string    `gorm:"size:64" json:"version"` // 安装/升级时选定的版本
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -890,6 +891,15 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g.GET("/source", m.getSource)
 	g.GET("/docker/status", dockerStatus)
 	g.POST("/docker/install", installDocker)
+	g.GET("/docker/containers", m.dockerContainers)
+	g.POST("/docker/containers/:name/:action", m.dockerContainerAction)
+	g.GET("/docker/containers/:name/logs", m.dockerContainerLogs)
+	g.GET("/docker/images", m.dockerImages)
+	g.POST("/docker/images/prune", m.dockerImagesPrune)
+	g.GET("/docker/compose", m.dockerComposeGet)
+	g.POST("/docker/compose", m.dockerComposeSave)
+	g.POST("/docker/compose-deploy", m.dockerComposeDeploy)
+	g.GET("/docker/stats", dockerStats)
 	g.GET("/docker/mirrors", m.getMirrors)
 	g.POST("/docker/mirrors", m.saveMirrors)
 	g.GET("", m.list)
@@ -899,6 +909,7 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g.POST("/:id/restart", m.restart)
 	g.GET("/:id/logs", m.logs)
 	g.POST("/:id/uninstall", m.uninstall)
+	g.POST("/:id/upgrade", m.upgrade)
 	admin.POST("/apps/source", m.setSource)
 }
 
@@ -1353,6 +1364,7 @@ func (m *Module) install(c *gin.Context) {
 	if data, jerr := json.Marshal(req.Params); jerr == nil {
 		row.Params = string(data)
 	}
+	row.Version = req.Version
 	if err := m.db.Create(&row).Error; err != nil {
 		core.Err(c, 500, err.Error())
 		return
@@ -1644,6 +1656,56 @@ func (m *Module) logs(c *gin.Context) {
 		return
 	}
 	core.OK(c, gin.H{"content": out})
+}
+
+// upgrade 已装应用升级到指定版本：native 按版本重装（覆盖二进制后重启服务）；
+// package 经仓库安装指定版本；compose 应用提示用编排编辑改镜像版本。
+func (m *Module) upgrade(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var row AppInst
+	if err := m.db.First(&row, id).Error; err != nil {
+		core.Err(c, 404, "实例不存在")
+		return
+	}
+	var req struct {
+		Version string `json:"version"`
+		Mirror  string `json:"mirror"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if req.Version == "" {
+		core.Err(c, 400, "请选择目标版本")
+		return
+	}
+	tpl := m.findTemplate(row.AppKey)
+	if tpl == nil {
+		core.Err(c, 404, "模板不存在（远程源模板可能已下架）")
+		return
+	}
+	p := map[string]string{}
+	_ = json.Unmarshal([]byte(row.Params), &p)
+	if row.Kind == "package" {
+		if _, _, _, err := m.installPackage(tpl, row.Name, req.Version, req.Mirror, p); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+	} else if row.Kind == "native" {
+		if _, err := m.installNative(tpl, row.Name, req.Version, p, req.Mirror); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		if !row.Tool {
+			_, _, _ = execx.Run("appstore", 30*time.Second, "systemctl", "restart", m.unitName(row.Name))
+		}
+	} else {
+		core.Err(c, 400, "Compose 应用请用编排编辑修改镜像版本后应用")
+		return
+	}
+	m.db.Model(&AppInst{}).Where("id = ?", id).Update("version", req.Version)
+	slog.Info("应用已升级", "name", row.Name, "app", row.AppKey, "version", req.Version)
+	core.OK(c, gin.H{"ok": true, "version": req.Version})
 }
 
 func (m *Module) uninstall(c *gin.Context) {

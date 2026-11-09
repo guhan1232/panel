@@ -72,6 +72,33 @@
             </WmSectionCard>
           </div>
         </a-tab-pane>
+
+        <a-tab-pane tab="备份管理" key="backup">
+          <WmToolbar>
+            <a-select v-model:value="backupDb" placeholder="选择要备份的数据库" style="width: 220px">
+              <a-select-opt-group v-if="mysqlData.dbs.length" label="MySQL">
+                <a-select-option v-for="d in mysqlData.dbs" :key="'m' + d.name" :value="'mysql:' + d.name">{{ d.name }}（MySQL）</a-select-option>
+              </a-select-opt-group>
+              <a-select-opt-group v-if="pgData.dbs.length" label="PostgreSQL">
+                <a-select-option v-for="d in pgData.dbs" :key="'p' + d.name" :value="'pg:' + d.name">{{ d.name }}（PG）</a-select-option>
+              </a-select-opt-group>
+            </a-select>
+            <a-button type="primary" :loading="backupRunning" @click="runBackup">立即备份</a-button>
+            <a-button @click="loadBackups">刷新列表</a-button>
+          </WmToolbar>
+          <WmTable :data="backupFiles" v-loading="bkLoading" size="small" max-height="360" empty-title="暂无备份" empty-description="选择数据库后点击「立即备份」，dump 为 gzip 压缩 SQL。">
+            <WmColumn label="文件" min-width="300"><template #default="{ row }"><span class="wm-mono">{{ row.file }}</span></template></WmColumn>
+            <WmColumn label="大小" width="110"><template #default="{ row }">{{ fmtSize(row.size) }}</template></WmColumn>
+            <WmColumn label="时间" width="170"><template #default="{ row }">{{ row.time }}</template></WmColumn>
+            <WmColumn label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <a-button size="small" @click="downloadBackup(row)">下载</a-button>
+                <a-button size="small" data-tone="danger" @click="deleteBackup(row)">删除</a-button>
+              </template>
+            </WmColumn>
+          </WmTable>
+          <WmNotice tone="neutral" class="wm-mt-4">备份文件存于服务器 data/backups/ 目录，dump 经 gzip 压缩；计划任务可定时自动备份。</WmNotice>
+        </a-tab-pane>
       </a-tabs>
     </WmSectionCard>
   </div>
@@ -87,6 +114,60 @@ const mysql = reactive<any>({ host: '127.0.0.1', port: 3306, user: 'root', passw
 const pg = reactive<any>({ host: '127.0.0.1', port: 5432, user: 'postgres', password: '', ssl_mode: 'disable' })
 const mysqlData = reactive<any>({ dbs: [], users: [] })
 const pgData = reactive<any>({ dbs: [], users: [] })
+
+const backupDb = ref('')
+const backupFiles = ref<any[]>([])
+const backupRunning = ref(false)
+const bkLoading = ref(false)
+
+function fmtSize(n: number) {
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'
+  return n + ' B'
+}
+
+async function runBackup() {
+  const v = backupDb.value || ''
+  const i = v.indexOf(':')
+  if (i < 0) {
+    ElMessage.warning('请先选择要备份的数据库')
+    return
+  }
+  const engine = v.slice(0, i)
+  const database = v.slice(i + 1)
+  backupRunning.value = true
+  try {
+    const d: any = await api.post('/dbmgr/backup', { engine, database }, { timeout: 1200000 })
+    ElMessage.success('备份完成：' + (d.file || ''))
+    loadBackups()
+  } finally {
+    backupRunning.value = false
+  }
+}
+
+async function loadBackups() {
+  bkLoading.value = true
+  try {
+    backupFiles.value = (await api.get('/dbmgr/backup/list')) as any
+  } finally {
+    bkLoading.value = false
+  }
+}
+
+function downloadBackup(row: any) {
+  window.open('/api/dbmgr/backup/download?file=' + encodeURIComponent(row.file))
+}
+
+async function deleteBackup(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除备份「${row.file}」？`, '删除备份', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.delete('/dbmgr/backup', { params: { file: row.file } })
+  ElMessage.success('已删除')
+  loadBackups()
+}
 
 async function loadCfg() {
   const cfg: any = await api.get('/dbmgr/config')
@@ -201,6 +282,7 @@ async function grant(e: string) {
 }
 
 watch(engine, () => loadData())
+onMounted(loadBackups)
 onMounted(async () => {
   await loadCfg()
   loadData()

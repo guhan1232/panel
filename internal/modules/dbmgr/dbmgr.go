@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/execx"
 )
 
 var identRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$`)
@@ -103,9 +106,12 @@ func pgConn(ctx context.Context, c PgCfg) (*pgx.Conn, error) {
 
 // ---- 路由 ----
 
-type Module struct{ db *gorm.DB }
+type Module struct {
+	db      *gorm.DB
+	dataDir string
+}
 
-func New(db *gorm.DB) *Module { return &Module{db: db} }
+func New(db *gorm.DB, dataDir string) *Module { return &Module{db: db, dataDir: dataDir} }
 
 func (m *Module) Register(api gin.IRouter) {
 	g := api.Group("/dbmgr")
@@ -113,6 +119,10 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/mysql-config", m.saveMysql)
 	g.POST("/pg-config", m.savePg)
 	g.POST("/test", m.test)
+	g.POST("/backup", m.backupCreate)
+	g.GET("/backup/list", m.backupList)
+	g.GET("/backup/download", m.backupDownload)
+	g.DELETE("/backup", m.backupDelete)
 
 	mg := g.Group("/mysql")
 	mg.GET("/databases", m.mysqlList)
@@ -569,4 +579,162 @@ func (m *Module) pgDropUser(c *gin.Context) {
 		return
 	}
 	core.OK(c, nil)
+}
+
+// dbIdentRe 备份目标库名校验（与计划任务 backup_db 一致）。
+var dbIdentRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+// backupFileRe 备份文件名白名单（防路径穿越）。
+var backupFileRe = regexp.MustCompile(`^db-(mysql|pg)-[A-Za-z0-9_]+-\d{8}-\d{6}\.sql\.gz$`)
+
+// shQuote shell 单引号安全包裹。
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// tailOf 取输出尾部（报错展示用）。
+func tailOf(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= 600 {
+		return s
+	}
+	return s[len(s)-600:]
+}
+
+// ---- 数据库即时备份：复用计划任务 backup_db 的 dump 逻辑 ----
+
+func (m *Module) backupsDir() string {
+	dir := filepath.Join(m.dataDir, "backups")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+type backupReq struct {
+	Engine   string `json:"engine" binding:"required"`
+	Database string `json:"database" binding:"required"`
+}
+
+func (m *Module) backupCreate(c *gin.Context) {
+	var req backupReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if req.Engine != "mysql" && req.Engine != "pg" {
+		core.Err(c, 400, "engine 需为 mysql 或 pg")
+		return
+	}
+	if !dbIdentRe.MatchString(req.Database) {
+		core.Err(c, 400, "数据库名非法")
+		return
+	}
+	out := filepath.Join(m.backupsDir(), fmt.Sprintf("db-%s-%s-%s.sql.gz", req.Engine, req.Database, time.Now().Format("20060102-150405")))
+	var script string
+	if req.Engine == "mysql" {
+		var cfg struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+		}
+		_ = json.Unmarshal([]byte(core.GetSetting(m.db, core.KMysqlCfg)), &cfg)
+		if cfg.Host == "" {
+			cfg.Host = "127.0.0.1"
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 3306
+		}
+		if cfg.User == "" {
+			cfg.User = "root"
+		}
+		script = fmt.Sprintf("set -o pipefail\nexport MYSQL_PWD=%s\nmysqldump -h %s -P %d -u %s --single-transaction --routines --databases %s | gzip > %s",
+			shQuote(cfg.Password), shQuote(cfg.Host), cfg.Port, shQuote(cfg.User), shQuote(req.Database), shQuote(out))
+	} else {
+		var cfg struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+			SSLMode  string `json:"ssl_mode"`
+		}
+		_ = json.Unmarshal([]byte(core.GetSetting(m.db, core.KPgCfg)), &cfg)
+		if cfg.Host == "" {
+			cfg.Host = "127.0.0.1"
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 5432
+		}
+		if cfg.SSLMode == "" {
+			cfg.SSLMode = "disable"
+		}
+		script = fmt.Sprintf("set -o pipefail\nexport PGPASSWORD=%s\nexport PGSSLMODE=%s\npg_dump -h %s -p %d -U %s -d %s | gzip > %s",
+			shQuote(cfg.Password), shQuote(cfg.SSLMode), shQuote(cfg.Host), cfg.Port, shQuote(cfg.User), shQuote(req.Database), shQuote(out))
+	}
+	if out2, code, err := execx.RunShell("dbmgr:backup", 20*time.Minute, script); err != nil {
+		core.Err(c, 500, fmt.Sprintf("备份失败(exit %d): %s", code, tailOf(out2)))
+		return
+	}
+	fi, _ := os.Stat(out)
+	var size int64
+	if fi != nil {
+		size = fi.Size()
+	}
+	core.OK(c, gin.H{"file": filepath.Base(out), "size": size})
+}
+
+func (m *Module) backupList(c *gin.Context) {
+	dir := m.backupsDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		core.OK(c, []gin.H{})
+		return
+	}
+	out := make([]gin.H, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql.gz") {
+			continue
+		}
+		fi, _ := e.Info()
+		var size int64
+		if fi != nil {
+			size = fi.Size()
+		}
+		var modTime string
+		if fi != nil {
+			modTime = fi.ModTime().Format("2006-01-02 15:04:05")
+		}
+		out = append(out, gin.H{
+			"file": e.Name(),
+			"size": size,
+			"time": modTime,
+		})
+	}
+	core.OK(c, out)
+}
+
+func (m *Module) backupDownload(c *gin.Context) {
+	name := c.Query("file")
+	if !backupFileRe.MatchString(name) {
+		core.Err(c, 400, "文件名非法")
+		return
+	}
+	p := filepath.Join(m.backupsDir(), name)
+	if _, err := os.Stat(p); err != nil {
+		core.Err(c, 404, "备份不存在")
+		return
+	}
+	c.FileAttachment(p, name)
+}
+
+func (m *Module) backupDelete(c *gin.Context) {
+	name := c.Query("file")
+	if !backupFileRe.MatchString(name) {
+		core.Err(c, 400, "文件名非法")
+		return
+	}
+	if err := os.Remove(filepath.Join(m.backupsDir(), name)); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	core.OK(c, gin.H{"ok": true})
 }

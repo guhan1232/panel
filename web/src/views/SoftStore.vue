@@ -124,6 +124,7 @@
               <a-button size="small" data-tone="warning" @click="act(row, 'stop')">停止</a-button>
               <a-button size="small" @click="act(row, 'restart')">重启</a-button>
             </template>
+            <a-button size="small" @click="openUpgrade(row)">升级</a-button>
             <a-button size="small" @click="viewLogs(row)">日志</a-button>
             <a-button size="small" data-tone="danger" @click="uninstall(row)">卸载</a-button>
           </template>
@@ -228,6 +229,24 @@
       <template #footer>
         <a-button @click="dlg = false">取消</a-button>
         <a-button type="primary" :loading="deploying" @click="deploy">安装（下载发行包可能较慢）</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal v-model:open="upDlg" :title="`升级 ${upRow?.name || ''}`" width="560px">
+      <a-form :label-col="{ style: { width: '110px' } }">
+        <a-form-item label="当前版本"><span class="wm-mono">{{ upRow?.app?.version || '未记录' }}</span></a-form-item>
+        <a-form-item label="目标版本">
+          <a-select v-model:value="upVer" style="width: 100%">
+            <a-select-option v-for="v in upVersions" :key="v.version" :value="v.version">
+              {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+      <WmNotice tone="warning">升级会按所选版本重新安装并重启服务；仓库中不存在该版本时会失败。</WmNotice>
+      <template #footer>
+        <a-button @click="upDlg = false">取消</a-button>
+        <a-button type="primary" :loading="upRunning" @click="doUpgrade">开始升级</a-button>
       </template>
     </a-modal>
 
@@ -449,6 +468,40 @@ async function load() {
     sources.value = (await api.get('/apps/soft-sources')) as any
   } finally {
     loading.value = false
+  }
+}
+
+const upDlg = ref(false)
+const upRow = ref<any>(null)
+const upVer = ref('')
+const upVersions = ref<any[]>([])
+const upRunning = ref(false)
+
+async function openUpgrade(row: any) {
+  upRow.value = row
+  upVer.value = ''
+  upVersions.value = []
+  upDlg.value = true
+  try {
+    const d: any = await api.get('/apps/versions', { params: { key: row.app.app_key } })
+    upVersions.value = d.versions || []
+    if (d.default && !upVer.value) upVer.value = d.default
+  } catch { /* 清单拉取失败时保持空 */ }
+}
+
+async function doUpgrade() {
+  if (!upVer.value) {
+    ElMessage.warning('请选择目标版本')
+    return
+  }
+  upRunning.value = true
+  try {
+    await api.post(`/apps/${upRow.value.app.id}/upgrade`, { version: upVer.value }, { timeout: 900000 })
+    ElMessage.success('已升级到 '+ upVer.value)
+    upDlg.value = false
+    load()
+  } finally {
+    upRunning.value = false
   }
 }
 

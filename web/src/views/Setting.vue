@@ -14,6 +14,13 @@
         <WmNotice tone="info" title="修改入口需重启服务" class="wm-mt-4">面板端口与安全入口在 config.yaml 中配置，修改后需执行 systemctl restart hanyuxin。</WmNotice>
       </WmSectionCard>
 
+    <WmSectionCard title="面板数据备份" description="打包 SQLite 数据库快照、config.yaml 与托管证书，下载留档">
+      <template #actions>
+        <a-button size="small" type="primary" @click="window && window.open('/api/setting/panel-backup')">下载备份包</a-button>
+      </template>
+      <p class="wm-text-muted">备份包含 panel.db（一致性好快照）、config.yaml（含安全入口）与 certs-managed 目录；恢复时停服解压覆盖对应文件即可。</p>
+    </WmSectionCard>
+
       <WmSectionCard title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效" marker dense>
         <a-form :label-col="{ style: { width: '100px' } }" style="max-width: 440px">
           <a-form-item label="原密码"><a-input-password v-model:value="form.old" /></a-form-item>

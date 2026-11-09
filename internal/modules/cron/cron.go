@@ -437,8 +437,8 @@ func (m *Module) runBackupDB(ctx context.Context, t *Task) (string, error) {
 }
 
 type logRotateParams struct {
-	Pattern  string `json:"pattern"`  // 如 /var/log/nginx/*.log
-	SizeMB   int    `json:"size_mb"`  // 超过该大小切割，默认 50
+	Pattern  string `json:"pattern"`   // 如 /var/log/nginx/*.log
+	SizeMB   int    `json:"size_mb"`   // 超过该大小切割，默认 50
 	KeepDays int    `json:"keep_days"` // 压缩包保留天数，默认 30
 }
 
