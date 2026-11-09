@@ -37,13 +37,17 @@
 
     <a-drawer v-model:open="mDlg" width="62%" :title="`节点指标 - ${mNode?.node?.name || ''}`">
       <WmToolbar>
+        <a-radio-group v-model:value="mRange" size="small" @change="loadMetrics">
+          <a-radio-button value="hour">近 1 小时</a-radio-button>
+          <a-radio-button value="month">近 30 天</a-radio-button>
+        </a-radio-group>
         <a-button size="small" @click="loadMetrics">刷新</a-button>
-        <template #note>近 1 小时（15s 采样，保留 3 天）</template>
+        <template #note>{{ mRange === 'hour' ? '近 1 小时（15s 采样，保留 3 天）' : '近 30 天（小时聚合，长期保留）' }}</template>
       </WmToolbar>
       <WmSectionCard title="CPU / 内存" dense quiet class="wm-mb-4">
         <div ref="chartEl" class="wm-chart" style="height: 300px"></div>
       </WmSectionCard>
-      <WmSectionCard title="网络流量" dense quiet>
+      <WmSectionCard v-show="mRange === 'hour'" title="网络流量" dense quiet>
         <div ref="netEl" class="wm-chart" style="height: 240px"></div>
       </WmSectionCard>
     </a-drawer>
@@ -73,6 +77,7 @@ const nodes = ref<any[]>([])
 const loading = ref(false)
 const token = ref('')
 const mDlg = ref(false)
+const mRange = ref<'hour' | 'month'>('hour')
 const eDlg = ref(false)
 const mNode = ref<any>(null)
 const eNode = ref<any>(null)
@@ -149,8 +154,14 @@ function openMetrics(row: any) {
 
 async function loadMetrics() {
   if (!mNode.value) return
-  const rows: any[] = (await api.get(`/nodes/${mNode.value.node.id}/metrics?limit=240`)) as any
-  const hist = rows.map((r) => [new Date(r.time).getTime(), r])
+  let hist: any[]
+  if (mRange.value === 'month') {
+    const rows: any[] = (await api.get(`/nodes/${mNode.value.node.id}/metrics/hourly?days=30`)) as any
+    hist = rows.map((r: any) => [new Date(r.hour).getTime(), r])
+  } else {
+    const rows: any[] = (await api.get(`/nodes/${mNode.value.node.id}/metrics?limit=240`)) as any
+    hist = rows.map((r) => [new Date(r.time).getTime(), r])
+  }
   const p = chartPalette()
   const base = {
     tooltip: {
@@ -175,8 +186,8 @@ async function loadMetrics() {
       splitLine: { lineStyle: { color: p.line, type: 'dashed' as const } }
     },
     series: [
-      { name: 'CPU %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.accent }, itemStyle: { color: p.accent }, areaStyle: { color: grad(p.accent, 0.24) }, data: hist.map(([t, r]) => [t, +r.cpu.toFixed(1)]) },
-      { name: '内存 %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.success }, itemStyle: { color: p.success }, areaStyle: { color: grad(p.success, 0.2) }, data: hist.map(([t, r]) => [t, +r.mem_pct.toFixed(1)]) }
+      { name: 'CPU %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.accent }, itemStyle: { color: p.accent }, areaStyle: { color: grad(p.accent, 0.24) }, data: hist.map(([t, r]: any) => [t, +(mRange.value === 'month' ? r.avg_cpu : r.cpu).toFixed(1)]) },
+      { name: '内存 %', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.success }, itemStyle: { color: p.success }, areaStyle: { color: grad(p.success, 0.2) }, data: hist.map(([t, r]: any) => [t, +(mRange.value === 'month' ? r.avg_mem : r.mem_pct).toFixed(1)]) }
     ]
   } as any, true)
   netChart?.setOption({
@@ -190,7 +201,7 @@ async function loadMetrics() {
       splitLine: { lineStyle: { color: p.line, type: 'dashed' as const } }
     },
     series: [
-      { name: '下载', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.accent }, itemStyle: { color: p.accent }, areaStyle: { color: grad(p.accent, 0.2) }, data: hist.map(([t, r]) => [t, r.recv]) },
+      { name: '下载', ...(mRange.value === 'month' ? { data: [] } : {}), type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.accent }, itemStyle: { color: p.accent }, areaStyle: { color: grad(p.accent, 0.2) }, data: hist.map(([t, r]) => [t, r.recv]) },
       { name: '上传', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2.2, color: p.warning }, itemStyle: { color: p.warning }, areaStyle: { color: grad(p.warning, 0.18) }, data: hist.map(([t, r]) => [t, r.sent]) }
     ]
   } as any, true)

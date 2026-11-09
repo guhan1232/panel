@@ -46,9 +46,13 @@
                 <a-select-option value="wecom">企业微信</a-select-option>
                 <a-select-option value="feishu">飞书</a-select-option>
                 <a-select-option value="generic">通用 JSON</a-select-option>
+                <a-select-option value="serverchan">Server酱（URL 填 SendKey 接口地址）</a-select-option>
+                <a-select-option value="bark">Bark（URL 填 API 前缀，如 https://api.day.app/你的Key）</a-select-option>
+                <a-select-option value="telegram">Telegram Bot</a-select-option>
               </a-select>
             </a-form-item>
             <a-form-item label="Webhook URL"><a-textarea v-model:value="hook.url"  :rows="2" /></a-form-item>
+            <a-form-item v-if="hook.type === 'telegram'" label="Chat ID"><a-input v-model:value="hook.chat_id" placeholder="目标 chat_id（个人或群组）" /></a-form-item>
           </a-form>
           <template #footer>
             <a-button @click="test('webhook')">发送测试消息</a-button>
@@ -67,7 +71,7 @@ import { ElMessage } from '../antd-compat'
 import api from '../api'
 
 const email = reactive<any>({ enabled: false, host: '', port: 465, ssl: true, user: '', pass: '', from: '', toStr: '' })
-const hook = reactive<any>({ enabled: false, type: 'dingtalk', url: '' })
+const hook = reactive<any>({ enabled: false, type: 'dingtalk', url: '', chat_id: '' })
 const s3 = reactive<any>({ enabled: false, endpoint: '', access_key: '', secret_key: '', bucket: '', use_ssl: true, prefix: 'backups/' })
 
 async function load() {

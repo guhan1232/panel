@@ -35,7 +35,8 @@ type EmailConfig struct {
 // WebhookConfig IM Webhook 配置。
 type WebhookConfig struct {
 	Enabled bool   `json:"enabled"`
-	Type    string `json:"type"` // generic | dingtalk | wecom | feishu | serverchan | bark
+	Type    string `json:"type"`              // generic | dingtalk | wecom | feishu | serverchan | bark | telegram
+	ChatID  string `json:"chat_id,omitempty"` // telegram 用
 	URL     string `json:"url"`
 }
 
@@ -159,6 +160,21 @@ func sendWebhook(c WebhookConfig, title, content string) error {
 		defer resp2.Body.Close()
 		if resp2.StatusCode >= 300 {
 			return fmt.Errorf("Server酱 HTTP %d", resp2.StatusCode)
+		}
+		return nil
+	case "telegram":
+		if c.URL == "" || c.ChatID == "" {
+			return fmt.Errorf("Telegram 需 Bot Token 与 Chat ID")
+		}
+		apiURL := "https://api.telegram.org/bot" + c.URL + "/sendMessage"
+		data4, _ := json.Marshal(map[string]any{"chat_id": c.ChatID, "text": text})
+		resp4, err4 := http.Post(apiURL, "application/json", bytes.NewReader(data4))
+		if err4 != nil {
+			return err4
+		}
+		defer resp4.Body.Close()
+		if resp4.StatusCode >= 300 {
+			return fmt.Errorf("Telegram HTTP %d", resp4.StatusCode)
 		}
 		return nil
 	case "bark":
