@@ -568,3 +568,14 @@ html.dark .login-bg { background: radial-gradient(900px 500px at 20% 0%, #111d2c
 }
 .fade-enter-active, .fade-leave-active { transition: opacity 160ms ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+
+// ---- 移动端适配（≤768px）：抽屉/弹窗/表格全宽化 ----
+@media (max-width: 768px) {
+  .ant-drawer-content-wrapper { width: 94% !important; max-width: 94vw !important; }
+  .ant-modal { max-width: 94vw !important; margin: 8px auto; }
+  .ant-modal .ant-modal-content { max-height: 82vh; overflow-y: auto; }
+  .wm-page { padding: 12px; }
+  .ant-table-wrapper .ant-table { overflow-x: auto; }
+  .ant-form-item .ant-form-item-control { min-width: 0; }
+}

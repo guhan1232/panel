@@ -74,6 +74,9 @@
               <Sunny v-if="theme.dark" /><Moon v-else />
             </button>
           </a-tooltip>
+          <a-tooltip :title="getLocale() === 'zh-CN' ? 'Switch to English' : '切换到中文'">
+            <button class="wm-icon-btn" type="button" @click="toggleLocale">{{ getLocale() === 'zh-CN' ? 'EN' : '中' }}</button>
+          </a-tooltip>
           <a-dropdown trigger="['click']">
             <button class="wm-user-trigger" type="button" aria-label="用户菜单">
               <a-avatar :size="26" class="wm-user-avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</a-avatar>
@@ -139,6 +142,7 @@ import {
   ArrowDown, SwitchButton, Avatar, Share, Menu, MoreFilled, Box
 } from '../antd-compat'
 import { useAuth } from '../stores/auth'
+import { t as tr, setLocale, getLocale } from '../i18n'
 import { useTheme } from '../stores/theme'
 
 const auth = useAuth()
@@ -152,48 +156,54 @@ const isMobile = ref(false)
 const secure = location.protocol === 'https:'
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', operator: '操作员', viewer: '只读' }
+const localeTick = ref(0)
 const roleLabel = computed(() => ROLE_LABEL[auth.role] || '未登录')
 
+function toggleLocale() {
+  setLocale(getLocale() === 'zh-CN' ? 'en' : 'zh-CN')
+  localeTick.value++ // 触发 computed 重算（tr 依赖 reactive state）
+}
+
 const navGroups = computed(() => [
-  { label: '概览', items: [{ path: '/dashboard', label: '仪表盘', icon: Odometer }] },
+  { label: tr('概览'), items: [{ path: '/dashboard', label: tr('仪表盘'), icon: Odometer }] },
   {
-    label: '站点与服务',
+    label: tr('站点与服务'),
     items: [
-      { path: '/website', label: '网站', icon: Connection },
-      { path: '/databases', label: '数据库', icon: Coin },
-      { path: '/softstore', label: '软件商店', icon: Shop },
-      { path: '/dockerstore', label: 'Docker 容器管理', icon: Box },
-      ...(auth.role !== 'viewer' ? [{ path: '/terminal', label: '终端', icon: Monitor }] : [])
+      { path: '/website', label: tr('网站'), icon: Connection },
+      { path: '/databases', label: tr('数据库'), icon: Coin },
+      { path: '/softstore', label: tr('软件商店'), icon: Shop },
+      { path: '/dockerstore', label: tr('Docker 容器管理'), icon: Box },
+      ...(auth.role !== 'viewer' ? [{ path: '/terminal', label: tr('终端'), icon: Monitor }] : [])
     ]
   },
   {
-    label: '系统运维',
+    label: tr('系统运维'),
     items: [
-      { path: '/cron', label: '计划任务', icon: Timer },
-      { path: '/alerts', label: '告警策略', icon: Warning },
-      { path: '/files', label: '文件管理', icon: Folder },
-      { path: '/proc', label: '进程管理', icon: Cpu },
-      { path: '/nodes', label: '节点管理', icon: Share },
-      { path: '/firewall', label: '防火墙', icon: Lock },
-      { path: '/certs', label: 'SSL 证书', icon: Stamp }
+      { path: '/cron', label: tr('计划任务'), icon: Timer },
+      { path: '/alerts', label: tr('告警策略'), icon: Warning },
+      { path: '/files', label: tr('文件管理'), icon: Folder },
+      { path: '/proc', label: tr('进程管理'), icon: Cpu },
+      { path: '/nodes', label: tr('节点管理'), icon: Share },
+      { path: '/firewall', label: tr('防火墙'), icon: Lock },
+      { path: '/certs', label: tr('SSL 证书'), icon: Stamp }
     ]
   },
   {
-    label: '面板',
+    label: tr('面板'),
     items: [
-      { path: '/audit', label: '审计日志', icon: Document },
-      { path: '/notify', label: '通知与存储', icon: Bell },
-      ...(auth.role === 'admin' ? [{ path: '/users', label: '用户管理', icon: Avatar }] : []),
-      { path: '/setting', label: '系统设置', icon: Setting }
+      { path: '/audit', label: tr('审计日志'), icon: Document },
+      { path: '/notify', label: tr('通知与存储'), icon: Bell },
+      ...(auth.role === 'admin' ? [{ path: '/users', label: tr('用户管理'), icon: Avatar }] : []),
+      { path: '/setting', label: tr('系统设置'), icon: Setting }
     ]
   }
 ])
 
 const mobileItems = [
-  { path: '/dashboard', label: '仪表盘', icon: Odometer },
-  { path: '/website', label: '网站', icon: Connection },
-  { path: '/cron', label: '计划任务', icon: Timer },
-  { path: '/files', label: '文件', icon: Folder }
+  { path: '/dashboard', label: tr('仪表盘'), icon: Odometer },
+  { path: '/website', label: tr('网站'), icon: Connection },
+  { path: '/cron', label: tr('计划任务'), icon: Timer },
+  { path: '/files', label: tr('文件'), icon: Folder }
 ]
 
 function go(path: string) {

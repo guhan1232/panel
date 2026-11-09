@@ -17,29 +17,29 @@
 
       <section class="login-panel">
         <div class="login-panel__head">
-          <h2>登录面板</h2>
-          <p>使用管理员分配的账号继续</p>
+          <h2>{{ tr('登录面板') }}</h2>
+          <p>{{ tr('使用管理员分配的账号继续') }}</p>
         </div>
 
         <a-alert v-if="errorMsg" type="error" :message="errorMsg" show-icon class="login-error" />
 
         <a-form layout="vertical" @finish="submit">
-          <a-form-item label="用户名">
-            <a-input v-model:value="username" size="large" placeholder="用户名" autocomplete="username" @input="errorMsg = ''">
+          <a-form-item :label="tr('用户名')">
+            <a-input v-model:value="username" size="large" :placeholder="tr('用户名')" autocomplete="username" @input="errorMsg = ''">
               <template #prefix><UserOutlined /></template>
             </a-input>
           </a-form-item>
-          <a-form-item label="密码">
-            <a-input-password v-model:value="password" size="large" placeholder="密码" autocomplete="current-password" @input="errorMsg = ''" @press-enter="submit">
+          <a-form-item :label="tr('密码')">
+            <a-input-password v-model:value="password" size="large" :placeholder="tr('密码')" autocomplete="current-password" @input="errorMsg = ''" @press-enter="submit">
               <template #prefix><LockOutlined /></template>
             </a-input-password>
           </a-form-item>
-          <a-form-item v-if="need2fa" label="两因素验证码">
-            <a-input v-model:value="totpCode" size="large" placeholder="6 位动态码" inputmode="numeric" maxlength="6" @input="errorMsg = ''" @press-enter="submit">
+          <a-form-item v-if="need2fa" :label="tr('两因素验证码')">
+            <a-input v-model:value="totpCode" size="large" :placeholder="tr('6 位动态码')" inputmode="numeric" maxlength="6" @input="errorMsg = ''" @press-enter="submit">
               <template #prefix><SafetyOutlined /></template>
             </a-input>
           </a-form-item>
-          <a-button type="primary" size="large" html-type="submit" block :loading="loading" class="login-submit">登录</a-button>
+          <a-button type="primary" size="large" html-type="submit" block :loading="loading" class="login-submit">{{ tr('登录') }}</a-button>
         </a-form>
 
         <div class="login-panel__foot"><strong>安全入口保护已启用</strong><br />连续登录失败会触发锁定，全部写操作可在审计日志中查证。</div>
@@ -53,6 +53,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { UserOutlined, LockOutlined, CheckCircleFilled, SafetyOutlined } from '@ant-design/icons-vue'
 import { useAuth } from '../stores/auth'
+import { t as tr } from '../i18n'
 
 const auth = useAuth()
 const router = useRouter()
