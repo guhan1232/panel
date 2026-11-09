@@ -195,11 +195,32 @@ function download(row: any) {
 }
 
 async function doUpload(opt: any) {
-  const fd = new FormData()
-  fd.append('file', opt.file)
-  fd.append('path', path.value)
-  await api.post('/files/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-  ElMessage.success('上传完成')
+  const file: File = opt.file
+  const CHUNK = 5 * 1024 * 1024
+  if (file.size <= CHUNK) {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('path', path.value)
+    await api.post('/files/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    ElMessage.success('上传完成')
+    load()
+    return
+  }
+  // 大文件分片上传（5MB/片，body 直传原始字节）
+  const uploadId = (crypto.randomUUID?.() || Math.random().toString(16).slice(2)).replace(/-/g, '').padEnd(32, '0').slice(0, 32)
+  const total = Math.ceil(file.size / CHUNK)
+  const target = path.value.replace(/\/+$/, '') + '/' + file.name
+  for (let i = 0; i < total; i++) {
+    const blob = file.slice(i * CHUNK, (i + 1) * CHUNK)
+    await api.post(
+      `/files/upload-chunk?path=${encodeURIComponent(target)}&upload_id=${uploadId}&index=${i}`,
+      blob,
+      { headers: { 'Content-Type': 'application/octet-stream' }, timeout: 600000 }
+    )
+    ElMessage.success(`上传中 ${i + 1}/${total} 片`)
+  }
+  const d: any = await api.post('/files/upload-finish', { path: target, upload_id: uploadId, total }, { timeout: 300000 })
+  ElMessage.success('上传完成（' + ((d.size || 0) / 1048576).toFixed(1) + ' MB）')
   load()
 }
 

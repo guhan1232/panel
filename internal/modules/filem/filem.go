@@ -3,8 +3,10 @@ package filem
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,6 +49,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/read", m.read)
 	g.GET("/download", m.download)
 	g.POST("/upload", m.upload)
+	g.POST("/upload-chunk", m.uploadChunk)
+	g.POST("/upload-finish", m.uploadFinish)
 	g.POST("/chmod", m.chmod)
 	g.POST("/compress", m.compress)
 	g.POST("/decompress", m.decompress)
@@ -365,3 +369,91 @@ func (m *Module) decompress(c *gin.Context) {
 	}
 	core.OK(c, gin.H{"path": dest})
 }
+
+// chunksDir 分片临时目录。
+func (m *Module) chunksDir() string {
+	dir := filepath.Join(m.dataDir, "chunks")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// uploadChunk 大文件分片上传：body 为原始分片字节，query: path/upload_id/index。
+func (m *Module) uploadChunk(c *gin.Context) {
+	uploadID := c.Query("upload_id")
+	idx := c.Query("index")
+	if uploadID == "" || idx == "" || !uploadIDRe.MatchString(uploadID) {
+		core.Err(c, 400, "分片参数非法")
+		return
+	}
+	cdir := filepath.Join(m.chunksDir(), uploadID)
+	if err := os.MkdirAll(cdir, 0o755); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if _, err := io.Copy(io.Discard, io.LimitReader(c.Request.Body, 0)); err != nil {
+		// no-op：保持连接语义
+	}
+	out, err := os.Create(filepath.Join(cdir, fmt.Sprintf("%06s.part", idx)))
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	defer out.Close()
+	written, err := io.Copy(out, io.LimitReader(c.Request.Body, 64<<20))
+	if err != nil {
+		os.Remove(out.Name())
+		core.Err(c, 500, "分片写入失败: "+err.Error())
+		return
+	}
+	core.OK(c, gin.H{"index": idx, "bytes": written})
+}
+
+// uploadFinish 合并分片到目标文件（按 index 数字序），并清理临时目录。
+func (m *Module) uploadFinish(c *gin.Context) {
+	var req struct {
+		Path     string `binding:"required"`
+		UploadID string `binding:"required"`
+		Total    int    `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if !uploadIDRe.MatchString(req.UploadID) {
+		core.Err(c, 400, "分片参数非法")
+		return
+	}
+	cdir := filepath.Join(m.chunksDir(), req.UploadID)
+	target := clean(req.Path)
+	if target == "" {
+		core.Err(c, 400, "目标路径非法")
+		return
+	}
+	out, err := os.Create(target)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	defer out.Close()
+	for i := 0; i < req.Total; i++ {
+		part, err := os.ReadFile(filepath.Join(cdir, fmt.Sprintf("%06d.part", i)))
+		if err != nil {
+			core.Err(c, 500, fmt.Sprintf("分片 %d 缺失: %v", i, err))
+			return
+		}
+		if _, err := out.Write(part); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+	}
+	_ = os.RemoveAll(cdir)
+	fi, _ := os.Stat(target)
+	var size int64
+	if fi != nil {
+		size = fi.Size()
+	}
+	core.OK(c, gin.H{"path": target, "size": size})
+}
+
+// uploadIDRe 分片上传会话 ID 白名单。
+var uploadIDRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
