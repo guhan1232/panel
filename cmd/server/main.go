@@ -1,4 +1,4 @@
-// digong —— 帝弓面板：Linux Web 管理面板（单二进制）。
+// hanyuxin —— 寒语馨面板：Linux Web 管理面板（单二进制）。
 package main
 
 import (
@@ -50,7 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 	core.Setup(cfg.LogDir, cfg.LogLevel)
-	slog.Info("帝弓面板启动", "version", core.Version, "listen", cfg.Server.Listen)
+	slog.Info("寒语馨面板启动", "version", core.Version, "listen", cfg.Server.Listen)
 	scheme := "http"
 	if cfg.Server.TLS.Enabled {
 		scheme = "https"

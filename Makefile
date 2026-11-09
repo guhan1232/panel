@@ -6,23 +6,23 @@ build-web:
 
 # 本机构建（嵌入当前 web/dist）
 build:
-	CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/digong$(shell go env GOEXE) ./cmd/server
+	CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/hanyuxin$(shell go env GOEXE) ./cmd/server
 
 # 面板目标平台：Linux（amd64），单二进制
 linux: build-web
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/digong ./cmd/server
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/hanyuxin ./cmd/server
 
 linux-arm64: build-web
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/digong-arm64 ./cmd/server
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/hanyuxin-arm64 ./cmd/server
 
 release: linux linux-arm64 agent agent-arm64
-	cd bin && tar -czf digong-linux-amd64.tar.gz digong digong-agent && tar -czf digong-linux-arm64.tar.gz digong-arm64 digong-agent-arm64
+	cd bin && tar -czf hanyuxin-linux-amd64.tar.gz hanyuxin hanyuxin-agent && tar -czf hanyuxin-linux-arm64.tar.gz hanyuxin-arm64 hanyuxin-agent-arm64
 
 agent: build-web
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/digong-agent ./cmd/agent
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/hanyuxin-agent ./cmd/agent
 
 agent-arm64: build-web
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/digong-agent-arm64 ./cmd/agent
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/hanyuxin-agent-arm64 ./cmd/agent
 
 vet:
 	go vet ./...

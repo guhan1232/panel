@@ -1,6 +1,6 @@
-// digong-agent —— 帝弓面板多节点 Agent：反连面板上报指标并执行下发的命令。
+// hanyuxin-agent —— 寒语馨面板多节点 Agent：反连面板上报指标并执行下发的命令。
 //
-// 用法: digong-agent -s ws://<面板IP>:<端口> -t <节点token> [-name <节点名>]
+// 用法: hanyuxin-agent -s ws://<面板IP>:<端口> -t <节点token> [-name <节点名>]
 package main
 
 import (
@@ -75,7 +75,7 @@ func main() {
 	flag.Parse()
 
 	if *server == "" || *token == "" {
-		fmt.Fprintln(os.Stderr, "用法: digong-agent -s ws://<面板IP>:<端口> -t <token> [-name <节点名>]")
+		fmt.Fprintln(os.Stderr, "用法: hanyuxin-agent -s ws://<面板IP>:<端口> -t <token> [-name <节点名>]")
 		os.Exit(1)
 	}
 	nodeName := *name
@@ -87,7 +87,7 @@ func main() {
 	hi, _ := host.Info()
 	hostname := hi.Hostname
 
-	slog.Info("digong-agent 启动", "version", core.Version, "server", *server, "name", nodeName)
+	slog.Info("hanyuxin-agent 启动", "version", core.Version, "server", *server, "name", nodeName)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

@@ -72,7 +72,7 @@ onMounted(() => {
     ro.observe(box.value)
   }
   term.onData((d) => send({ type: 'input', data: d }))
-  term.writeln('\x1b[36m帝弓面板 Web 终端\x1b[0m  正在连接...')
+  term.writeln('\x1b[36m寒语馨面板 Web 终端\x1b[0m  正在连接...')
   connect()
 })
 

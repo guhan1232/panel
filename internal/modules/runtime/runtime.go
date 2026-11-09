@@ -84,7 +84,7 @@ type langDef struct {
 var langs = map[string]*langDef{}
 var langOrder = []string{"nodejs", "golang", "python", "openjdk", "php"}
 
-var httpUA = "digong-panel/" + core.Version
+var httpUA = "hanyuxin-panel/" + core.Version
 
 func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
 	client := &http.Client{Timeout: timeout}
@@ -836,7 +836,7 @@ func (m *Module) installRuntime(lang, version, source string) ([]string, error) 
 }
 
 // unitNameRT 运行时服务的 systemd 单元名。
-func (m *Module) unitNameRT(name string) string { return "digong-rt-" + name }
+func (m *Module) unitNameRT(name string) string { return "hanyuxin-rt-" + name }
 
 // Tool 判断该语言是否工具类（仅 nodejs/golang/python 为解压工具/运行时）。
 func (l *langDef) Tool() bool {

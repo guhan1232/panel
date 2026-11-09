@@ -3,9 +3,9 @@
     <!-- Desktop sider -->
     <aside class="wm-sider">
       <div class="wm-brand">
-        <span class="wm-brand__mark">帝</span>
+        <span class="wm-brand__mark">寒</span>
         <transition name="fade">
-          <span v-show="!collapsed || isMobile" class="wm-brand__text">帝弓面板</span>
+          <span v-show="!collapsed || isMobile" class="wm-brand__text">寒语馨面板</span>
         </transition>
       </div>
       <div class="wm-sider__scroll">
@@ -40,7 +40,7 @@
       :closable="false"
       class="wm-mobile-drawer"
     >
-      <div class="wm-brand wm-brand--drawer"><span class="wm-brand__mark">帝</span><span class="wm-brand__text">帝弓面板</span></div>
+      <div class="wm-brand wm-brand--drawer"><span class="wm-brand__mark">寒</span><span class="wm-brand__text">寒语馨面板</span></div>
       <a-menu theme="dark" mode="inline" :selected-keys="[route.path]" class="wm-nav">
         <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
           <a-menu-item v-for="item in group.items" :key="item.path" @click="go(item.path)">

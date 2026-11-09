@@ -1,14 +1,14 @@
 #!/bin/bash
-# 帝弓面板一键安装脚本（Debian/Ubuntu/CentOS/Rocky）
-# 用法: sudo bash install.sh <digong二进制路径>
+# 寒语馨面板一键安装脚本（Debian/Ubuntu/CentOS/Rocky）
+# 用法: sudo bash install.sh <hanyuxin二进制路径>
 set -e
 
-INSTALL_DIR=/opt/digong
+INSTALL_DIR=/opt/hanyuxin
 BIN="${1:-}"
 
 if [ -z "$BIN" ]; then
-  echo "用法: sudo bash $0 <digong二进制路径>"
-  echo "示例: sudo bash $0 ./digong"
+  echo "用法: sudo bash $0 <hanyuxin二进制路径>"
+  echo "示例: sudo bash $0 ./hanyuxin"
   exit 1
 fi
 
@@ -19,19 +19,19 @@ fi
 
 echo "==> 安装目录: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
-cp -f "$BIN" "$INSTALL_DIR/digong"
-chmod +x "$INSTALL_DIR/digong"
+cp -f "$BIN" "$INSTALL_DIR/hanyuxin"
+chmod +x "$INSTALL_DIR/hanyuxin"
 
 echo "==> 写入 systemd 服务"
-cat > /etc/systemd/system/digong.service <<EOF
+cat > /etc/systemd/system/hanyuxin.service <<EOF
 [Unit]
-Description=帝弓面板 (Digong Panel) Linux Web Panel
+Description=寒语馨面板 (Hanyuxin Panel) Linux Web Panel
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/digong -c $INSTALL_DIR/config.yaml
+ExecStart=$INSTALL_DIR/hanyuxin -c $INSTALL_DIR/config.yaml
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
@@ -42,7 +42,7 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now digong
+systemctl enable --now hanyuxin
 sleep 2
 
 PORT=$(grep -E '^\s*listen:' "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
@@ -51,10 +51,10 @@ PORT=${PORT:-":24443"}
 
 echo ""
 echo "=============================================="
-echo " 帝弓面板安装完成"
+echo " 寒语馨面板安装完成"
 echo " 访问入口: http://<服务器IP>${PORT}/s/${ENTRANCE}"
 echo " 初始密码: cat $INSTALL_DIR/data/initial_admin.txt"
-echo " 服务管理: systemctl {status|restart|stop} digong"
+echo " 服务管理: systemctl {status|restart|stop} hanyuxin"
 echo " 配置文件: $INSTALL_DIR/config.yaml"
 echo " 建议尽快: 启用 HTTPS、修改初始密码"
 echo "=============================================="

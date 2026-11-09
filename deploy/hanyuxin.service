@@ -1,12 +1,12 @@
 [Unit]
-Description=帝弓面板 (Digong Panel) Linux Web Panel
+Description=寒语馨面板 (Hanyuxin Panel) Linux Web Panel
 Documentation=https://cnb.cool/hanyuxin/panel
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/digong
-ExecStart=/opt/digong/digong -c /opt/digong/config.yaml
+WorkingDirectory=/opt/hanyuxin
+ExecStart=/opt/hanyuxin/hanyuxin -c /opt/hanyuxin/config.yaml
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536

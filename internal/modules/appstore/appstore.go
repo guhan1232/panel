@@ -539,7 +539,7 @@ volumes:
 				if id, _ := osRelease(); id == "debian" {
 					distroPath = "debian"
 				}
-				deb := "/tmp/digong-nginx-" + ver + ".deb"
+				deb := "/tmp/hanyuxin-nginx-" + ver + ".deb"
 				pre = []string{
 					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/" + fname,
 					"systemctl stop nginx 2>/dev/null || true",
@@ -1056,7 +1056,7 @@ func (m *Module) saveMirrors(c *gin.Context) {
 	// 备份原文件
 	if exists {
 		if old, rerr := os.ReadFile(daemonJSONPath); rerr == nil {
-			_ = os.WriteFile(daemonJSONPath+".digong.bak", old, 0o644)
+			_ = os.WriteFile(daemonJSONPath+".hanyuxin.bak", old, 0o644)
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(daemonJSONPath), 0o755); err != nil {
@@ -1073,7 +1073,7 @@ func (m *Module) saveMirrors(c *gin.Context) {
 		if out, code, rerr := execx.Run("appstore", 120*time.Second, "systemctl", "restart", "docker"); rerr != nil {
 			// 回滚配置并再次重启，保持 Docker 可用
 			if exists {
-				if bak, berr := os.ReadFile(daemonJSONPath + ".digong.bak"); berr == nil {
+				if bak, berr := os.ReadFile(daemonJSONPath + ".hanyuxin.bak"); berr == nil {
 					_ = os.WriteFile(daemonJSONPath, bak, 0o644)
 					_, _, _ = execx.Run("appstore", 120*time.Second, "systemctl", "restart", "docker")
 				}
@@ -1104,7 +1104,7 @@ func (m *Module) composeFile(name string) string {
 	return filepath.Join(m.dir(name), "docker-compose.yml")
 }
 
-func (m *Module) unitName(name string) string { return "digong-app-" + name }
+func (m *Module) unitName(name string) string { return "hanyuxin-app-" + name }
 
 func composeArgs(file string, args ...string) []string {
 	return append([]string{"compose", "-f", file}, args...)
@@ -1215,10 +1215,10 @@ func aptMirrorInstallShell(msrc SoftwareSource, pkgs []string) string {
 		"os=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); " +
 		"comps=\"main universe restricted multiverse\"; [ \"$os\" = debian ] && comps=\"main contrib non-free non-free-firmware\"; " +
 		"if [ \"$os\" = debian ]; then sec=\"" + m + "-security $cn-security\"; else sec=\"" + m + " $cn-security\"; fi; " +
-		"{ echo \"deb " + m + " $cn $comps\"; echo \"deb " + m + " $cn-updates $comps\"; echo \"deb $sec $comps\"; } > /etc/apt/sources.list.d/digong-mirror.list; " +
-		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/digong-mirror.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -o DPkg::Lock::Timeout=600 update && " +
-		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/digong-mirror.list -o Dir::Etc::sourceparts=- -o DPkg::Lock::Timeout=600 install -y " +
-		strings.Join(pkgs, " ") + "; rc=$?; rm -f /etc/apt/sources.list.d/digong-mirror.list; " +
+		"{ echo \"deb " + m + " $cn $comps\"; echo \"deb " + m + " $cn-updates $comps\"; echo \"deb $sec $comps\"; } > /etc/apt/sources.list.d/hanyuxin-mirror.list; " +
+		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/hanyuxin-mirror.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -o DPkg::Lock::Timeout=600 update && " +
+		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/hanyuxin-mirror.list -o Dir::Etc::sourceparts=- -o DPkg::Lock::Timeout=600 install -y " +
+		strings.Join(pkgs, " ") + "; rc=$?; rm -f /etc/apt/sources.list.d/hanyuxin-mirror.list; " +
 		"systemctl start unattended-upgrades || true; exit $rc"
 }
 
@@ -1529,7 +1529,7 @@ func (m *Module) installNative(tpl *Template, name, version string, p map[string
 
 func buildUnit(tpl *Template, name, dir, binary string, spec *NativeSpec, p map[string]string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[Unit]\nDescription=帝弓面板应用:  %s (%s)\nAfter=network.target\n\n[Service]\nType=simple\n", tpl.Name, name)
+	fmt.Fprintf(&b, "[Unit]\nDescription=寒语馨面板应用:  %s (%s)\nAfter=network.target\n\n[Service]\nType=simple\n", tpl.Name, name)
 	fmt.Fprintf(&b, "WorkingDirectory=%s\n", dir)
 	fmt.Fprintf(&b, "ExecStart=%s", binary)
 	if spec.Args != nil {
@@ -2077,7 +2077,7 @@ func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "digong-panel")
+	req.Header.Set("User-Agent", "hanyuxin-panel")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

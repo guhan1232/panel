@@ -3,7 +3,7 @@
     <div class="login-shell">
       <div class="login-aside">
         <div>
-          <div class="login-brand"><span class="login-brand__mark">帝</span><span>帝弓面板</span></div>
+          <div class="login-brand"><span class="login-brand__mark">寒</span><span>寒语馨面板</span></div>
           <h1>服务器管理，<br />从一个清晰的入口开始。</h1>
           <p>站点、任务、证书、进程与节点集中管理。观察、操作、留痕，都在同一处完成。</p>
           <div class="login-facts">
@@ -12,7 +12,7 @@
             <div><CheckCircleFilled />全量写操作审计</div>
           </div>
         </div>
-        <div class="login-aside__foot">帝弓面板 / Digong Panel</div>
+        <div class="login-aside__foot">寒语馨面板 / Hanyuxin Panel</div>
       </div>
 
       <section class="login-panel">

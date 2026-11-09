@@ -1,7 +1,9 @@
-# 帝弓面板（Digong Panel）
+# 寒语馨面板（Hanyuxin Panel）
 
 **Go + Vue3 的 Linux 服务器管理面板** — 单二进制部署、低资源占用、内置调度引擎。对标 1Panel / 宝塔，覆盖监控、网站、数据库、文件、终端、防火墙、计划任务、SSL 证书、告警审计等完整运维能力。
 
+> 在线演示：http://panel.hanyuxin.cn （演示环境，数据定期重置，仅开放只读体验）
+>
 > 仓库：https://cnb.cool/hanyuxin/panel · 规划文档见 [PLAN.md](PLAN.md)
 
 ---
@@ -26,7 +28,7 @@
 | 形态 | 说明 |
 |---|---|
 | 系统包（package） | Nginx / MySQL(MariaDB) / PostgreSQL / Redis / Memcached 走 apt/dnf，与二进制应用统一管理界面 |
-| 二进制（native） | Caddy / MinIO / node_exporter / FRP 服务端：自动按架构下载官方发行包 → 生成 systemd 单元（`digong-app-*`）→ 启动健康检查，日志走 journalctl |
+| 二进制（native） | Caddy / MinIO / node_exporter / FRP 服务端：自动按架构下载官方发行包 → 生成 systemd 单元（`hanyuxin-app-*`）→ 启动健康检查，日志走 journalctl |
 | Compose（docker） | Nginx / MySQL / PostgreSQL / Redis / RabbitMQ 等，Docker Compose 拉起 |
 
 **版本选择**（全部可装到具体版本）：
@@ -57,7 +59,7 @@
 | 📜 审计日志 | 全部写操作中间件级审计（请求体敏感键脱敏）、60+ 路由中文描述、终端命令逐行记录、分页查询 |
 | 🔔 告警策略 | 阈值规则引擎（CPU/内存/磁盘，持续时间+冷却），触发写入通知渠道 |
 | 📮 通知与存储 | Webhook/自定义渠道通知测试；对象存储对接 |
-| 🖧 多节点 Agent | 独立 `digong-agent` 二进制经 **WebSocket 反连**（token 鉴权，穿透 NAT 无需开放被控端口），15s 上报指标；接入命令一键复制、token 重置、指标图表、远程命令执行（operator+，全程审计）；指标 SQLite 入库 3 天保留，仪表盘支持本机/远程节点切换 |
+| 🖧 多节点 Agent | 独立 `hanyuxin-agent` 二进制经 **WebSocket 反连**（token 鉴权，穿透 NAT 无需开放被控端口），15s 上报指标；接入命令一键复制、token 重置、指标图表、远程命令执行（operator+，全程审计）；指标 SQLite 入库 3 天保留，仪表盘支持本机/远程节点切换 |
 | 🔐 安全 | 随机安全入口路径（`/s/<随机>`）、登录防爆破、HTTPS 自签证书可选、随机端口（10000-30000） |
 | 🏪 应用源 | 远程应用目录（JSON 清单）拉取校验合并，与内置模板去重展示 |
 
@@ -65,21 +67,25 @@
 
 ## 快速开始
 
+### 在线演示
+
+演示地址：<http://panel.hanyuxin.cn>（预留演示环境，如遇重置或维护请稍后再试）
+
 ### 安装（Linux 服务器）
 
 ```bash
 # 下载发布包（或从源码构建）
-tar -xzf digong-linux-amd64.tar.gz
-sudo bash scripts/install.sh ./digong
+tar -xzf hanyuxin-linux-amd64.tar.gz
+sudo bash scripts/install.sh ./hanyuxin
 
 # 查看初始管理员账号
-sudo cat /opt/digong/data/initial_admin.txt
+sudo cat /opt/hanyuxin/data/initial_admin.txt
 
 # 浏览器访问（端口与入口路径随机生成）
 # http://<服务器IP>:<端口>/s/<安全入口>
 ```
 
-服务管理：`systemctl {status|restart|stop} digong`；卸载：`sudo bash scripts/uninstall.sh [--keep-data]`
+服务管理：`systemctl {status|restart|stop} hanyuxin`；卸载：`sudo bash scripts/uninstall.sh [--keep-data]`
 
 ### 本地开发
 
@@ -94,9 +100,9 @@ cd web && npm install && npm run dev
 ### 构建
 
 ```bash
-make linux        # Linux amd64 单二进制 → bin/digong（先自动构建前端）
+make linux        # Linux amd64 单二进制 → bin/hanyuxin（先自动构建前端）
 make linux-arm64  # Linux arm64
-make agent        # digong-agent（多节点 Agent）
+make agent        # hanyuxin-agent（多节点 Agent）
 make release      # 全平台打包
 ```
 
@@ -105,7 +111,7 @@ make release      # 全平台打包
 ## 架构
 
 ```
-┌─────────────── digong 二进制 (root) ───────────────┐
+┌─────────────── hanyuxin 二进制 (root) ─────────────┐
 │  Gin HTTP / WebSocket                              │
 │  ├─ dashboard  3s 采样器 + 节点指标                  │
 │  ├─ website    Nginx 站点模板 + 校验回滚             │
@@ -142,7 +148,7 @@ make release      # 全平台打包
 ## 目录结构
 
 ```
-digong/
+hanyuxin/
 ├── cmd/server/          面板主程序
 ├── cmd/agent/           多节点 Agent
 ├── internal/core/       数据库模型/启动引导/响应封装
@@ -151,5 +157,9 @@ digong/
 ├── internal/execx/      统一命令执行层（白名单+超时+审计）
 ├── web/                 Vue3 前端（构建产物 go:embed）
 ├── scripts/             install.sh / uninstall.sh
-└── deploy/digong.service
+└── deploy/hanyuxin.service
 ```
+
+## License
+
+[MIT](LICENSE)

@@ -146,7 +146,7 @@ func (m *Module) evaluate() {
 		delete(m.since, r.ID)
 		m.mu.Unlock()
 
-		notify.Send(m.db, "帝弓面板告警: "+r.Name, msg)
+		notify.Send(m.db, "寒语馨面板告警: "+r.Name, msg)
 	}
 }
 
