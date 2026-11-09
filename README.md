@@ -4,7 +4,7 @@
 
 > 在线演示：http://panel.hanyuxin.cn （演示环境，数据定期重置，仅开放只读体验）
 >
-> 仓库：https://cnb.cool/hanyuxin/panel · 规划文档见 [PLAN.md](PLAN.md)
+> 仓库：https://cnb.cool/hanyuxin/panel · 规划文档见 [PLAN.md](PLAN.md) · 待办清单见 [TODO.md](TODO.md) · 部署验收手册见 [DEPLOY.md](DEPLOY.md)
 
 ---
 

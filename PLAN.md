@@ -292,7 +292,7 @@ hanyuxin/
 
 > v0.33 已交付：文件分片上传（5MB/片，失败重传单片）、软件商店新增 Uptime-Kuma/Alist/n8n/Gitea 模板。
 
-> v0.34 已交付：i18n 骨架（双语字典 + 语言切换）与移动端全局适配（≤768px）。
+> v0.34 已交付：i18n 骨架（双语字典 + 语言切换）与移动端全局适配（≤768px）。产物 bin/hanyuxin(.agent) 已构建（SHA256 见 DEPLOY.md），部署手册 DEPLOY.md 就绪。
 
 ### P2 收官后展望（未排期）
 
