@@ -288,6 +288,8 @@ hanyuxin/
 
 > v0.31 已交付：节点文件管理与终端（agent 协议下沉——file 消息四操作 + bash 流式终端；面板 file API 与 /api/ws/nodeterm WS 桥；Nodes 页文件/终端抽屉）。
 
+> v0.32 已交付：在线会话管理（列表/踢出其他设备）、echarts 按需加载（渲染器/charts/components 分离注册）。
+
 ### P2 收官后展望（未排期）
 
 - 节点指标月级视图前端（v0.30 已交付图表切换，月级导出可扩展）

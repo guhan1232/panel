@@ -104,7 +104,12 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart, BarChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent, CanvasRenderer])
 import { Cpu, Memo, TrendCharts, Platform } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtDuration, fmtTime, chartPalette } from '../utils'

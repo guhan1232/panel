@@ -100,6 +100,8 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.POST("/setting/2fa/setup", s.twoFASetup)
 	authed.POST("/setting/2fa/enable", s.twoFAEnable)
 	authed.POST("/setting/2fa/disable", s.twoFADisable)
+	authed.GET("/sessions", s.listSessions)
+	authed.DELETE("/sessions/:id", s.revokeSession)
 }
 
 func (s *Service) login(c *gin.Context) {
@@ -361,4 +363,35 @@ func (s *Service) twoFADisable(c *gin.Context) {
 		return
 	}
 	core.OK(c, gin.H{"ok": true})
+}
+
+// listSessions 当前用户的在线会话（其他设备登录）。
+func (s *Service) listSessions(c *gin.Context) {
+	uid := c.GetUint("uid")
+	cur := c.GetString("session")
+	var rows []core.Session
+	s.db.Where("user_id = ? AND expires_at > ?", uid, time.Now()).Order("expires_at DESC").Find(&rows)
+	items := make([]gin.H, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, gin.H{
+			"id":      r.Token,
+			"ip":      r.IP,
+			"ua":      r.UA,
+			"current": r.Token == cur,
+			"expires": r.ExpiresAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+	core.OK(c, items)
+}
+
+// revokeSession 踢出指定会话。
+func (s *Service) revokeSession(c *gin.Context) {
+	uid := c.GetUint("uid")
+	id := c.Param("id")
+	res := s.db.Where("token = ? AND user_id = ?", id, uid).Delete(&core.Session{})
+	if res.Error != nil {
+		core.Err(c, 500, res.Error.Error())
+		return
+	}
+	core.OK(c, gin.H{"revoked": res.RowsAffected})
 }

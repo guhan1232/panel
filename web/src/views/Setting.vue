@@ -16,7 +16,23 @@
 
 
 
-    <WmSectionCard title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
+
+    <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
+      <template #actions>
+        <a-button size="small" @click="loadSessions">刷新</a-button>
+      </template>
+      <WmTable :data="sessions" size="small" empty-title="没有在线会话" empty-description="">
+        <WmColumn label="IP" width="150"><template #default="{ row }"><span class="wm-mono">{{ row.ip }}</span></template></WmColumn>
+        <WmColumn label="设备" min-width="260"><template #default="{ row }"><span class="wm-text-muted wm-truncate">{{ row.ua }}</span></template></WmColumn>
+        <WmColumn label="过期" width="170"><template #default="{ row }"><span class="wm-mono">{{ row.expires }}</span></template></WmColumn>
+        <WmColumn label="操作" width="110" fixed="right">
+          <template #default="{ row }">
+            <a-button v-if="!row.current" size="small" data-tone="danger" @click="revoke(row)">踢出</a-button>
+            <WmStatusPill v-else label="本设备" tone="info" :dot="false" />
+          </template>
+        </WmColumn>
+      </WmTable>
+    </WmSectionCard>    <WmSectionCard title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
       <template #actions>
         <a-button size="small" @click="checkUpgrade">检查更新</a-button>
         <a-button v-if="upInfo.has_update" size="small" type="primary" :loading="upApplying" @click="applyUpgrade">升级到 {{ upInfo.remote }}</a-button>
@@ -99,6 +115,7 @@ async function submit() {
   }
 }
 
+onMounted(loadSessions)
 onMounted(load)
 
 const faSecret = ref('')
@@ -153,5 +170,24 @@ async function applyUpgrade() {
   } finally {
     upApplying.value = false
   }
+}
+
+const sessions = ref<any[]>([])
+
+async function loadSessions() {
+  try {
+    sessions.value = (await api.get('/auth/sessions')) as any
+  } catch {
+    sessions.value = []
+  }
+}
+
+async function revoke(row: any) {
+  try {
+    await ElMessageBox.confirm('确认踢出该会话？', '踢出', { type: 'warning' })
+  } catch { return }
+  await api.delete('/auth/sessions/' + row.id)
+  ElMessage.success('已踢出')
+  loadSessions()
 }
 </script>
