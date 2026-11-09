@@ -49,6 +49,7 @@ type Task struct {
 	Spec       string     `gorm:"size:64" json:"spec"` // cron 表达式（5 段或带秒的 6 段，支持 @daily 等）
 	Command    string     `gorm:"type:text" json:"command"`
 	Params     string     `gorm:"type:text" json:"params"`
+	NodeID     uint       `json:"node_id"`     // >0 时经 Agent 在对应节点执行（仅 shell 类）
 	TimeoutSec int        `json:"timeout_sec"` // 0 = 不限
 	Concurrent bool       `json:"concurrent"`
 	NotifyFail int        `json:"notify_fail"`
@@ -79,22 +80,27 @@ type runHandle struct {
 	start  time.Time
 }
 
+// NodeExecFunc 远程节点执行函数（node.ExecOnNode），可为 nil。
+type NodeExecFunc func(nodeID uint, script string, timeoutSec int) (string, int, error)
+
 type Module struct {
-	db      *gorm.DB
-	cron    *cron.Cron
-	mu      sync.Mutex
-	entries map[uint]cron.EntryID
-	running map[uint]*runHandle
-	dataDir string
+	db       *gorm.DB
+	cron     *cron.Cron
+	mu       sync.Mutex
+	entries  map[uint]cron.EntryID
+	running  map[uint]*runHandle
+	dataDir  string
+	nodeExec NodeExecFunc
 }
 
-func New(db *gorm.DB, dataDir string) *Module {
+func New(db *gorm.DB, dataDir string, nodeExec NodeExecFunc) *Module {
 	return &Module{
-		db:      db,
-		cron:    cron.New(cron.WithParser(parser)),
-		entries: map[uint]cron.EntryID{},
-		running: map[uint]*runHandle{},
-		dataDir: dataDir,
+		db:       db,
+		cron:     cron.New(cron.WithParser(parser)),
+		entries:  map[uint]cron.EntryID{},
+		running:  map[uint]*runHandle{},
+		dataDir:  dataDir,
+		nodeExec: nodeExec,
 	}
 }
 
@@ -236,7 +242,19 @@ func (m *Module) run(id uint, trigger string) {
 func (m *Module) execute(ctx context.Context, t *Task) (exit int, err error, output string) {
 	switch t.Type {
 	case "shell":
-		output, exit, err = execx.RunShellContext(ctx, fmt.Sprintf("task:%d", t.ID), t.Command)
+		if t.NodeID > 0 {
+			if m.nodeExec == nil {
+				output, exit, err = "", 1, fmt.Errorf("节点执行通道未就绪")
+			} else {
+				timeout := t.TimeoutSec
+				if timeout <= 0 {
+					timeout = 300
+				}
+				output, exit, err = m.nodeExec(t.NodeID, t.Command, timeout)
+			}
+		} else {
+			output, exit, err = execx.RunShellContext(ctx, fmt.Sprintf("task:%d", t.ID), t.Command)
+		}
 	case "backup_dir":
 		output, err = m.runBackupDir(ctx, t)
 		if err != nil {

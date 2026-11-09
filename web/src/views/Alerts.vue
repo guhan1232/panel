@@ -41,6 +41,13 @@
     <a-modal v-model:open="dlg" :title="form.id ? '编辑规则' : '新建规则'" width="540px">
       <a-form :label-col="{ style: { width: '110px' } }">
         <a-form-item label="规则名称"><a-input v-model:value="form.name" placeholder="如 CPU 过载" /></a-form-item>
+        <a-form-item label="监控对象">
+          <a-select v-model:value="form.node_id" style="width: 100%">
+            <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
+            <a-select-option v-for="nd in nodes" :key="nd.id" :value="nd.id">{{ nd.name }}（远程）</a-select-option>
+          </a-select>
+          <span class="hint">远程节点取最新上报指标判定；磁盘指标暂不支持远程节点。</span>
+        </a-form-item>
         <a-form-item label="监控指标">
           <a-select v-model:value="form.metric" style="width: 100%">
             <a-select-option v-for="(v, k) in metricMap" :key="k" :value="k">{{ v }}</a-select-option>
@@ -74,6 +81,16 @@ const metricMap: Record<string, string> = { cpu: 'CPU 使用率(%)', mem: '内�
 const metricLabel = (k: string) => metricMap[k] || k
 
 const rules = ref<any[]>([])
+const nodes = ref<any[]>([])
+
+async function loadNodes() {
+  try {
+    const list: any[] = (await api.get('/nodes')) as any
+    nodes.value = list.map((x: any) => ({ id: x.node.id, name: x.node.name }))
+  } catch {
+    nodes.value = []
+  }
+}
 const events = ref<any[]>([])
 const loading = ref(false)
 const eLoading = ref(false)
@@ -82,7 +99,7 @@ const eSize = 10
 const eTotal = ref(0)
 const dlg = ref(false)
 
-const emptyForm = () => ({ id: 0, name: '', metric: 'cpu', op: '>', threshold: 90, duration_min: 3, cooldown_min: 30 })
+const emptyForm = () => ({ id: 0, name: '', metric: 'cpu', op: '>', threshold: 90, duration_min: 3, cooldown_min: 30, node_id: 0 })
 const form = reactive(emptyForm())
 
 async function load() {
@@ -92,6 +109,7 @@ async function load() {
   } finally {
     loading.value = false
   }
+  loadNodes()
   loadEvents()
 }
 

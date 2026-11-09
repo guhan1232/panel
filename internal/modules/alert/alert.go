@@ -28,6 +28,7 @@ type AlertRule struct {
 	Metric      string     `gorm:"size:16" json:"metric"` // cpu | mem | disk | load1
 	Op          string     `gorm:"size:4" json:"op"`      // > | <
 	Threshold   float64    `json:"threshold"`
+	NodeID      uint       `json:"node_id"`      // >0 时按对应节点的最新指标判定
 	DurationMin int        `json:"duration_min"` // 持续 N 分钟触发
 	CooldownMin int        `json:"cooldown_min"` // 触发后冷却分钟
 	Enabled     bool       `json:"enabled"`
@@ -53,14 +54,16 @@ type MetricsProvider interface {
 }
 
 type Module struct {
-	db    *gorm.DB
-	mp    MetricsProvider
-	mu    sync.Mutex
-	since map[uint]time.Time
+	db         *gorm.DB
+	mp         MetricsProvider
+	mu         sync.Mutex
+	since      map[uint]time.Time
+	nodeLatest func(nodeID uint) (cpu, mem, load1 float64, ok bool)
 }
 
-func New(db *gorm.DB, mp MetricsProvider) *Module {
-	return &Module{db: db, mp: mp, since: map[uint]time.Time{}}
+func New(db *gorm.DB, mp MetricsProvider, nodeLatest func(nodeID uint) (cpu, mem, load1 float64, ok bool)) *Module {
+	return &Module{
+		nodeLatest: nodeLatest, db: db, mp: mp, since: map[uint]time.Time{}}
 }
 
 func (m *Module) Start() error {
@@ -100,17 +103,38 @@ func (m *Module) evaluate() {
 
 	for _, r := range rules {
 		var val float64
-		switch r.Metric {
-		case "cpu":
-			val = cpu
-		case "mem":
-			val = mem
-		case "disk":
-			val = disk
-		case "load1":
-			val = load1
-		default:
-			continue
+		if r.NodeID > 0 {
+			// 节点维度：取该节点最新上报指标（node 模块回调）
+			if r.Metric == "disk" {
+				continue // 节点指标暂无磁盘数据
+			}
+			nc, nm, nl, ok := m.nodeLatest(r.NodeID)
+			if !ok {
+				continue // 节点离线或无数据
+			}
+			switch r.Metric {
+			case "cpu":
+				val = nc
+			case "mem":
+				val = nm
+			case "load1":
+				val = nl
+			default:
+				continue
+			}
+		} else {
+			switch r.Metric {
+			case "cpu":
+				val = cpu
+			case "mem":
+				val = mem
+			case "disk":
+				val = disk
+			case "load1":
+				val = load1
+			default:
+				continue
+			}
 		}
 		cond := (r.Op == ">" && val > r.Threshold) || (r.Op == "<" && val < r.Threshold)
 
@@ -134,8 +158,14 @@ func (m *Module) evaluate() {
 		}
 
 		valStr := strconv.FormatFloat(val, 'f', 2, 64)
-		msg := fmt.Sprintf("规则「%s」触发：%s 当前 %s %s 阈值 %s，已持续 %.0f 分钟",
-			r.Name, metricLabel(r.Metric), valStr, r.Op,
+		scope := ""
+		if r.NodeID > 0 {
+			var nodeName string
+			m.db.Table("nodes").Select("name").Where("id = ?", r.NodeID).Scan(&nodeName)
+			scope = "[节点 " + nodeName + "] "
+		}
+		msg := fmt.Sprintf("规则「%s」触发：%s %s当前 %s %s 阈值 %s，已持续 %.0f 分钟",
+			r.Name, metricLabel(r.Metric), scope, valStr, r.Op,
 			strconv.FormatFloat(r.Threshold, 'f', 2, 64), sustained.Minutes())
 		slog.Warn("告警触发", "rule", r.Name, "metric", r.Metric, "value", valStr)
 

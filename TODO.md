@@ -50,8 +50,8 @@
 
 ### P1-3 SSL 证书与网站联动（证书最常用的闭环）
 
-- [ ] **DNS-01 挑战**：lego 接 DNS Provider API（阿里云 / 腾讯云 DNSPod / Cloudflare），支持 `*.example.com` 泛域名（HTTP-01 无法签泛域名）
-- [ ] **证书一键部署到站点**（待做；v0.26 已完成 WebSocket/即时备份等）：证书列表「部署到网站」→ 自动写入站点 `ssl_cert/ssl_key` + `force_https` + `nginx -s reload`（当前 Website.vue 仅手填路径，路径提示还是旧前缀）
+- [x] **DNS-01 挑战**（v0.27：阿里云/DNSPod/Cloudflare，凭据写入 meta 支持自动续期，泛域名可用）
+- [x] **证书一键部署到站点**（v0.27：域名匹配校验 + 强制 HTTPS + nginx reload）：证书列表「部署到网站」→ 自动写入站点 `ssl_cert/ssl_key` + `force_https` + `nginx -s reload`（当前 Website.vue 仅手填路径，路径提示还是旧前缀）
 - [ ] 证书续期后自动 reload nginx（当前只续期不重载）
 
 ### P1-4 网站模块增强
@@ -70,8 +70,8 @@
 
 Agent 已有 `metric` / `exec_result` 双消息通道，扩展消息类型即可：
 
-- [ ] **计划任务按节点下发**：任务表加 node_id，到点经 agent exec 通道执行，结果回传入库
-- [ ] **告警规则按节点**：规则绑定节点，指标判定用对应节点的 node_metrics
+- [x] **计划任务按节点下发**（v0.27：shell 类任务可选节点，经 ExecOnNode 通道）
+- [x] **告警规则按节点**（v0.27：规则绑定节点，5 分钟内最新指标判定，通知带节点名）
 - [ ] **节点文件管理与终端**：filem / term 的消息协议下沉到 agent（大文件走分片，终端走双向 WS 转发）
 - [ ] **节点指标长期聚合**：node_metrics 目前 3 天保留；增加小时级降采样表，支持月级视图
 

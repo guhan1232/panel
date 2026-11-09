@@ -52,6 +52,13 @@
             <a-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</a-tag>
           </div>
         </a-form-item>
+        <a-form-item v-if="form.type === 'shell'" label="执行位置">
+          <a-select v-model:value="form.node_id" style="width: 100%">
+            <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
+            <a-select-option v-for="nd in nodes" :key="nd.id" :value="nd.id">{{ nd.name }}（远程）</a-select-option>
+          </a-select>
+          <span class="hint">远程执行经 Agent 通道下发；离线节点任务会执行失败。</span>
+        </a-form-item>
         <a-form-item v-if="form.type === 'shell'" label="脚本内容">
           <a-textarea v-model:value="form.command"  :rows="8" placeholder="bash 命令，如：&#10;tar -czf /tmp/backup.tar.gz /data" />
         </a-form-item>
@@ -146,8 +153,20 @@ const loading = ref(false)
 const dlg = ref(false)
 const saving = ref(false)
 
-const emptyForm = () => ({ id: 0, name: '', type: 'shell', spec: '*/5 * * * *', command: '', source: '', keep: 1, url: '', db_engine: 'mysql', db_name: '', pattern: '', size_mb: 50, keep_days: 30, timeout_sec: 0, concurrent: false, notify_fail: 0 })
+const emptyForm = () => ({ id: 0, name: '', type: 'shell', spec: '*/5 * * * *', command: '', source: '', keep: 1, url: '', db_engine: 'mysql', db_name: '', pattern: '', size_mb: 50, keep_days: 30, timeout_sec: 0, concurrent: false, notify_fail: 0, node_id: 0 })
 const form = reactive(emptyForm())
+const nodes = ref<any[]>([])
+
+async function loadNodes() {
+  try {
+    const list: any[] = (await api.get('/nodes')) as any
+    nodes.value = list.map((x: any) => ({ id: x.node.id, name: x.node.name, online: x.online }))
+  } catch {
+    nodes.value = []
+  }
+}
+
+onMounted(loadNodes)
 
 async function load() {
   loading.value = true
@@ -185,7 +204,7 @@ function openEdit(row: any) {
 }
 
 function payload() {
-  const base: any = { name: form.name, type: form.type, spec: form.spec, timeout_sec: form.timeout_sec, concurrent: form.concurrent, notify_fail: form.notify_fail }
+  const base: any = { name: form.name, type: form.type, spec: form.spec, timeout_sec: form.timeout_sec, concurrent: form.concurrent, notify_fail: form.notify_fail, node_id: form.node_id }
   if (form.type === 'shell') base.command = form.command
   else if (form.type === 'backup_dir') base.params = JSON.stringify({ source: form.source, keep: form.keep })
   else if (form.type === 'visit_url') base.params = JSON.stringify({ url: form.url })

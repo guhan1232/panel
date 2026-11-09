@@ -82,7 +82,19 @@ func main() {
 	protected := api.Group("", authSvc.Middleware())
 	authSvc.RegisterAdmin(protected) // 用户管理（仅 admin）
 
-	cronMod := cron.New(db, cfg.DataDir)
+	// 多节点（Agent 反连走独立端点，token 鉴权；管理面走会话权限）
+	protectedRW := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
+	protectedAdmin := protected.Group("", authSvc.RequireAdmin())
+	nodeMod := node.New(db)
+	if err := nodeMod.Start(); err != nil {
+		slog.Error("节点模块启动失败", "err", err)
+		os.Exit(1)
+	}
+	r.GET("/api/ws/agent", nodeMod.HandleAgent)
+	nodeMod.Register(protected, protectedRW, protectedAdmin)
+
+	// 计划任务（依赖节点执行通道，需在 nodeMod 之后组装）
+	cronMod := cron.New(db, cfg.DataDir, nodeMod.ExecOnNode)
 	if err := cronMod.Start(); err != nil {
 		slog.Error("计划任务模块启动失败", "err", err)
 		os.Exit(1)
@@ -111,17 +123,6 @@ func main() {
 	certMod.Start()
 	dbmgr.New(db, cfg.DataDir).Register(protected)
 
-	// 多节点（Agent 反连走独立端点，token 鉴权；管理面走会话权限）
-	protectedRW := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
-	protectedAdmin := protected.Group("", authSvc.RequireAdmin())
-	nodeMod := node.New(db)
-	if err := nodeMod.Start(); err != nil {
-		slog.Error("节点模块启动失败", "err", err)
-		os.Exit(1)
-	}
-	r.GET("/api/ws/agent", nodeMod.HandleAgent)
-	nodeMod.Register(protected, protectedRW, protectedAdmin)
-
 	// 运行时版本管理器（宝塔式：多版本共存/设默认/卸载）
 	runtimeMod := rtm.New(db, cfg.DataDir)
 	if err := runtimeMod.Start(); err != nil {
@@ -132,7 +133,16 @@ func main() {
 	// P2 模块
 	dash := dashboard.New(db)
 	dash.Register(protected)
-	alertMod := alert.New(db, dash)
+	alertMod := alert.New(db, dash, func(nodeID uint) (cpu, mem, load1 float64, ok bool) {
+		var latest node.NodeMetric
+		if err := db.Where("node_id = ?", nodeID).Order("time DESC").First(&latest).Error; err != nil {
+			return 0, 0, 0, false
+		}
+		if time.Since(latest.Time) > 5*time.Minute {
+			return 0, 0, 0, false
+		}
+		return latest.CPU, latest.MemPct, latest.Load1, true
+	})
 	if err := alertMod.Start(); err != nil {
 		slog.Error("告警模块启动失败", "err", err)
 	}

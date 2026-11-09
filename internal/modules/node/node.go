@@ -363,3 +363,38 @@ func (m *Module) regenToken(c *gin.Context) {
 	slog.Info("节点接入 token 已重置", "by", c.GetString("user"))
 	core.OK(c, gin.H{"token": t})
 }
+
+// ExecOnNode 在指定在线节点执行脚本，供计划任务等模块复用 agent 通道。
+func (m *Module) ExecOnNode(nodeID uint, script string, timeoutSec int) (string, int, error) {
+	ac := m.hub.get(nodeID)
+	if ac == nil {
+		return "", -1, fmt.Errorf("节点离线或不存在")
+	}
+	if timeoutSec <= 0 || timeoutSec > 1800 {
+		timeoutSec = 120
+	}
+	execID := fmt.Sprintf("e%d", m.hub.execSeq.Add(1))
+	ch := make(chan execResult, 1)
+	m.hub.mu.Lock()
+	m.hub.pending[execID] = ch
+	m.hub.mu.Unlock()
+	defer func() {
+		m.hub.mu.Lock()
+		delete(m.hub.pending, execID)
+		m.hub.mu.Unlock()
+	}()
+	if err := ac.send(map[string]any{
+		"type": "exec", "id": execID, "script": script, "timeout_sec": timeoutSec,
+	}); err != nil {
+		return "", -1, err
+	}
+	select {
+	case r := <-ch:
+		if r.Err != "" {
+			return r.Output, r.Exit, fmt.Errorf("%s", r.Err)
+		}
+		return r.Output, r.Exit, nil
+	case <-time.After(time.Duration(timeoutSec)*time.Second + 10*time.Second):
+		return "", -1, fmt.Errorf("节点执行超时")
+	}
+}

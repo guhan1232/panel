@@ -26,8 +26,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
+	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
+	"github.com/go-acme/lego/v4/providers/dns/alidns"
+	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
+	"github.com/go-acme/lego/v4/providers/dns/dnspod"
 	"github.com/go-acme/lego/v4/registration"
 	"gorm.io/gorm"
 
@@ -38,11 +43,14 @@ import (
 var domainRe = regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
 type certMeta struct {
-	Domains  []string  `json:"domains"`
-	Source   string    `json:"source"` // upload | acme
-	Email    string    `json:"email,omitempty"`
-	Staging  bool      `json:"staging,omitempty"`
-	IssuedAt time.Time `json:"issued_at"`
+	Domains      []string  `json:"domains"`
+	Source       string    `json:"source"` // upload | acme
+	Email        string    `json:"email,omitempty"`
+	Staging      bool      `json:"staging,omitempty"`
+	DNSProvider  string    `json:"dns_provider,omitempty"`
+	DNSAPIKey    string    `json:"dns_api_key,omitempty"`
+	DNSAPISecret string    `json:"dns_api_secret,omitempty"`
+	IssuedAt     time.Time `json:"issued_at"`
 }
 
 // Info 对外展示的证书信息。
@@ -150,6 +158,43 @@ func (m *Module) saveCert(domain string, certPEM, keyPEM []byte, meta certMeta) 
 		return "", err
 	}
 	return dir, nil
+}
+
+// dnsCfg DNS-01 挑战的 DNS 服务商凭据。
+type dnsCfg struct {
+	Provider  string `json:"provider"` // aliyun | dnspod | cloudflare
+	APIKey    string `json:"api_key"`
+	APISecret string `json:"api_secret"`
+}
+
+// dnsProvider 按服务商构造 lego DNS Provider（凭据经环境变量注入，官方约定字段）。
+func dnsProvider(cfg *dnsCfg) (challenge.Provider, func(), error) {
+	switch cfg.Provider {
+	case "aliyun":
+		if cfg.APIKey == "" || cfg.APISecret == "" {
+			return nil, nil, fmt.Errorf("阿里云 DNS 需 AccessKey ID 与 Secret")
+		}
+		os.Setenv("ALIYUN_ACCESS_KEY_ID", cfg.APIKey)
+		os.Setenv("ALIYUN_ACCESS_KEY_SECRET", cfg.APISecret)
+		p, err := alidns.NewDNSProvider()
+		return p, func() { os.Unsetenv("ALIYUN_ACCESS_KEY_ID"); os.Unsetenv("ALIYUN_ACCESS_KEY_SECRET") }, err
+	case "dnspod":
+		if cfg.APIKey == "" || cfg.APISecret == "" {
+			return nil, nil, fmt.Errorf("DNSPod 需 API Token（ID,Token）")
+		}
+		os.Setenv("DNSPOD_API_TOKEN", cfg.APIKey+","+cfg.APISecret)
+		p, err := dnspod.NewDNSProvider()
+		return p, func() { os.Unsetenv("DNSPOD_API_TOKEN") }, err
+	case "cloudflare":
+		if cfg.APIKey == "" {
+			return nil, nil, fmt.Errorf("Cloudflare 需 API Token")
+		}
+		os.Setenv("CF_DNS_API_TOKEN", cfg.APIKey)
+		p, err := cloudflare.NewDNSProvider()
+		return p, func() { os.Unsetenv("CF_DNS_API_TOKEN") }, err
+	default:
+		return nil, nil, fmt.Errorf("不支持的 DNS 服务商: %s", cfg.Provider)
+	}
 }
 
 func validDomains(domains []string) error {
@@ -316,7 +361,7 @@ func (m *Module) saveAccount(u *acmeUser) {
 }
 
 // issueDomains 申请证书（阻塞，HTTP-01 需 80 端口可达面板所在服务器）。
-func (m *Module) issueDomains(domains []string, email string, staging bool) (string, error) {
+func (m *Module) issueDomains(domains []string, email string, staging bool, dns *dnsCfg) (string, error) {
 	u, err := m.ensureAccount(email)
 	if err != nil {
 		return "", err
@@ -332,9 +377,21 @@ func (m *Module) issueDomains(domains []string, email string, staging bool) (str
 	if err != nil {
 		return "", err
 	}
-	// 面板以 root 运行，可绑定 80 端口完成 HTTP-01 校验
-	if err := client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "80")); err != nil {
-		return "", err
+	// 挑战类型：dns01（支持泛域名，经 DNS 服务商 API）或 http01（面板 root 绑定 80）
+	if dns != nil && dns.Provider != "" {
+		p, cleanup, err := dnsProvider(dns)
+		if err != nil {
+			return "", err
+		}
+		if err := client.Challenge.SetDNS01Provider(p, dns01.AddRecursiveNameservers([]string{"119.29.29.29:53", "223.5.5.5:53"})); err != nil {
+			cleanup()
+			return "", err
+		}
+		defer cleanup()
+	} else {
+		if err := client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "80")); err != nil {
+			return "", err
+		}
 	}
 	if u.reg == nil {
 		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
@@ -358,9 +415,13 @@ func (m *Module) issueDomains(domains []string, email string, staging bool) (str
 		return "", fmt.Errorf("签发失败: %w", err)
 	}
 	primary := domains[0]
-	dir, err := m.saveCert(primary, res.Certificate, res.PrivateKey, certMeta{
-		Domains: domains, Source: "acme", Email: email, Staging: staging,
-	})
+	meta := certMeta{Domains: domains, Source: "acme", Email: email, Staging: staging}
+	if dns != nil {
+		meta.DNSProvider = dns.Provider
+		meta.DNSAPIKey = dns.APIKey
+		meta.DNSAPISecret = dns.APISecret
+	}
+	dir, err := m.saveCert(primary, res.Certificate, res.PrivateKey, meta)
 	if err != nil {
 		return "", err
 	}
@@ -370,9 +431,13 @@ func (m *Module) issueDomains(domains []string, email string, staging bool) (str
 
 func (m *Module) issue(c *gin.Context) {
 	var req struct {
-		Domains []string `binding:"required"`
-		Email   string   `binding:"required,email"`
-		Staging bool     `json:"staging"`
+		Domains      []string `binding:"required"`
+		Email        string   `binding:"required,email"`
+		Staging      bool     `json:"staging"`
+		Challenge    string   `json:"challenge"` // http01（默认）| dns01
+		DNSProvider  string   `json:"dns_provider"`
+		DNSAPIKey    string   `json:"dns_api_key"`
+		DNSAPISecret string   `json:"dns_api_secret"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)
@@ -392,7 +457,11 @@ func (m *Module) issue(c *gin.Context) {
 	var issueErr error
 	go func() {
 		defer close(done)
-		dir, issueErr = m.issueDomains(req.Domains, req.Email, req.Staging)
+		var dns *dnsCfg
+		if req.Challenge == `dns01` {
+			dns = &dnsCfg{Provider: req.DNSProvider, APIKey: req.DNSAPIKey, APISecret: req.DNSAPISecret}
+		}
+		dir, issueErr = m.issueDomains(req.Domains, req.Email, req.Staging, dns)
 	}()
 	select {
 	case <-done:
@@ -416,7 +485,12 @@ func (m *Module) checkExpiry() {
 		switch {
 		case meta.Source == "acme" && info.DaysLeft < 30 && info.DaysLeft > -30:
 			slog.Info("证书即将到期，尝试自动续期", "domain", info.Domain, "days_left", info.DaysLeft)
-			if _, err := m.issueDomains(meta.Domains, meta.Email, meta.Staging); err != nil {
+			// 续期沿用签发时的 DNS 凭据（若签发时保存于 meta）
+			var dns *dnsCfg
+			if meta.DNSProvider != "" {
+				dns = &dnsCfg{Provider: meta.DNSProvider, APIKey: meta.DNSAPIKey, APISecret: meta.DNSAPISecret}
+			}
+			if _, err := m.issueDomains(meta.Domains, meta.Email, meta.Staging, dns); err != nil {
 				slog.Warn("证书自动续期失败", "domain", info.Domain, "err", err)
 				notify.Send(m.db, "证书续期失败: "+info.Domain,
 					fmt.Sprintf("域名 %s 证书剩余 %d 天，自动续期失败: %v", info.Domain, info.DaysLeft, err))
