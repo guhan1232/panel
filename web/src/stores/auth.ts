@@ -15,8 +15,13 @@ export const useAuth = defineStore('auth', {
       }
       this.checked = true
     },
-    async login(username: string, password: string) {
-      await api.post('/auth/login', { username, password })
+    async login(username: string, password: string, code = '') {
+      const res: any = await api.post('/auth/login', { username, password, code })
+      if (res && typeof res === 'object' && res.need_2fa) {
+        const err: any = new Error('need_2fa')
+        err.need_2fa = true
+        throw err
+      }
       await this.fetchMe()
     },
     async logout() {

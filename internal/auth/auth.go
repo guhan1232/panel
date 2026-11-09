@@ -2,11 +2,16 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
+	"crypto/subtle"
+	"encoding/base32"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,12 +97,16 @@ func (s *Service) Register(api gin.IRouter) {
 	authed := api.Group("", s.Middleware())
 	authed.POST("/auth/logout", s.logout)
 	authed.GET("/auth/me", s.me)
+	authed.POST("/setting/2fa/setup", s.twoFASetup)
+	authed.POST("/setting/2fa/enable", s.twoFAEnable)
+	authed.POST("/setting/2fa/disable", s.twoFADisable)
 }
 
 func (s *Service) login(c *gin.Context) {
 	var req struct {
 		Username string `binding:"required"`
 		Password string `binding:"required"`
+		Code     string `json:"code"` // 两因素验证码（启用 TOTP 时必填）
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)
@@ -120,6 +129,17 @@ func (s *Service) login(c *gin.Context) {
 		slog.Warn("已禁用账号尝试登录", "username", req.Username, "ip", ip)
 		core.Err(c, 403, "账号已被禁用，请联系管理员")
 		return
+	}
+	if u.TOTPSecret != "" {
+		if req.Code == "" {
+			core.OK(c, gin.H{"need_2fa": true})
+			return
+		}
+		if !totpVerify(u.TOTPSecret, req.Code) {
+			s.recordFail(ip)
+			core.Err(c, 401, "两因素验证码错误")
+			return
+		}
 	}
 	s.clearFails(ip)
 	token := randomToken(32)
@@ -235,4 +255,110 @@ func (s *Service) SpaAllowed(c *gin.Context) bool {
 	}
 	ck, err := c.Cookie(CookieEntrance)
 	return err == nil && ck == s.cfg.Server.Entrance
+}
+
+// ---- TOTP（RFC 6238，SHA-1 / 6 位 / 30s 窗口，容差 ±1）----
+
+func totpCode(secret string, t time.Time) (string, error) {
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
+	if err != nil {
+		return "", err
+	}
+	counter := uint64(t.Unix() / 30)
+	var buf [8]byte
+	for i := 7; i >= 0; i-- {
+		buf[i] = byte(counter)
+		counter >>= 8
+	}
+	mac := hmac.New(sha1.New, key)
+	mac.Write(buf[:])
+	sum := mac.Sum(nil)
+	off := sum[len(sum)-1] & 0x0f
+	code := (uint64(sum[off])&0x7f)<<24 | uint64(sum[off+1])<<16 | uint64(sum[off+2])<<8 | uint64(sum[off+3])
+	return fmt.Sprintf("%06d", code%1000000), nil
+}
+
+func totpVerify(secret, code string) bool {
+	now := time.Now()
+	for _, d := range []time.Duration{-30 * time.Second, 0, 30 * time.Second} {
+		got, err := totpCode(secret, now.Add(d))
+		if err == nil && subtle.ConstantTimeCompare([]byte(got), []byte(strings.TrimSpace(code))) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// totpGenerate 随机 20 字节 base32 secret。
+func totpGenerate() (string, error) {
+	b := make([]byte, 20)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b), nil
+}
+
+// twoFASetup 生成待绑定的 TOTP secret 与 otpauth URL（不落库，enable 时才保存）。
+func (s *Service) twoFASetup(c *gin.Context) {
+	uid := c.GetUint("uid")
+	var u core.User
+	if err := s.db.First(&u, uid).Error; err != nil {
+		core.Err(c, 404, "用户不存在")
+		return
+	}
+	secret, err := totpGenerate()
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	url := fmt.Sprintf("otpauth://totp/hanyuxin:%s?secret=%s&issuer=hanyuxin", u.Username, secret)
+	core.OK(c, gin.H{"secret": secret, "url": url})
+}
+
+// twoFAEnable 校验验证码后启用 2FA。
+func (s *Service) twoFAEnable(c *gin.Context) {
+	var req struct {
+		Secret string `binding:"required"`
+		Code   string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if !totpVerify(req.Secret, req.Code) {
+		core.Err(c, 400, "验证码错误，请核对时间与密钥")
+		return
+	}
+	uid := c.GetUint("uid")
+	if err := s.db.Model(&core.User{}).Where("id = ?", uid).Update("totp_secret", req.Secret).Error; err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	core.OK(c, gin.H{"ok": true})
+}
+
+// twoFADisable 关闭 2FA（需密码确认）。
+func (s *Service) twoFADisable(c *gin.Context) {
+	var req struct {
+		Password string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	uid := c.GetUint("uid")
+	var u core.User
+	if err := s.db.First(&u, uid).Error; err != nil {
+		core.Err(c, 404, "用户不存在")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil {
+		core.Err(c, 400, "密码错误")
+		return
+	}
+	if err := s.db.Model(&u).Update("totp_secret", "").Error; err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	core.OK(c, gin.H{"ok": true})
 }

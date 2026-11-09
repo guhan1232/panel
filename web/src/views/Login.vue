@@ -34,6 +34,11 @@
               <template #prefix><LockOutlined /></template>
             </a-input-password>
           </a-form-item>
+          <a-form-item v-if="need2fa" label="两因素验证码">
+            <a-input v-model:value="totpCode" size="large" placeholder="6 位动态码" inputmode="numeric" maxlength="6" @input="errorMsg = ''" @press-enter="submit">
+              <template #prefix><SafetyOutlined /></template>
+            </a-input>
+          </a-form-item>
           <a-button type="primary" size="large" html-type="submit" block :loading="loading" class="login-submit">登录</a-button>
         </a-form>
 
@@ -46,7 +51,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { UserOutlined, LockOutlined, CheckCircleFilled } from '@ant-design/icons-vue'
+import { UserOutlined, LockOutlined, CheckCircleFilled, SafetyOutlined } from '@ant-design/icons-vue'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()
@@ -55,17 +60,28 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
+const need2fa = ref(false)
+const totpCode = ref('')
 
 async function submit() {
   if (!username.value || !password.value) {
     errorMsg.value = '请输入用户名和密码后重试'
     return
   }
+  if (need2fa.value && !totpCode.value) {
+    errorMsg.value = '请输入两因素验证码'
+    return
+  }
   errorMsg.value = ''
   loading.value = true
   try {
-    await auth.login(username.value, password.value)
+    await auth.login(username.value, password.value, totpCode.value)
     router.push('/')
+  } catch (e: any) {
+    if (e?.need_2fa) {
+      need2fa.value = true
+      errorMsg.value = '该账号已启用两因素验证，请输入验证码'
+    }
   } finally {
     loading.value = false
   }
