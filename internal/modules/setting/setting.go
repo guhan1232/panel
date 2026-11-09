@@ -55,6 +55,20 @@ func (m *Module) changePassword(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
+	// 密码强度：≥8 位且同时包含字母与数字
+	hasLetter, hasDigit := false, false
+	for _, ch := range req.New {
+		switch {
+		case ch >= '0' && ch <= '9':
+			hasDigit = true
+		case (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'):
+			hasLetter = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		core.Err(c, 400, "密码需包含字母和数字")
+		return
+	}
 	uid := c.GetUint("uid")
 	var u core.User
 	if err := m.db.First(&u, uid).Error; err != nil {

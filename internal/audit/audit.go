@@ -3,6 +3,7 @@ package audit
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -146,6 +147,7 @@ func (m *Module) Start() {
 // Register 审计查询 API（挂载于鉴权组）。
 func (m *Module) Register(api gin.IRouter) {
 	api.GET("/audit/list", m.list)
+	api.GET("/audit/export", m.exportCSV)
 	api.GET("/terminal-logs", m.terminalLogs)
 }
 
@@ -232,4 +234,38 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 			slog.Warn("审计记录写入失败", "err", err)
 		}
 	}
+}
+
+// exportCSV 审计日志全量导出（按筛选条件，CSV 流式下载）。
+func (m *Module) exportCSV(c *gin.Context) {
+	qry := m.db.Model(&core.AuditLog{}).Order("id DESC").Limit(100000)
+	if method := c.Query("method"); method != "" {
+		qry = qry.Where("method = ?", method)
+	}
+	if q := c.Query("q"); q != "" {
+		qry = qry.Where("path LIKE ?", "%"+q+"%")
+	}
+	if u := c.Query("username"); u != "" {
+		qry = qry.Where("username = ?", u)
+	}
+	var items []core.AuditLog
+	qry.Find(&items)
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename=hanyuxin-audit.csv")
+	// BOM 使 Excel 正确识别 UTF-8
+	_, _ = c.Writer.WriteString("\ufeff")
+	_, _ = c.Writer.WriteString("id,time,username,method,path,status,action\n")
+	for _, it := range items {
+		action := strings.ReplaceAll(strings.ReplaceAll(it.Action, "\n", " "), "\r", "")
+		action = strings.ReplaceAll(action, ",", "，")
+		fmt.Fprintf(c.Writer, "%d,%s,%s,%s,%s,%d,%s\n",
+			it.ID, it.CreatedAt.Format("2006-01-02 15:04:05"), csvField(it.Username),
+			it.Method, it.Path, it.Status, action)
+	}
+}
+
+// csvField CSV 单元格转义（引号包裹 + 双写内引号）。
+func csvField(v string) string {
+	return "\"" + strings.ReplaceAll(v, "\"", "\"\"") + "\""
 }

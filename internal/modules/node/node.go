@@ -39,6 +39,19 @@ type Node struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// NodeMetricHourly 节点小时聚合指标（长期保留，月级视图）。
+type NodeMetricHourly struct {
+	ID       uint      `gorm:"primaryKey" json:"id"`
+	NodeID   uint      `gorm:"index" json:"node_id"`
+	Hour     time.Time `gorm:"index" json:"hour"` // 整点
+	AvgCPU   float64   `json:"avg_cpu"`
+	MaxCPU   float64   `json:"max_cpu"`
+	AvgMem   float64   `json:"avg_mem"`
+	MaxMem   float64   `json:"max_mem"`
+	MaxLoad1 float64   `json:"max_load1"`
+	Samples  int       `json:"samples"`
+}
+
 // NodeMetric 节点采样指标。
 type NodeMetric struct {
 	ID       uint      `gorm:"primaryKey" json:"id"`
@@ -114,7 +127,7 @@ func New(db *gorm.DB) *Module {
 }
 
 func (m *Module) Start() error {
-	if err := m.db.AutoMigrate(&Node{}, &NodeMetric{}); err != nil {
+	if err := m.db.AutoMigrate(&Node{}, &NodeMetric{}, &NodeMetricHourly{}); err != nil {
 		return err
 	}
 	// 首次生成节点接入 token
@@ -137,6 +150,7 @@ func (m *Module) Start() error {
 
 func (m *Module) prune() {
 	res := m.db.Where("time < ?", time.Now().Add(-metricsRetention)).Delete(&NodeMetric{})
+	m.aggregateHourly()
 	if res.Error == nil && res.RowsAffected > 0 {
 		slog.Info("已清理过期节点指标", "rows", res.RowsAffected)
 	}
@@ -150,6 +164,7 @@ func (m *Module) Register(all gin.IRouter, rw gin.IRouter, admin gin.IRouter) {
 	admin.GET("/nodes/token", m.getToken)
 	admin.POST("/nodes/token/regenerate", m.regenToken)
 	admin.DELETE("/nodes/:id", m.remove)
+	all.GET("/nodes/:id/metrics/hourly", m.metricsHourly)
 }
 
 // ---- Agent WS 接入（token 鉴权，不走面板会话/入口） ----
@@ -397,4 +412,48 @@ func (m *Module) ExecOnNode(nodeID uint, script string, timeoutSec int) (string,
 	case <-time.After(time.Duration(timeoutSec)*time.Second + 10*time.Second):
 		return "", -1, fmt.Errorf("节点执行超时")
 	}
+}
+
+// aggregateHourly 将聚合水位之后的小时指标汇总入 NodeMetricHourly（幂等，按 node+hour 去重）。
+func (m *Module) aggregateHourly() {
+	var lastHour time.Time
+	if err := m.db.Model(&NodeMetricHourly{}).Select("MAX(hour)").Scan(&lastHour).Error; err != nil {
+		return
+	}
+	if lastHour.IsZero() {
+		lastHour = time.Now().AddDate(0, 0, -1)
+	}
+	rows2, rerr := m.db.Raw(`SELECT node_id,`+
+		" date_format(time, '%Y-%m-%d %H:00:00') AS hr,"+
+		" AVG(cpu) AS avg_cpu, MAX(cpu) AS max_cpu, AVG(mem_pct) AS avg_mem, MAX(mem_pct) AS max_mem,"+
+		" MAX(load1) AS max_load1, COUNT(*) AS samples "+
+		"FROM node_metrics WHERE time > ? GROUP BY node_id, hr HAVING COUNT(*) >= 2", lastHour).Rows()
+	if rerr == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var nodeID uint
+			var hr time.Time
+			var avgCPU, maxCPU, avgMem, maxMem, maxLoad float64
+			var samples int
+			if rows2.Scan(&nodeID, &hr, &avgCPU, &maxCPU, &avgMem, &maxMem, &maxLoad, &samples) == nil {
+				var cnt int64
+				m.db.Model(&NodeMetricHourly{}).Where("node_id = ? AND hour = ?", nodeID, hr).Count(&cnt)
+				if cnt == 0 {
+					m.db.Create(&NodeMetricHourly{NodeID: nodeID, Hour: hr, AvgCPU: avgCPU, MaxCPU: maxCPU, AvgMem: avgMem, MaxMem: maxMem, MaxLoad1: maxLoad, Samples: samples})
+				}
+			}
+		}
+	}
+}
+
+// metricsHourly 节点小时聚合查询（月级视图）：GET /nodes/:id/metrics/hourly?days=30
+func (m *Module) metricsHourly(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
+	if days < 1 || days > 180 {
+		days = 30
+	}
+	var rows []NodeMetricHourly
+	m.db.Where("node_id = ? AND hour > ?", id, time.Now().AddDate(0, 0, -days)).Order("hour").Find(&rows)
+	core.OK(c, rows)
 }

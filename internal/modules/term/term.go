@@ -62,6 +62,14 @@ type lineRecorder struct {
 	buf  strings.Builder
 }
 
+// secretRe 命令行中的敏感参数（密码/令牌/密钥）。
+var secretRe = regexp.MustCompile(`(-p|--password[= ]|PWD=|PASSWD=|PASSWORD=|TOKEN=|SECRET=|API[_-]?KEY=)\S*`)
+
+// maskSecrets 终端命令落库前掩码敏感参数。
+func maskSecrets(line string) string {
+	return secretRe.ReplaceAllString(line, "$1***")
+}
+
 func (r *lineRecorder) feed(data string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -76,6 +84,7 @@ func (r *lineRecorder) feed(data string) {
 		r.buf.Reset()
 		r.buf.WriteString(b[idx+1:])
 		line = ansiRe.ReplaceAllString(line, "")
+		line = maskSecrets(line)
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

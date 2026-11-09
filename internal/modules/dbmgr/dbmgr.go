@@ -122,6 +122,7 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/backup", m.backupCreate)
 	g.GET("/backup/list", m.backupList)
 	g.GET("/backup/download", m.backupDownload)
+	g.POST("/backup/restore", m.backupRestore)
 	g.DELETE("/backup", m.backupDelete)
 
 	mg := g.Group("/mysql")
@@ -734,6 +735,84 @@ func (m *Module) backupDelete(c *gin.Context) {
 	}
 	if err := os.Remove(filepath.Join(m.backupsDir(), name)); err != nil {
 		core.Err(c, 500, err.Error())
+		return
+	}
+	core.OK(c, gin.H{"ok": true})
+}
+
+// backupRestore 从备份文件恢复数据库（危险操作：整库覆盖，需 force 确认 + 审计）。
+func (m *Module) backupRestore(c *gin.Context) {
+	var req struct {
+		File  string `json:"file" binding:"required"`
+		Force bool   `json:"force"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if !req.Force {
+		core.Err(c, 400, "恢复将整库覆盖当前数据，需传 force=true 确认")
+		return
+	}
+	if !backupFileRe.MatchString(req.File) {
+		core.Err(c, 400, "文件名非法")
+		return
+	}
+	// 文件名格式 db-<engine>-<db>-<ts>.sql.gz
+	parts := strings.SplitN(strings.TrimSuffix(strings.TrimPrefix(req.File, "db-"), ".sql.gz"), "-", 3)
+	if len(parts) != 3 {
+		core.Err(c, 400, "文件名无法解析引擎与库名")
+		return
+	}
+	engine, database := parts[0], parts[1]
+	if !dbIdentRe.MatchString(database) {
+		core.Err(c, 400, "数据库名非法")
+		return
+	}
+	backupPath := filepath.Join(m.backupsDir(), req.File)
+	var script string
+	if engine == "mysql" {
+		var cfg struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+		}
+		_ = json.Unmarshal([]byte(core.GetSetting(m.db, core.KMysqlCfg)), &cfg)
+		if cfg.Host == "" {
+			cfg.Host = "127.0.0.1"
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 3306
+		}
+		if cfg.User == "" {
+			cfg.User = "root"
+		}
+		script = fmt.Sprintf("set -o pipefail\nexport MYSQL_PWD=%s\ngunzip -c %s | mysql -h %s -P %d -u %s %s",
+			shQuote(cfg.Password), shQuote(backupPath), shQuote(cfg.Host), cfg.Port, shQuote(cfg.User), shQuote(database))
+	} else {
+		var cfg struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+			SSLMode  string `json:"ssl_mode"`
+		}
+		_ = json.Unmarshal([]byte(core.GetSetting(m.db, core.KPgCfg)), &cfg)
+		if cfg.Host == "" {
+			cfg.Host = "127.0.0.1"
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 5432
+		}
+		if cfg.SSLMode == "" {
+			cfg.SSLMode = "disable"
+		}
+		script = fmt.Sprintf("set -o pipefail\nexport PGPASSWORD=%s\nexport PGSSLMODE=%s\ngunzip -c %s | psql -h %s -p %d -U %s -d %s",
+			shQuote(cfg.Password), shQuote(cfg.SSLMode), shQuote(backupPath), shQuote(cfg.Host), cfg.Port, shQuote(cfg.User), shQuote(database))
+	}
+	if out2, code, err := execx.RunShell("dbmgr:restore", 30*time.Minute, script); err != nil {
+		core.Err(c, 500, fmt.Sprintf("恢复失败(exit %d): %s", code, tailOf(out2)))
 		return
 	}
 	core.OK(c, gin.H{"ok": true})

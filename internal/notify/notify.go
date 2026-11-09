@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ type EmailConfig struct {
 // WebhookConfig IM Webhook 配置。
 type WebhookConfig struct {
 	Enabled bool   `json:"enabled"`
-	Type    string `json:"type"` // generic | dingtalk | wecom | feishu
+	Type    string `json:"type"` // generic | dingtalk | wecom | feishu | serverchan | bark
 	URL     string `json:"url"`
 }
 
@@ -146,6 +147,31 @@ func sendWebhook(c WebhookConfig, title, content string) error {
 		payload = map[string]any{"msgtype": "text", "text": map[string]string{"content": text}}
 	case "feishu":
 		payload = map[string]any{"msg_type": "text", "content": map[string]string{"text": text}}
+	case "serverchan":
+		data2, _ := json.Marshal(map[string]string{"title": title, "desp": content})
+		req2, _ := http.NewRequest(http.MethodPost, c.URL, bytes.NewReader(data2))
+		req2.Header.Set("Content-Type", "application/json")
+		client2 := &http.Client{Timeout: 10 * time.Second}
+		resp2, err2 := client2.Do(req2)
+		if err2 != nil {
+			return err2
+		}
+		defer resp2.Body.Close()
+		if resp2.StatusCode >= 300 {
+			return fmt.Errorf("Server酱 HTTP %d", resp2.StatusCode)
+		}
+		return nil
+	case "bark":
+		barkURL := strings.TrimRight(c.URL, "/") + "/" + url.PathEscape(title) + "/" + url.PathEscape(content)
+		resp3, err3 := http.Get(barkURL)
+		if err3 != nil {
+			return err3
+		}
+		defer resp3.Body.Close()
+		if resp3.StatusCode >= 300 {
+			return fmt.Errorf("Bark HTTP %d", resp3.StatusCode)
+		}
+		return nil
 	default:
 		payload = map[string]string{"title": title, "content": content}
 	}
