@@ -7,6 +7,13 @@
         <a-button size="small" @click="openAddHost">新增主机</a-button>
       </template>
       <div class="host-list">
+        <!-- 本机：面板所在服务器，本地 Shell 无需凭据 -->
+        <div class="host-item host-item--local">
+          <div class="host-main" @click="openLocalTab">
+            <span class="host-name">本机（面板所在服务器）</span>
+            <WmStatusPill label="本地 Shell" tone="success" :dot="false" />
+          </div>
+        </div>
         <div v-for="(h, i) in hosts" :key="h.id" class="host-item">
           <div class="host-main" @click="openHostTab(h)">
             <span class="host-name">{{ h.name || h.host }}</span>
@@ -20,7 +27,7 @@
             <a-button size="small" type="text" data-tone="danger" @click.stop="removeHost(h)">删除</a-button>
           </div>
         </div>
-        <WmEmptyState v-if="!hosts.length" title="还没有收藏主机" description="点击「新增主机」收藏常用 SSH；「快速连接」可不保存临时使用" />
+        <WmEmptyState v-if="!hosts.length" title="还没有收藏主机" description="点击「新增主机」收藏常用 SSH；「快速连接」可不保存临时使用；本机 Shell 始终可用" />
       </div>
     </WmSectionCard>
 
@@ -40,7 +47,7 @@
       <!-- 标签条 -->
       <div class="tabbar">
         <div v-for="t in tabs" :key="t.id" class="tab" :class="{ active: t.id === activeId }" @click="activate(t.id)">
-          <span class="tab-dot" :class="'s-' + t.status"></span>
+          <span class="tab-dot" :class="'s-' + (statusMap[t.id] || t.status)"></span>
           <span class="tab-title">{{ t.title }}</span>
           <span class="tab-close" @click.stop="closeTab(t.id)">×</span>
         </div>
@@ -116,6 +123,7 @@ import { TermTab, THEMES, type HostInfo, type TabMsg } from './term-session'
 const hosts = ref<HostInfo[]>([])
 const tabs = ref<TermTab[]>([])
 const activeId = ref(0)
+const statusMap = reactive<Record<number, string>>({})
 const themeName = ref(localStorage.getItem('term_theme') || 'dark')
 const fontSize = ref(14)
 const fullscreen = ref(false)
@@ -206,6 +214,10 @@ function activate(id: number) {
 
 function addTab(t: TermTab) {
   tabs.value.push(t)
+  statusMap[t.id] = t.status
+  t.onStatus = (id, s) => {
+    statusMap[id] = s
+  }
   t.onClose = (id) => {
     /* 保留标签显示断开状态，由用户手动关闭 */
   }
@@ -226,6 +238,7 @@ function addTab(t: TermTab) {
 function closeTab(id: number) {
   const t = tabs.value.find((x) => x.id === id)
   if (t) t.destroy()
+  delete statusMap[id]
   tabs.value = tabs.value.filter((x) => x.id !== id)
   if (activeId.value === id) activeId.value = tabs.value.length ? tabs.value[tabs.value.length - 1].id : 0
 }
@@ -239,6 +252,12 @@ declare module './term-session' {
 
 function openHostTab(h: HostInfo) {
   const t = new TermTab({ title: h.name || h.host, hostId: h.id, hostLabel: h.username + '@' + h.host, theme: themeName.value, fontSize: fontSize.value })
+  addTab(t)
+}
+
+// 本机 Shell（面板所在服务器，无需凭据）
+function openLocalTab() {
+  const t = new TermTab({ title: '本机', hostId: null, hostLabel: 'local', theme: themeName.value, fontSize: fontSize.value, mode: 'local' })
   addTab(t)
 }
 
@@ -291,12 +310,13 @@ async function dlgOk() {
 }
 
 // ---- 主机 CRUD / 排序 ----
-async function loadHosts() {
+async function loadHosts(): Promise<HostInfo[]> {
   try {
     hosts.value = (await api.get('/term/hosts')) as any
   } catch {
     hosts.value = []
   }
+  return hosts.value
 }
 
 async function moveHost(i: number, d: number) {
@@ -389,10 +409,13 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
-  loadHosts()
-  loadKeys()
+onMounted(async () => {
   window.addEventListener('keydown', onKey)
+  loadKeys()
+  // 默认连接：有收藏主机时自动连第一台（SSH）；否则默认连本机 Shell
+  const list = await loadHosts()
+  if (list.length) openHostTab(list[0])
+  else openLocalTab()
 })
 
 onBeforeUnmount(() => {
@@ -407,6 +430,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.host-item--local {
+  border-left: 3px solid var(--wm-primary, #3a7afe);
 }
 .host-item {
   display: flex;

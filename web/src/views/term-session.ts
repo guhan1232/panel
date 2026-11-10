@@ -33,6 +33,7 @@ export class TermTab {
   title: string
   hostId: number | null // null = 快速连接/本机
   hostLabel: string
+  mode: 'ssh' | 'local'
   term: Terminal
   fit: FitAddon
   ws: WebSocket | null = null
@@ -40,13 +41,17 @@ export class TermTab {
   lastInput = Date.now()
   idleWarned = false
   onClose: (id: number) => void = () => {}
+  onStatus: (id: number, status: string) => void = () => {}
+  onIdle: (msg: string) => void = () => {}
+  pendingCred?: TabMsg
   private container: HTMLElement | null = null
   private ro: ResizeObserver | null = null
 
-  constructor(opts: { title: string; hostId: number | null; hostLabel: string; theme: string; fontSize: number }) {
+  constructor(opts: { title: string; hostId: number | null; hostLabel: string; theme: string; fontSize: number; mode?: 'ssh' | 'local' }) {
     this.title = opts.title
     this.hostId = opts.hostId
     this.hostLabel = opts.hostLabel
+    this.mode = opts.mode || 'ssh'
     const th = THEMES[opts.theme] || THEMES.dark
     this.term = new Terminal({
       cursorBlink: true,
@@ -76,6 +81,11 @@ export class TermTab {
     })
   }
 
+  private setStatus(s: 'connecting' | 'connected' | 'closed') {
+    this.status = s
+    this.onStatus(this.id, s)
+  }
+
   mount(el: HTMLElement) {
     this.container = el
     this.term.open(el)
@@ -95,15 +105,21 @@ export class TermTab {
 
   connect(cred?: TabMsg) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    let url = `${proto}://${location.host}/api/ws/ssh?cols=${this.term.cols || 120}&rows=${this.term.rows || 32}`
-    if (this.hostId) url += `&host_id=${this.hostId}`
+    let url: string
+    if (this.mode === 'local') {
+      // 本机 PTY（面板所在服务器，无需 SSH 凭据）
+      url = `${proto}://${location.host}/api/ws/terminal?cols=${this.term.cols || 120}&rows=${this.term.rows || 32}`
+    } else {
+      url = `${proto}://${location.host}/api/ws/ssh?cols=${this.term.cols || 120}&rows=${this.term.rows || 32}`
+      if (this.hostId) url += `&host_id=${this.hostId}`
+    }
     this.ws = new WebSocket(url)
     this.ws.onopen = () => {
       // 快速连接：首条消息发凭据（服务端等这条再拨号）
-      if (!this.hostId && cred) {
+      if (this.mode === 'ssh' && !this.hostId && cred) {
         this.ws!.send(JSON.stringify({ type: 'cred', ...cred }))
       }
-      this.status = 'connected'
+      this.setStatus('connected')
       this.lastInput = Date.now()
     }
     this.ws.onmessage = (ev) => {
@@ -122,7 +138,7 @@ export class TermTab {
           }
           if (m.type === 'exit') {
             this.term.writeln('\r\n\x1b[31m[' + (m.data || '连接已关闭') + ']\x1b[0m')
-            this.status = 'closed'
+            this.setStatus('closed')
             this.onClose(this.id)
             return
           }
@@ -132,14 +148,13 @@ export class TermTab {
     }
     this.ws.onclose = () => {
       if (this.status !== 'closed') {
-        this.status = 'closed'
+        this.setStatus('closed')
         this.term.writeln('\r\n\x1b[33m[连接已断开]\x1b[0m')
         this.onClose(this.id)
       }
     }
   }
 
-  onIdle: (msg: string) => void = () => {}
   keepAlive() {
     // 用户点了「继续」：重置空闲计时（发一个无效输入由服务端刷新 lastInput）
     this.lastInput = Date.now()
