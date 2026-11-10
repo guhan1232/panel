@@ -26,6 +26,8 @@ func ServeIndex(w http.ResponseWriter, fsys fs.FS) {
 		http.Error(w, "前端未构建：请先执行 make build-web", http.StatusInternalServerError)
 		return
 	}
+	// 显式写状态头：gin NoRoute 下依赖隐式 200 会被先行 WriteHeader(404) 污染
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
 }

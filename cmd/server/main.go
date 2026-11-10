@@ -164,16 +164,20 @@ func main() {
 			return
 		}
 		if !authSvc.SpaAllowed(c) {
-			// 无入口 Cookie 的页面请求：302 引导到安全入口（写 Cookie 后回首页），
-			// 而非 404——避免已登录用户刷新/直达路径时页面断裂。
+			// 无入口 Cookie 的页面请求：302 引导到安全入口（写 Cookie 后回首页）。
 			c.Redirect(http.StatusFound, "/s/"+cfg.Server.Entrance)
 			return
 		}
+		// 真实静态资源（/assets/*、favicon 等）直接由 embed 文件系统输出
 		if f, err := spaFS.Open(strings.TrimPrefix(p, "/")); err == nil {
-			f.Close()
-			fileServer.ServeHTTP(c.Writer, c.Request)
-			return
+			defer f.Close()
+			st, statErr := f.Stat()
+			if statErr == nil && !st.IsDir() {
+				fileServer.ServeHTTP(c.Writer, c.Request)
+				return
+			}
 		}
+		// 其余路径（SPA history 路由 / 根路径）一律回 index.html，200
 		webui.ServeIndex(c.Writer, spaFS)
 	})
 

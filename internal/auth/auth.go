@@ -101,7 +101,9 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.POST("/setting/2fa/enable", s.twoFAEnable)
 	authed.POST("/setting/2fa/disable", s.twoFADisable)
 	authed.GET("/sessions", s.listSessions)
+	authed.GET("/auth/sessions", s.listSessions) // 别名：与前端 Setting.vue 一致
 	authed.DELETE("/sessions/:id", s.revokeSession)
+	authed.DELETE("/auth/sessions/:id", s.revokeSession)
 }
 
 func (s *Service) login(c *gin.Context) {
