@@ -103,7 +103,11 @@ func main() {
 	cronMod.Register(protected)
 	filem.New(cfg.DataDir).Register(protected)
 	// 终端为系统 shell，viewer 角色禁止
-	term.Register(protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator)), db)
+	termGrp := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
+	term.Register(termGrp, db)
+	// SSH 多标签终端：主机收藏 CRUD + SSH 拨号 WS（凭据加密落库）
+	term.RegisterHosts(termGrp, db, cfg)
+	term.RegisterSSH(termGrp, db, cfg)
 	proc.Register(protected)
 	setting.New(db, cfg).Register(protected)
 

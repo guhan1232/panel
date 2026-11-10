@@ -47,6 +47,7 @@ type TLSConfig struct {
 type ServerConfig struct {
 	Listen   string    `yaml:"listen"`
 	Entrance string    `yaml:"entrance"`
+	Secret   string    `yaml:"secret"` // 32 字节 hex；终端凭据等本地加密用途（缺省自动生成 .term.key）
 	TLS      TLSConfig `yaml:"tls"`
 }
 
