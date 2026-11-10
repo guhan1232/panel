@@ -309,7 +309,7 @@ func (m *Module) changeUsername(c *gin.Context) {
 		return
 	}
 	var cnt int64
-	m.db.Model(&core.User{}).Where("username = ?", name).Count(&cnt)
+	m.db.Model(&core.User{}).Where("username = ? AND id <> ?", name, uid).Count(&cnt)
 	if cnt > 0 {
 		core.Err(c, 400, "用户名已被占用")
 		return
