@@ -71,11 +71,12 @@ type Template struct {
 	Key    string                                        `json:"key"`
 	Name   string                                        `json:"name"`
 	Desc   string                                        `json:"desc"`
-	Kind   string                                        `json:"kind"` // compose | native | package
+	Kind   string                                        `json:"kind"` // compose | native | package | script
 	Params []Param                                       `json:"params"`
 	Gen    func(p map[string]string) (string, error)     // compose 用
 	Native *NativeSpec                                   // native 用
 	Pkg    func(distro string) ([]string, string, error) // package 用: 返回(包列表, systemd 单元)
+	Script string                                        // script 用: bash 内容或 http(s) URL
 
 	// ---- 版本选择支持（nil = 仅默认版本）----
 	DefaultVersion   string                                                                                                            // 默认版本（未选时使用）
@@ -902,12 +903,23 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g.GET("/docker/stats", dockerStats)
 	g.GET("/docker/mirrors", m.getMirrors)
 	g.POST("/docker/mirrors", m.saveMirrors)
+	g.GET("/docker/overview", dockerOverview)
+	g.GET("/docker/sites", dockerSites)
+	g.GET("/docker/networks", dockerNetworks)
+	g.POST("/docker/networks", dockerNetworkCreate)
+	g.DELETE("/docker/networks/:name", dockerNetworkRemove)
+	g.GET("/docker/volumes", dockerVolumes)
+	g.DELETE("/docker/volumes/:name", dockerVolumeRemove)
+	g.GET("/docker/search", dockerSearch)
+	g.POST("/docker/pull", dockerPull)
+	g.POST("/docker/login", dockerLogin)
 	g.GET("", m.list)
 	g.POST("", m.install)
 	g.POST("/:id/start", m.start)
 	g.POST("/:id/stop", m.stop)
 	g.POST("/:id/restart", m.restart)
 	g.GET("/:id/logs", m.logs)
+	m.registerScriptRoutes(g)
 	g.POST("/:id/uninstall", m.uninstall)
 	g.POST("/:id/upgrade", m.upgrade)
 	admin.POST("/apps/source", m.setSource)
@@ -1332,7 +1344,14 @@ func (m *Module) install(c *gin.Context) {
 
 	var status string
 	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
-	if tpl.Kind == "package" {
+	if tpl.Kind == "script" {
+		s, err := m.installScript(tpl, req.Name, p)
+		if err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		status = s
+	} else if tpl.Kind == "package" {
 		s, pkgs, unit, err := m.installPackage(tpl, req.Name, req.Version, req.Mirror, p)
 		if err != nil {
 			core.Err(c, 500, err.Error())
@@ -1727,6 +1746,10 @@ func (m *Module) uninstall(c *gin.Context) {
 				_, _, _ = execx.RunShell("appstore:uninstall", 10*time.Minute, "dnf remove -y "+r.Pkgs)
 			}
 		}
+	} else if r.Kind == "script" {
+		// 脚本类：清理脚本与日志（脚本自身的清理由脚本作者负责，可在脚本内写 uninstall 逻辑）
+		_ = os.Remove(filepath.Join(m.scriptsDir(), r.Name+".sh"))
+		_ = os.Remove(filepath.Join(m.scriptsDir(), r.Name+".sh.log"))
 	} else if r.Kind == "native" {
 		if r.Tool {
 			if r.Binary != "" {

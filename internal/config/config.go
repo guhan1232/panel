@@ -102,6 +102,7 @@ func defaultConfig() *Config {
 		Server: ServerConfig{
 			Listen:   fmt.Sprintf(":%d", port),
 			Entrance: randomToken(4), // 8 位随机安全入口
+			TLS:      TLSConfig{Enabled: true}, // 新装默认 HTTPS（首次启动自动生成自签证书，含公网 IP SAN）
 		},
 		DataDir:  "data",
 		LogDir:   "logs",

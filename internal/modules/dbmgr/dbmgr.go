@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -116,6 +118,8 @@ func New(db *gorm.DB, dataDir string) *Module { return &Module{db: db, dataDir: 
 func (m *Module) Register(api gin.IRouter) {
 	g := api.Group("/dbmgr")
 	g.GET("/config", m.getConfig)
+	g.GET("/status", m.dbStatus)
+	g.POST("/install-mariadb", m.installMariaDB)
 	g.POST("/mysql-config", m.saveMysql)
 	g.POST("/pg-config", m.savePg)
 	g.POST("/test", m.test)
@@ -142,6 +146,75 @@ func (m *Module) Register(api gin.IRouter) {
 	pg.POST("/users", m.pgCreateUser)
 	pg.POST("/grant", m.pgGrant)
 	pg.DELETE("/users/:name", m.pgDropUser)
+}
+
+// connErr 判断是否为「服务未安装/未监听」类连接错误（降级为 installed:false，不报 500 弹窗）。
+func connErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "dial tcp") ||
+		strings.Contains(s, "no such host") ||
+		strings.Contains(s, "no such file") ||
+		strings.Contains(s, "i/o timeout")
+}
+
+// dbStatus 探测 MySQL/PG 服务是否在监听（1.5s 超时，绝不报错弹窗）。
+func (m *Module) dbStatus(c *gin.Context) {
+	mq := getMysql(m.db)
+	mAddr := fmt.Sprintf("%s:%d", mq.Host, mq.Port)
+	mOk := probeTCP(mAddr)
+	pg := getPg(m.db)
+	pAddr := fmt.Sprintf("%s:%d", pg.Host, pg.Port)
+	pOk := probeTCP(pAddr)
+	core.OK(c, gin.H{
+		"mysql": gin.H{"installed": mOk, "addr": mAddr},
+		"pg":    gin.H{"installed": pOk, "addr": pAddr},
+	})
+}
+
+func probeTCP(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 1500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// installMariaDB 一键安装 MariaDB（Debian apt / RHEL dnf-yum），安装后启动服务。
+func (m *Module) installMariaDB(c *gin.Context) {
+	var out string
+	var code int
+	var err error
+	if _, _, e := execx.Run("db", 5*time.Second, "apt-get", "--version"); e == nil {
+		out, code, err = execx.Run("db", 600*time.Second, "sh", "-c",
+			"DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mariadb-server && systemctl enable --now mariadb")
+	} else if _, _, e := execx.Run("db", 5*time.Second, "dnf", "--version"); e == nil {
+		out, code, err = execx.Run("db", 600*time.Second, "sh", "-c",
+			"dnf install -y mariadb-server && systemctl enable --now mariadb")
+	} else if _, _, e := execx.Run("db", 5*time.Second, "yum", "--version"); e == nil {
+		out, code, err = execx.Run("db", 600*time.Second, "sh", "-c",
+			"yum install -y mariadb-server && systemctl enable --now mariadb")
+	} else {
+		core.Err(c, 400, "未识别的包管理器（仅支持 apt/dnf/yum）")
+		return
+	}
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("安装失败(exit %d): %s", code, out))
+		return
+	}
+	// 等待端口就绪
+	for i := 0; i < 10; i++ {
+		if probeTCP(fmt.Sprintf("127.0.0.1:%d", getMysql(m.db).Port)) {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	slog.Info("MariaDB 安装完成")
+	core.OK(c, gin.H{"ok": true, "message": "MariaDB 已安装并启动；请在下方保存连接配置（默认 root 无密码需先设置，或创建专用账号）"})
 }
 
 func (m *Module) getConfig(c *gin.Context) {
@@ -234,6 +307,10 @@ func (m *Module) mysqlList(c *gin.Context) {
 	defer d.Close()
 	rows, err := d.Query("SHOW DATABASES")
 	if err != nil {
+		if connErr(err) {
+			core.OK(c, gin.H{"installed": false})
+			return
+		}
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -301,6 +378,10 @@ func (m *Module) mysqlUsers(c *gin.Context) {
 	defer d.Close()
 	rows, err := d.Query("SELECT user, host FROM mysql.user")
 	if err != nil {
+		if connErr(err) {
+			core.OK(c, gin.H{"installed": false})
+			return
+		}
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -408,12 +489,20 @@ func (m *Module) pgList(c *gin.Context) {
 	defer cancel()
 	conn, err := pgConn(ctx, getPg(m.db))
 	if err != nil {
+		if connErr(err) {
+			core.OK(c, gin.H{"installed": false})
+			return
+		}
 		core.Err(c, 500, err.Error())
 		return
 	}
 	defer conn.Close(ctx)
 	rows, err := conn.Query(ctx, "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname NOT IN ('template0','template1')")
 	if err != nil {
+		if connErr(err) {
+			core.OK(c, gin.H{"installed": false})
+			return
+		}
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -481,12 +570,20 @@ func (m *Module) pgUsers(c *gin.Context) {
 	defer cancel()
 	conn, err := pgConn(ctx, getPg(m.db))
 	if err != nil {
+		if connErr(err) {
+			core.OK(c, gin.H{"installed": false})
+			return
+		}
 		core.Err(c, 500, err.Error())
 		return
 	}
 	defer conn.Close(ctx)
 	rows, err := conn.Query(ctx, "SELECT rolname FROM pg_roles WHERE rolcanlogin")
 	if err != nil {
+		if connErr(err) {
+			core.OK(c, gin.H{"installed": false})
+			return
+		}
 		core.Err(c, 500, err.Error())
 		return
 	}

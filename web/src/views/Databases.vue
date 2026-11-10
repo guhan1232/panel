@@ -3,6 +3,14 @@
     <WmSectionCard title="数据库连接" description="连接凭据由面板托管，同时供计划任务的数据库备份使用">
       <a-tabs v-model:activeKey="engine">
         <a-tab-pane tab="MySQL" key="mysql">
+          <WmNotice v-if="mysqlMissing" tone="warning" title="MySQL/MariaDB 服务未运行">
+            探测 {{ mysql.host }}:{{ mysql.port }} 无监听（服务未安装或未启动），数据库管理功能暂不可用。
+            <div class="wm-mt-4">
+              <a-button type="primary" :loading="installingDb" @click="installDb">一键安装 MariaDB（默认安装）</a-button>
+              <span class="wm-text-muted" style="margin-left:12px">自动识别 apt/dnf/yum；安装后服务自启，再保存连接配置即可管理。</span>
+            </div>
+          </WmNotice>
+          <template v-else>
           <a-form layout="inline" class="cfg">
             <a-form-item label="主机"><a-input v-model:value="mysql.host" style="width: 130px" /></a-form-item>
             <a-form-item label="端口"><a-input-number v-model:value="mysql.port" :min="1" controls-position="right" style="width: 110px" /></a-form-item>
@@ -36,9 +44,14 @@
               </WmTable>
             </WmSectionCard>
           </div>
+          </template>
         </a-tab-pane>
 
         <a-tab-pane tab="PostgreSQL" key="pg">
+          <WmNotice v-if="pgMissing" tone="warning" title="PostgreSQL 服务未运行">
+            探测 {{ pg.host }}:{{ pg.port }} 无监听（服务未安装或未启动）。可通过「软件商店」或系统包管理器安装 PostgreSQL 后，在此保存连接配置。
+          </WmNotice>
+          <template v-else>
           <a-form layout="inline" class="cfg">
             <a-form-item label="主机"><a-input v-model:value="pg.host" style="width: 130px" /></a-form-item>
             <a-form-item label="端口"><a-input-number v-model:value="pg.port" :min="1" controls-position="right" style="width: 110px" /></a-form-item>
@@ -71,6 +84,7 @@
               </WmTable>
             </WmSectionCard>
           </div>
+          </template>
         </a-tab-pane>
 
         <a-tab-pane tab="备份管理" key="backup">
@@ -188,20 +202,62 @@ async function testConn(e: string) {
 }
 
 async function loadData() {
-  try {
-    if (engine.value === 'mysql') {
-      mysqlData.dbs = (await api.get('/dbmgr/mysql/databases')) as any
-      mysqlData.users = (await api.get('/dbmgr/mysql/users')) as any
-    } else {
-      pgData.dbs = (await api.get('/dbmgr/pg/databases')) as any
-      pgData.users = (await api.get('/dbmgr/pg/users')) as any
+  if (engine.value === 'mysql') {
+    if (!(dbStatus.value?.mysql?.installed)) {
+      mysqlMissing.value = true
+      return
     }
-  } catch {
-    /* 连接未配置时忽略 */
+    mysqlMissing.value = false
+    const d1: any = await api.get('/dbmgr/mysql/databases')
+    if (d1 && typeof d1 === 'object' && d1.installed === false) {
+      mysqlMissing.value = true
+      return
+    }
+    mysqlData.dbs = d1
+    mysqlData.users = (await api.get('/dbmgr/mysql/users')) as any
+  } else {
+    if (!(dbStatus.value?.pg?.installed)) {
+      pgMissing.value = true
+      return
+    }
+    pgMissing.value = false
+    const d1: any = await api.get('/dbmgr/pg/databases')
+    if (d1 && typeof d1 === 'object' && d1.installed === false) {
+      pgMissing.value = true
+      return
+    }
+    pgData.dbs = d1
+    pgData.users = (await api.get('/dbmgr/pg/users')) as any
   }
 }
 
-async function ask(title: string, msg: string): Promise<string | null> {
+// ---- 数据库服务状态与一键安装 ----
+const dbStatus = ref<any>({})
+const mysqlMissing = ref(false)
+const pgMissing = ref(false)
+const installingDb = ref(false)
+
+async function loadStatus() {
+  try {
+    dbStatus.value = await api.get('/dbmgr/status')
+  } catch {
+    dbStatus.value = {}
+  }
+}
+
+async function installDb() {
+  installingDb.value = true
+  try {
+    const r: any = await api.post('/dbmgr/install-mariadb', {}, { timeout: 620000 })
+    ElMessage.success(r?.message || 'MariaDB 已安装并启动')
+    await loadStatus()
+    loadData()
+  } finally {
+    installingDb.value = false
+  }
+}
+
+async function ask(title: string, msg: string, _default = ''): Promise<string | null> {
   try {
     const r: any = await ElMessageBox.prompt(msg, title)
     return r.value
@@ -284,6 +340,7 @@ async function grant(e: string) {
 watch(engine, () => loadData())
 onMounted(loadBackups)
 onMounted(async () => {
+  await loadStatus()
   await loadCfg()
   loadData()
 })

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/archive"
 	"cnb.cool/hanyuxin/panel/internal/config"
 	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/selfcert"
 )
 
 type Module struct {
@@ -43,6 +45,160 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/panel-backup", m.panelBackup)
 	g.GET("/upgrade/check", m.upgradeCheck)
 	g.POST("/upgrade/apply", m.upgradeApply)
+	// HTTPS 证书（自签兜底 10 年 / 中间 CA 交叉签发跟随 CA 有效期）
+	g.GET("/tls/status", m.tlsStatus)
+	g.POST("/tls/apply", m.tlsApply)
+}
+
+// ---- HTTPS 证书管理 ----
+
+// tlsStatus 当前 TLS 配置与证书有效期。
+func (m *Module) tlsStatus(c *gin.Context) {
+	out := gin.H{
+		"tls":      m.cfg.Server.TLS.Enabled,
+		"listen":   m.cfg.Server.Listen,
+		"has_cert": m.cfg.Server.TLS.Cert != "",
+		"has_ca":   false,
+		"acme_ip":  gin.H{"supported": false, "reason": "Let's Encrypt 的 IP 证书目前仅提供 6 天短期证书且需占用 443 端口自动续期，与长期证书诉求冲突；建议使用中间 CA 交叉签发（有效期跟随 CA）或自签 10 年"},
+	}
+	// CA 是否已就位
+	caDir := filepath.Join(m.cfg.DataDir, "certs", "ca")
+	if _, err := os.Stat(filepath.Join(caDir, "ca.crt")); err == nil {
+		if _, err2 := os.Stat(filepath.Join(caDir, "ca.key")); err2 == nil {
+			out["has_ca"] = true
+		}
+	}
+	// 当前证书有效期
+	if m.cfg.Server.TLS.Cert != "" {
+		if data, err := os.ReadFile(m.cfg.Server.TLS.Cert); err == nil {
+			if subject, notAfter, err := selfcert.Inspect(data); err == nil {
+				out["cert_subject"] = subject
+				out["cert_not_after"] = notAfter.Format("2006-01-02")
+			}
+		}
+	} else {
+		// 未配置路径时检查默认自签位置
+		def := filepath.Join(m.cfg.DataDir, "certs", "panel.crt")
+		if data, err := os.ReadFile(def); err == nil {
+			if subject, notAfter, err := selfcert.Inspect(data); err == nil {
+				out["cert_subject"] = subject
+				out["cert_not_after"] = notAfter.Format("2006-01-02")
+			}
+		}
+	}
+	core.OK(c, out)
+}
+
+// tlsApply 签发证书并启用 HTTPS：mode=self（自签 10 年兜底）| ca（中间 CA 交叉签发，跟随 CA 有效期）。
+// extra_ips/extra_dns：用户显式指定的访问地址（云服务器 NAT 下公网 IP 不在网卡上，外部探测不可靠时用此参数保证 SAN）。
+// 成功后写入 config.yaml 并自动重启面板。
+func (m *Module) tlsApply(c *gin.Context) {
+	var req struct {
+		Mode     string   `binding:"required,oneof=self ca"`
+		CACert   string   `json:"ca_cert"` // PEM 文本（mode=ca 时必填，除非已保存过 CA）
+		CAKey    string   `json:"ca_key"`
+		ExtraIPs []string `json:"extra_ips"`
+		ExtraDNS []string `json:"extra_dns"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	panelDir := filepath.Join(m.cfg.DataDir, "certs", "panel")
+	var certPEM, keyPEM []byte
+
+	// 显式指定的 SAN（公网 IP / 域名）
+	ips := selfcert.PublicIPs()
+	for _, s := range req.ExtraIPs {
+		if ip := net.ParseIP(strings.TrimSpace(s)); ip != nil {
+			ips = append(ips, ip)
+		}
+	}
+	hostnames := []string{"localhost"}
+	for _, s := range req.ExtraDNS {
+		if s = strings.TrimSpace(s); s != "" {
+			hostnames = append(hostnames, s)
+		}
+	}
+
+	if req.Mode == "ca" {
+		caDir := filepath.Join(m.cfg.DataDir, "certs", "ca")
+		caCertPath, caKeyPath := filepath.Join(caDir, "ca.crt"), filepath.Join(caDir, "ca.key")
+		// 优先使用本次上传的 CA；否则复用已保存的
+		if req.CACert != "" && req.CAKey != "" {
+			if err := os.MkdirAll(caDir, 0o700); err != nil {
+				core.Err(c, 500, err.Error())
+				return
+			}
+			if err := os.WriteFile(caCertPath, []byte(req.CACert), 0o644); err != nil {
+				core.Err(c, 500, err.Error())
+				return
+			}
+			if err := os.WriteFile(caKeyPath, []byte(req.CAKey), 0o600); err != nil {
+				core.Err(c, 500, err.Error())
+				return
+			}
+		}
+		caCertPEM, err := os.ReadFile(caCertPath)
+		if err != nil {
+			core.Err(c, 400, "请先上传中间 CA 证书与私钥")
+			return
+		}
+		caKeyPEM, err := os.ReadFile(caKeyPath)
+		if err != nil {
+			core.Err(c, 400, "请先上传中间 CA 私钥")
+			return
+		}
+		certPEM, keyPEM, err = selfcert.IssueFromCA(caCertPEM, caKeyPEM, ips, hostnames)
+		if err != nil {
+			core.Err(c, 400, err.Error())
+			return
+		}
+	} else {
+		// 自签兜底：10 年，SAN 含本机 IP + 显式指定的访问地址
+		var serr error
+		certPEM, keyPEM, serr = selfcert.IssueSelfSigned(hostnames, ips)
+		if serr != nil {
+			core.Err(c, 500, serr.Error())
+			return
+		}
+	}
+
+	// 落盘 + 写配置 + 重启
+	if err := os.MkdirAll(panelDir, 0o700); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	certPath := filepath.Join(panelDir, "panel.crt")
+	keyPath := filepath.Join(panelDir, "panel.key")
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	m.cfg.Server.TLS.Enabled = true
+	m.cfg.Server.TLS.Cert = certPath
+	m.cfg.Server.TLS.Key = keyPath
+	if err := m.cfg.Save(m.cfg.Path); err != nil {
+		core.Err(c, 500, "写入配置失败: "+err.Error())
+		return
+	}
+	slog.Info("HTTPS 证书已更新，准备重启面板", "mode", req.Mode, "cert", certPath)
+	core.OK(c, gin.H{"ok": true, "restarting": true, "mode": req.Mode})
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		cmd2 := exec.Command("sh", "-c", "systemctl restart hanyuxin || systemctl restart digong 2>/dev/null")
+		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
+			slog.Warn("systemctl 重启不可用，改用 exec 自重启", "out", strings.TrimSpace(string(out2)))
+			exe, _ := os.Executable()
+			if exePath, _ := filepath.Abs(exe); exePath != "" {
+				_ = syscall.Exec(exePath, os.Args, os.Environ())
+			}
+		}
+	}()
 }
 
 func (m *Module) info(c *gin.Context) {

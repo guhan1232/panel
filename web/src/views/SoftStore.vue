@@ -78,6 +78,29 @@
       </a-col>
 
       <a-col :xs="24" :xl="8">
+        <WmSectionCard title="脚本应用" description="仓库托管的一键安装脚本 + 自定义脚本（上传即用，执行留痕）">
+          <template #actions>
+            <a-button size="small" type="primary" @click="scriptDlg = true">上传脚本</a-button>
+          </template>
+          <a-list v-if="customScripts.length" :data-source="customScripts" size="small" class="store-list">
+            <template #renderItem="{ item }">
+              <a-list-item class="store-list__item">
+                <div class="store-list__meta">
+                  <b class="wm-truncate">{{ item.name }}</b>
+                  <span class="wm-text-muted wm-truncate">{{ item.head || 'bash 脚本' }}</span>
+                </div>
+                <template #actions>
+                  <a-button type="link" size="small" @click="runScript(item.name)">运行</a-button>
+                  <a-button type="link" size="small" @click="viewScriptLog(item.name)">日志</a-button>
+                  <a-button type="link" size="small" data-tone="danger" @click="delScript(item.name)">删除</a-button>
+                </template>
+              </a-list-item>
+            </template>
+          </a-list>
+          <p v-else class="wm-text-muted">还没有上传自定义脚本。仓库清单中的 script 类应用会出现在左侧「可安装软件」里，可直接一键安装。</p>
+          <WmNotice tone="neutral" class="wm-mt-4">脚本在面板服务器上以 bash 执行（限时 30 分钟），环境变量注入 PANEL_APP_NAME；安装时可声明参数，以双花括号参数名占位符替换。</WmNotice>
+        </WmSectionCard>
+
         <WmSectionCard title="已安装" :description="`${apps.length} 个实例，可查看日志或卸载`">
           <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
             <template #renderItem="{ item }">
@@ -253,6 +276,22 @@
     <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
     </a-modal>
+
+    <!-- 上传脚本 -->
+    <a-modal v-model:open="scriptDlg" title="上传自定义脚本（bash）" ok-text="保存" cancel-text="取消" @ok="saveScript" width="640px">
+      <a-form layout="vertical">
+        <a-form-item label="脚本名（小写字母数字_-）"><a-input v-model:value="scriptForm.name" placeholder="如 init-blog" /></a-form-item>
+        <a-form-item label="脚本内容">
+          <a-textarea v-model:value="scriptForm.content" :rows="10" placeholder="#!/bin/bash&#10;echo hello" class="wm-mono" />
+        </a-form-item>
+        <WmNotice tone="warning">脚本将以 bash 在面板服务器执行；安装该脚本应用时参数会以双花括号参数名占位符替换（如  写法）.</WmNotice>
+      </a-form>
+    </a-modal>
+
+    <!-- 脚本日志 -->
+    <a-modal v-model:open="scriptLogDlg" :title="`脚本日志 - ${scriptLogName}`" width="820px">
+      <WmCodeBlock :content="scriptLogContent" :label="`${scriptLogName} / script log`" />
+    </a-modal>
   </div>
 </template>
 
@@ -278,7 +317,7 @@ const logDlg = ref(false)
 const logName = ref('')
 const logContent = ref('')
 
-const kindLabel = (k: string) => ({ native: '二进制', package: '系统包', compose: '容器' } as any)[k] || k
+const kindLabel = (k: string) => ({ native: '二进制', package: '系统包', compose: '容器', script: '脚本' } as any)[k] || k
 const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
 
 const runtimes = ref<any[]>([])
@@ -463,8 +502,8 @@ async function load() {
   loading.value = true
   try {
     loadRuntimes()
-    templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind === 'native' || t.kind === 'package')
-    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind === 'native' || a.app.kind === 'package')
+    templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind !== 'compose')
+    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind !== 'compose')
     sources.value = (await api.get('/apps/soft-sources')) as any
   } finally {
     loading.value = false
@@ -559,6 +598,73 @@ async function act(row: any, action: string) {
   ElMessage.success('已执行 ' + action)
   load()
 }
+// ---- 脚本应用 ----
+const customScripts = ref<any[]>([])
+const scriptDlg = ref(false)
+const scriptForm = reactive({ name: '', content: '' })
+const scriptLogDlg = ref(false)
+const scriptLogName = ref('')
+const scriptLogContent = ref('')
+
+async function loadScripts() {
+  try {
+    customScripts.value = (await api.get('/apps/scripts')) as any
+  } catch {
+    customScripts.value = []
+  }
+}
+
+async function saveScript() {
+  const name = scriptForm.name.trim()
+  if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(name)) {
+    ElMessage.warning('脚本名仅允许小写字母数字_-（2-64 位）')
+    return
+  }
+  if (!scriptForm.content.trim()) {
+    ElMessage.warning('脚本内容不能为空')
+    return
+  }
+  await api.post('/apps/scripts', { name, content: scriptForm.content })
+  ElMessage.success('脚本已保存')
+  scriptDlg.value = false
+  scriptForm.name = ''
+  scriptForm.content = ''
+  loadScripts()
+}
+
+async function runScript(name: string) {
+  try {
+    const r: any = await ElMessageBox.prompt('输入应用实例名（小写字母数字短横线）', '运行脚本 ' + name, { inputValue: name + '-' + Date.now().toString(36).slice(-4) })
+    const d: any = await api.post(`/apps/scripts/${name}/run`, { instance: r.value }, { timeout: 1900000 })
+    ElMessage.success(d?.status || '脚本执行成功')
+    load()
+  } catch {
+    /* 取消 */
+  }
+}
+
+async function viewScriptLog(name: string) {
+  try {
+    const d: any = await api.get(`/apps/scripts/${name}/log`)
+    scriptLogName.value = name
+    scriptLogContent.value = d.log || '（暂无日志）'
+    scriptLogDlg.value = true
+  } catch {
+    ElMessage.warning('暂无日志')
+  }
+}
+
+async function delScript(name: string) {
+  try {
+    await ElMessageBox.confirm(`确认删除脚本「${name}」？`, '删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.delete(`/apps/scripts/${name}`)
+  ElMessage.success('已删除')
+  loadScripts()
+}
+
 
 async function viewLogs(row: any) {
   const d: any = await api.get(`/apps/${row.app.id}/logs`)
@@ -587,32 +693,10 @@ async function uninstall(row: any) {
   load()
 }
 
-onMounted(load)
-</script>
-
-<style scoped>
-.wm-tpl-card__pills {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.mono {
-  font-family: Consolas, Monaco, monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-</style>
-
-<style scoped>
-.rt-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-</style>
-
+onMounted(() => {
+  load()
+  loadScripts()
+})
 async function loadComposerInfo() {
   composerLoading.value = true
   try {
@@ -653,3 +737,29 @@ async function savePecl(val: string) {
   await api.post('/runtimes/php/pecl', { mirror: val })
   ElMessage.success('PECL 镜像已设置')
 }
+
+</script>
+
+<style scoped>
+.wm-tpl-card__pills {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.mono {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+</style>
+
+<style scoped>
+.rt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+</style>
+

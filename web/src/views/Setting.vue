@@ -14,6 +14,31 @@
         <WmNotice tone="info" title="修改入口需重启服务" class="wm-mt-4">面板端口与安全入口在 config.yaml 中配置，修改后需执行 systemctl restart hanyuxin。</WmNotice>
       </WmSectionCard>
 
+      <WmSectionCard title="HTTPS 加密连接" description="默认加密访问；CA 签发有效期跟随 CA，仅无 CA 时自签 10 年兜底" marker>
+        <template #actions>
+          <a-button size="small" @click="loadTls">刷新</a-button>
+        </template>
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="当前模式">
+            <WmStatusPill :label="tls.tls ? 'HTTPS 加密' : 'HTTP 明文'" :tone="tls.tls ? 'success' : 'warning'" />
+          </a-descriptions-item>
+          <a-descriptions-item label="证书主体"><span class="wm-mono">{{ tls.cert_subject || '—' }}</span></a-descriptions-item>
+          <a-descriptions-item label="有效期至"><span class="wm-mono">{{ tls.cert_not_after || '—' }}</span></a-descriptions-item>
+          <a-descriptions-item label="中间 CA">
+            <WmStatusPill :label="tls.has_ca ? '已保存（可复用续签）' : '未上传'" :tone="tls.has_ca ? 'success' : 'default'" :dot="false" />
+          </a-descriptions-item>
+        </a-descriptions>
+        <div class="wm-mt-4">
+          <a-space wrap>
+            <a-button type="primary" :loading="tlsBusy === 'self'" @click="applyTls('self')">自签证书（10 年兜底）</a-button>
+            <a-button :loading="tlsBusy === 'ca'" @click="openCaDlg">用中间 CA 签发（跟随 CA 有效期）</a-button>
+          </a-space>
+          <a-form-item label="访问 IP/域名（写入证书 SAN，逗号分隔）" style="margin-top:12px"><a-input v-model:value="extraIps" placeholder="如 154.8.165.155, panel.example.com" /></a-form-item>
+<p class="wm-text-muted" style="margin-top:8px">CA 上传一次后保存于服务器（data/certs/ca），续签无需重复上传。云服务器 NAT 下公网 IP 不在网卡上，请在上方显式填写访问 IP 以保证证书 SAN 匹配。应用后面板自动重启为 HTTPS。</p>
+          <WmNotice tone="info" class="wm-mt-4">仓库一键安装脚本 scripts/install.sh 同样支持：--ca-cert/--ca-key 用中间 CA 签发（有效期跟随 CA）；不给 CA 自动自签 10 年。</WmNotice>
+        </div>
+      </WmSectionCard>
+
       <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
           <a-button size="small" @click="loadSessions">刷新</a-button>
@@ -90,6 +115,21 @@
         </a-form>
       </WmSectionCard>
     </div>
+
+    <!-- 中间 CA 上传 -->
+    <a-modal v-model:open="caDlg" title="上传中间 CA（签发叶子证书，有效期跟随 CA）" ok-text="签发并启用 HTTPS" cancel-text="取消" @ok="applyTls('ca')">
+      <a-form layout="vertical">
+        <a-form-item label="CA 证书（PEM，如 mianban.crt）">
+          <input type="file" accept=".crt,.pem,.cer" @change="e => readPem(e, 'cert')" />
+          <a-textarea v-model:value="caForm.cert" :rows="5" placeholder="-----BEGIN CERTIFICATE-----" class="wm-mono" style="margin-top:8px" />
+        </a-form-item>
+        <a-form-item label="CA 私钥（PEM，如 mianban.key）">
+          <input type="file" accept=".key,.pem" @change="e => readPem(e, 'key')" />
+          <a-textarea v-model:value="caForm.key" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" class="wm-mono" style="margin-top:8px" />
+        </a-form-item>
+        <WmNotice tone="warning">CA 私钥仅保存在面板服务器本地（data/certs/ca，权限 600）。若已上传过，此处留空直接确认即可复用。</WmNotice>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -227,9 +267,55 @@ async function submit() {
   }
 }
 
+// ---- HTTPS 证书 ----
+const tls = ref<any>({})
+const tlsBusy = ref('')
+const caDlg = ref(false)
+const extraIps = ref('')
+const caForm = reactive({ cert: '', key: '' })
+
+async function loadTls() {
+  try {
+    tls.value = await api.get('/setting/tls/status')
+  } catch {
+    /* ignore */
+  }
+}
+
+async function applyTls(mode: 'self' | 'ca') {
+  if (mode === 'ca' && (!caForm.cert || !caForm.key) && !tls.value.has_ca) {
+    caDlg.value = true
+    return
+  }
+  tlsBusy.value = mode
+  try {
+    await api.post('/setting/tls/apply', { mode, ca_cert: caForm.cert, ca_key: caForm.key, extra_ips: extraIps.value.split(',').map((s: string) => s.trim()).filter(Boolean), extra_dns: [] }, { timeout: 60000 })
+    ElMessage.success('证书已签发，面板正在重启为 HTTPS…约 3 秒后用 https://IP:端口/s/入口 重新打开')
+  } finally {
+    tlsBusy.value = ''
+    caDlg.value = false
+  }
+}
+
+function openCaDlg() {
+  caDlg.value = true
+}
+
+function readPem(e: any, which: 'cert' | 'key') {
+  const f = e.target?.files?.[0]
+  if (!f) return
+  const r = new FileReader()
+  r.onload = () => {
+    caForm[which] = String(r.result || '')
+    if (which === 'cert') caForm.key = caForm.key // 保留另一侧
+  }
+  r.readAsText(f)
+}
+
 onMounted(async () => {
   await loadInfo()
   loadSessions()
+  loadTls()
   checkUpgrade().catch(() => {})
 })
 </script>

@@ -221,3 +221,205 @@ func dockerStats(c *gin.Context) {
 	}
 	core.OK(c, rows)
 }
+
+// ---- Docker 全面管理（总览/网站/网络/存储卷/镜像仓库）----
+
+// dockerInfo 单条 docker info/version 输出。
+func dockerInfo(args ...string) (map[string]any, error) {
+	out, _, err := execx.Run("appstore", 30*time.Second, "docker", args...)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+// dockerOverview 总览：版本/信息/容器统计。
+func dockerOverview(c *gin.Context) {
+	if _, _, err := execx.Run("appstore", 8*time.Second, "docker", "version"); err != nil {
+		core.OK(c, gin.H{"installed": false})
+		return
+	}
+	ver, _ := dockerInfo("version", "--format", "{{json .}}")
+	info, _ := dockerInfo("info", "--format", "{{json .}}")
+	containers, _ := dockerJSONList("ps", "-a")
+	images, _ := dockerJSONList("images")
+	running, stopped := 0, 0
+	for _, ct := range containers {
+		if s, _ := ct["State"].(string); s == "running" {
+			running++
+		} else {
+			stopped++
+		}
+	}
+	core.OK(c, gin.H{
+		"version":   ver,
+		"info":      info,
+		"running":   running,
+		"stopped":   stopped,
+		"images":    len(images),
+		"templates": true,
+	})
+}
+
+// dockerSites 网站视图：发布了端口映射的容器（建站类）。
+func dockerSites(c *gin.Context) {
+	rows, err := dockerJSONList("ps", "-a")
+	if err != nil {
+		core.OK(c, gin.H{"installed": false})
+		return
+	}
+	sites := []map[string]any{}
+	for _, r := range rows {
+		ports, _ := r["Ports"].(string)
+		name, _ := r["Names"].(string)
+		sites = append(sites, gin.H{"name": name, "image": r["Image"], "state": r["State"], "ports": ports})
+	}
+	core.OK(c, sites)
+}
+
+// dockerNetworks 网络列表（Docker 未安装时优雅降级）。
+func dockerNetworks(c *gin.Context) {
+	rows, err := dockerJSONList("network", "ls")
+	if err != nil {
+		core.OK(c, gin.H{"installed": false})
+		return
+	}
+	core.OK(c, rows)
+}
+
+// dockerNetworkCreate 创建网络。
+func dockerNetworkCreate(c *gin.Context) {
+	var req struct {
+		Name   string `binding:"required"`
+		Driver string `json:"driver"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	if !nameRe.MatchString(req.Name) {
+		core.Err(c, 400, "网络名非法")
+		return
+	}
+	driver := req.Driver
+	if driver == "" {
+		driver = "bridge"
+	}
+	out, code, err := execx.Run("appstore", 30*time.Second, "docker", "network", "create", "--driver", driver, req.Name)
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("创建失败(exit %d): %s", code, out))
+		return
+	}
+	core.OK(c, nil)
+}
+
+// dockerNetworkRemove 删除网络（内置网络禁删）。
+func dockerNetworkRemove(c *gin.Context) {
+	name := c.Param("name")
+	switch name {
+	case "bridge", "host", "none":
+		core.Err(c, 400, "内置网络不可删除")
+		return
+	}
+	out, code, err := execx.Run("appstore", 30*time.Second, "docker", "network", "rm", name)
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("删除失败(exit %d): %s", code, out))
+		return
+	}
+	core.OK(c, nil)
+}
+
+// dockerVolumes 存储卷列表（Docker 未安装时优雅降级）。
+func dockerVolumes(c *gin.Context) {
+	rows, err := dockerJSONList("volume", "ls")
+	if err != nil {
+		core.OK(c, gin.H{"installed": false})
+		return
+	}
+	core.OK(c, rows)
+}
+
+// dockerVolumeRemove 删除存储卷。
+func dockerVolumeRemove(c *gin.Context) {
+	name := c.Param("name")
+	out, code, err := execx.Run("appstore", 30*time.Second, "docker", "volume", "rm", name)
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("删除失败(exit %d): %s", code, out))
+		return
+	}
+	core.OK(c, nil)
+}
+
+// dockerSearch 线上镜像搜索。
+func dockerSearch(c *gin.Context) {
+	term := strings.TrimSpace(c.Query("term"))
+	if term == "" {
+		core.OK(c, []map[string]any{})
+		return
+	}
+	rows, err := dockerJSONList("search", "--limit", "12", term)
+	if err != nil {
+		core.Err(c, 500, "docker 不可用: "+err.Error())
+		return
+	}
+	core.OK(c, rows)
+}
+
+// dockerPull 拉取镜像（同步限时执行）。
+func dockerPull(c *gin.Context) {
+	var req struct {
+		Image string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	image := strings.TrimSpace(req.Image)
+	if image == "" || strings.ContainsAny(image, ";|&`$") {
+		core.Err(c, 400, "镜像名非法")
+		return
+	}
+	out, code, err := execx.Run("appstore", 15*time.Minute, "docker", "pull", image)
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("拉取失败(exit %d): %s", code, tailOut(out)))
+		return
+	}
+	core.OK(c, gin.H{"ok": true, "output": tailOut(out)})
+}
+
+// dockerLogin 登录镜像仓库（凭据不落库，仅本机 docker credential store）。
+func dockerLogin(c *gin.Context) {
+	var req struct {
+		Registry string `binding:"required"`
+		Username string `binding:"required"`
+		Password string `binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	registry := strings.TrimSpace(req.Registry)
+	if strings.ContainsAny(registry, ";|&`$ ") {
+		core.Err(c, 400, "仓库地址非法")
+		return
+	}
+	out, code, err := execx.Run("appstore", 60*time.Second, "docker", "login", "-u", req.Username, "-p", req.Password, registry)
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("登录失败(exit %d): %s", code, tailOut(out)))
+		return
+	}
+	// 记录仓库地址清单（不含凭据）
+	core.OK(c, gin.H{"ok": true})
+}
+
+func tailOut(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 400 {
+		return "..." + s[len(s)-400:]
+	}
+	return s
+}

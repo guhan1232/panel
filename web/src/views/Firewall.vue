@@ -7,7 +7,11 @@
         <a-button size="small" @click="load">刷新</a-button>
       </WmToolbar>
       <WmNotice v-if="fw.tool === 'none'" tone="warning" title="未检测到受支持的防火墙">
-        {{ fw.message || '当前系统未检测到 ufw 或 firewalld，端口规则功能不可用。' }}
+        {{ fw.message || '当前系统未检测到 ufw 或 firewalld。' }}
+        <div class="wm-mt-4">
+          <a-button type="primary" :loading="installing" @click="installFw">一键安装防火墙（默认安装）</a-button>
+          <p class="wm-text-muted" style="margin-top:8px">自动识别发行版：Debian/Ubuntu 安装 ufw，RHEL 系安装 firewalld。启用前会自动放行 SSH(22/tcp) 与面板端口，防止锁死远程访问。</p>
+        </div>
       </WmNotice>
       <template v-else>
         <WmNotice tone="warning" class="wm-mb-4">移除面板端口的放行规则可能导致失去远程访问，请先确认保留 SSH 与面板端口。</WmNotice>
@@ -34,6 +38,18 @@ import api from '../api'
 
 const fw = ref<any>({ tool: 'none', enabled: false, ports: [], message: '' })
 const newPort = ref('')
+const installing = ref(false)
+
+async function installFw() {
+  installing.value = true
+  try {
+    const r: any = await api.post('/firewall/install', {}, { timeout: 620000 })
+    ElMessage.success(r?.message || '安装完成')
+    await load()
+  } finally {
+    installing.value = false
+  }
+}
 
 const toolLabel = computed(() => ({ ufw: 'ufw (Debian/Ubuntu)', firewalld: 'firewalld (RHEL)', none: '未检测到防火墙' } as any)[fw.value.tool] || fw.value.tool)
 

@@ -41,11 +41,12 @@ type remoteApp struct {
 	Key     string        `json:"key"`
 	Name    string        `json:"name"`
 	Desc    string        `json:"desc"`
-	Kind    string        `json:"kind"` // compose | native
+	Kind    string        `json:"kind"` // compose | native | script
 	Version string        `json:"version"`
 	Params  []Param       `json:"params"`
 	Compose string        `json:"compose"`
 	Native  *remoteNative `json:"native"`
+	Script  string        `json:"script"` // script 用：bash 内容或 http(s) URL（仓库托管）
 }
 
 func substitute(s string, p map[string]string) string {
@@ -57,7 +58,7 @@ func substitute(s string, p map[string]string) string {
 
 // remoteToTemplate 将远程声明式定义转为可安装模板。
 func remoteToTemplate(def remoteApp) *Template {
-	t := &Template{Key: def.Key, Name: def.Name, Desc: def.Desc, Kind: def.Kind, Params: def.Params}
+	t := &Template{Key: def.Key, Name: def.Name, Desc: def.Desc, Kind: def.Kind, Params: def.Params, Script: def.Script}
 	if def.Kind == "compose" {
 		t.Gen = func(p map[string]string) (string, error) {
 			return substitute(def.Compose, p), nil
