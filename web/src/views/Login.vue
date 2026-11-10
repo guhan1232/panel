@@ -23,19 +23,19 @@
 
         <a-alert v-if="errorMsg" type="error" :message="errorMsg" show-icon class="login-error" />
 
-        <a-form layout="vertical" @finish="submit">
+        <a-form layout="vertical" @submit.prevent="submit">
           <a-form-item :label="tr('用户名')">
             <a-input v-model:value="username" size="large" :placeholder="tr('用户名')" autocomplete="username" @input="errorMsg = ''">
               <template #prefix><UserOutlined /></template>
             </a-input>
           </a-form-item>
           <a-form-item :label="tr('密码')">
-            <a-input-password v-model:value="password" size="large" :placeholder="tr('密码')" autocomplete="current-password" @input="errorMsg = ''" @press-enter="submit">
+            <a-input-password v-model:value="password" size="large" :placeholder="tr('密码')" autocomplete="current-password" @input="errorMsg = ''">
               <template #prefix><LockOutlined /></template>
             </a-input-password>
           </a-form-item>
           <a-form-item v-if="need2fa" :label="tr('两因素验证码')">
-            <a-input v-model:value="totpCode" size="large" :placeholder="tr('6 位动态码')" inputmode="numeric" maxlength="6" @input="errorMsg = ''" @press-enter="submit">
+            <a-input v-model:value="totpCode" size="large" :placeholder="tr('6 位动态码')" inputmode="numeric" maxlength="6" @input="errorMsg = ''">
               <template #prefix><SafetyOutlined /></template>
             </a-input>
           </a-form-item>
@@ -82,6 +82,9 @@ async function submit() {
     if (e?.need_2fa) {
       need2fa.value = true
       errorMsg.value = '该账号已启用两因素验证，请输入验证码'
+    } else {
+      // 网络失败 / 密码错误等：给出可见错误，避免静默无响应
+      errorMsg.value = e?.msg || e?.response?.data?.msg || (e?.message === 'Network Error' ? '网络错误，请稍后重试' : '') || '登录失败，请检查用户名与密码'
     }
   } finally {
     loading.value = false
