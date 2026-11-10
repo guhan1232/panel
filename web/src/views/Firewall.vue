@@ -1,11 +1,14 @@
 <template>
   <div class="wm-page">
-    <WmSectionCard title="防火墙状态" description="统一抽象 ufw 与 firewalld，操作即时生效" marker>
+    <WmSectionCard title="防火墙状态" description="统一抽象 ufw 与 firewalld，规则由面板托管（导入/导出/同步）" marker>
       <WmToolbar>
-        <WmStatusPill :label="toolLabel" :tone="fw.tool === 'none' ? 'danger' : 'success'" />
+        <WmStatusPill :label="toolLabel" :tone="fw.tool === 'none' ? 'danger' : fw.enabled ? 'success' : 'warning'" :pulse="fw.enabled" />
         <a-switch v-if="fw.tool !== 'none'" v-model:checked="fw.enabled" @change="switchFw" />
-        <a-button size="small" @click="load">刷新</a-button>
+        <a-button size="small" @click="load">刷 新</a-button>
+        <template #note>{{ fw.tool === 'ufw' ? 'ufw（Debian/Ubuntu）' : fw.tool === 'firewalld' ? 'firewalld（RHEL）' : fw.message || '' }}</template>
       </WmToolbar>
+
+      <!-- 未安装引导 -->
       <WmNotice v-if="fw.tool === 'none'" tone="warning" title="未检测到受支持的防火墙">
         {{ fw.message || '当前系统未检测到 ufw 或 firewalld。' }}
         <div class="wm-mt-4">
@@ -13,32 +16,203 @@
           <p class="wm-text-muted" style="margin-top:8px">自动识别发行版：Debian/Ubuntu 安装 ufw，RHEL 系安装 firewalld。启用前会自动放行 SSH(22/tcp) 与面板端口，防止锁死远程访问。</p>
         </div>
       </WmNotice>
+
+      <!-- 规则管理（宝塔式） -->
       <template v-else>
-        <WmNotice tone="warning" class="wm-mb-4">移除面板端口的放行规则可能导致失去远程访问，请先确认保留 SSH 与面板端口。</WmNotice>
-        <WmToolbar>
-          <a-input v-model:value="newPort" placeholder="如 8080/tcp 或 53/udp" style="width: 220px" @keyup.enter="addPort" />
-          <a-button type="primary" @click="addPort">放行端口</a-button>
-          <template #note>格式：端口或端口段 / 协议，例如 8080/tcp、8000-8100/tcp。</template>
+        <WmNotice tone="warning" class="wm-mb-4">移除 SSH 或面板端口的放行规则可能导致失去远程访问，请谨慎操作。</WmNotice>
+        <WmToolbar class="rule-actions">
+          <a-button type="primary" class="btn-add" @click="openAdd">添加端口规则</a-button>
+          <a-button @click="importDlg = true">导入规则</a-button>
+          <a-button @click="exportRules">导出规则</a-button>
+          <a-button :data-tone="fw.anti_scan ? 'danger' : 'default'" @click="toggleAntiScan">
+            {{ fw.anti_scan ? '关闭端口防扫描' : '端口防扫描' }}
+          </a-button>
+          <a-button :loading="syncing" @click="syncRules">同步规则</a-button>
         </WmToolbar>
-        <WmTable :data="fw.ports" size="small" empty-title="暂无放行规则" empty-description="在上方输入端口与协议后添加规则。">
-          <WmColumn label="端口/协议" min-width="180"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
-          <WmColumn label="操作" width="110">
-            <template #default="{ row }"><a-button size="small" data-tone="danger" @click="delPort(row)">移除</a-button></template>
+
+        <WmTable :data="rules" v-loading="loading" size="small" empty-title="暂无端口规则" empty-description="点击「添加端口规则」创建第一条规则。">
+          <WmColumn label="协议" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.protocol.toUpperCase() }}</span></template></WmColumn>
+          <WmColumn label="端口" min-width="150"><template #default="{ row }"><b class="wm-mono">{{ row.ports }}</b></template></WmColumn>
+          <WmColumn label="来源" min-width="150"><template #default="{ row }"><span class="wm-mono">{{ row.source || '所有IP' }}</span></template></WmColumn>
+          <WmColumn label="策略" width="100"><template #default="{ row }"><WmStatusPill :label="row.action === 'accept' ? '放行' : '阻止'" :tone="row.action === 'accept' ? 'success' : 'danger'" :dot="false" /></template></WmColumn>
+          <WmColumn label="方向" width="90"><template #default="{ row }">{{ row.direction === 'out' ? '出站' : '入站' }}</template></WmColumn>
+          <WmColumn label="备注" min-width="180"><template #default="{ row }"><span class="wm-text-muted">{{ row.remark || '-' }}<a-tag v-if="row.auto" style="margin-left:6px" size="small">系统</a-tag></span></template></WmColumn>
+          <WmColumn label="操作" width="90" fixed="right">
+            <template #default="{ row }"><a-button size="small" data-tone="danger" @click="delRule(row)">删除</a-button></template>
           </WmColumn>
         </WmTable>
       </template>
     </WmSectionCard>
+
+    <!-- 添加端口规则（宝塔式六字段） -->
+    <a-modal v-model:open="addDlg" title="添加端口规则" width="520px" ok-text="确定" cancel-text="取消" :ok-button-props="{ style: { background: '#00b96b', borderColor: '#00b96b' } }" @ok="submitAdd">
+      <a-form :label-col="{ style: { width: '70px' } }">
+        <a-form-item label="协议">
+          <a-select v-model:value="form.protocol">
+            <a-select-option value="tcp">TCP</a-select-option>
+            <a-select-option value="udp">UDP</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="端口" required>
+          <a-input v-model:value="form.ports" placeholder="请输入端口" />
+        </a-form-item>
+        <a-form-item label="来源">
+          <a-select v-model:value="form.sourceMode">
+            <a-select-option value="all">所有IP</a-select-option>
+            <a-select-option value="custom">指定IP/网段</a-select-option>
+          </a-select>
+          <a-input v-if="form.sourceMode === 'custom'" v-model:value="form.source" placeholder="如 10.0.0.1 或 192.168.1.0/24" style="margin-top:8px" />
+        </a-form-item>
+        <a-form-item label="策略">
+          <a-select v-model:value="form.action">
+            <a-select-option value="accept">放行</a-select-option>
+            <a-select-option value="deny">阻止</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="方向">
+          <a-select v-model:value="form.direction">
+            <a-select-option value="in">入站(默认)</a-select-option>
+            <a-select-option value="out">出站</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="备注"><a-input v-model:value="form.remark" placeholder="请填写备注，可为空" /></a-form-item>
+      </a-form>
+      <ul class="rule-hints">
+        <li>支持添加多个端口，如：<code>80,88</code></li>
+        <li>支持添加多个端口范围，如：<code>80,88,90-99,110-120</code></li>
+        <li>默认配置下防火墙无法管理 Docker 容器端口</li>
+        <li>此操作将重载防火墙，未持久化的 iptables 规则会清空，请先备份保存！</li>
+      </ul>
+    </a-modal>
+
+    <!-- 导入规则 -->
+    <a-modal v-model:open="importDlg" title="导入规则（JSON）" width="640px" ok-text="导入" cancel-text="取消" @ok="doImport">
+      <p class="wm-text-muted">粘贴「导出规则」生成的 JSON 数组，或自行按字段构造：protocol / ports / source / action(accept|deny) / direction(in|out) / remark。</p>
+      <a-textarea v-model:value="importText" :rows="10" class="wm-mono" placeholder='[{"protocol":"tcp","ports":"80,443","source":"","action":"accept","direction":"in","remark":"web"}]' />
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 
-const fw = ref<any>({ tool: 'none', enabled: false, ports: [], message: '' })
-const newPort = ref('')
+const fw = ref<any>({ tool: 'none', enabled: false, anti_scan: false, ports: [], message: '' })
+const rules = ref<any[]>([])
+const loading = ref(false)
 const installing = ref(false)
+const syncing = ref(false)
+
+const addDlg = ref(false)
+const form = reactive({ protocol: 'tcp', ports: '', sourceMode: 'all', source: '', action: 'accept', direction: 'in', remark: '' })
+const importDlg = ref(false)
+const importText = ref('')
+
+const toolLabel = computed(() => ({ ufw: 'ufw 已启用', firewalld: 'firewalld 运行中', none: '未检测到防火墙' } as any)[fw.value.tool] || fw.value.tool)
+
+async function load() {
+  fw.value = { ...fw.value, ...(await api.get('/firewall/status')) }
+  if (fw.value.tool !== 'none') {
+    rules.value = (await api.get('/firewall/rules')) as any
+  }
+}
+
+function openAdd() {
+  Object.assign(form, { protocol: 'tcp', ports: '', sourceMode: 'all', source: '', action: 'accept', direction: 'in', remark: '' })
+  addDlg.value = true
+}
+
+async function submitAdd() {
+  if (!form.ports.trim()) {
+    ElMessage.warning('请输入端口')
+    return
+  }
+  if (form.sourceMode === 'custom' && !form.source.trim()) {
+    ElMessage.warning('请填写来源 IP/网段')
+    return
+  }
+  await api.post('/firewall/rule', {
+    protocol: form.protocol,
+    ports: form.ports.trim(),
+    source: form.sourceMode === 'custom' ? form.source.trim() : '',
+    action: form.action,
+    direction: form.direction,
+    remark: form.remark.trim()
+  })
+  ElMessage.success('规则已添加并生效')
+  addDlg.value = false
+  load()
+}
+
+async function delRule(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除规则「${row.protocol.toUpperCase()} ${row.ports}」？`, '删除规则', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.delete('/firewall/rule/' + row.id)
+  ElMessage.success('已删除')
+  load()
+}
+
+async function doImport() {
+  let list: any
+  try {
+    list = JSON.parse(importText.value)
+  } catch {
+    ElMessage.warning('JSON 格式不正确')
+    return
+  }
+  if (!Array.isArray(list) || !list.length) {
+    ElMessage.warning('内容应为非空 JSON 数组')
+    return
+  }
+  const r: any = await api.post('/firewall/rules/import', { rules: list }, { timeout: 300000 })
+  ElMessage.success(r?.message || '导入完成')
+  importDlg.value = false
+  importText.value = ''
+  load()
+}
+
+function exportRules() {
+  const blob = new Blob([JSON.stringify(rules.value.map((r: any) => ({
+    protocol: r.protocol, ports: r.ports, source: r.source, action: r.action, direction: r.direction, remark: r.remark
+  })), null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'hanyuxin-firewall-rules.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+async function syncRules() {
+  try {
+    await ElMessageBox.confirm('将面板托管的全部规则重新下发到防火墙（防自锁端口自动保留），继续？', '同步规则', { type: 'warning' })
+  } catch {
+    return
+  }
+  syncing.value = true
+  try {
+    const r: any = await api.post('/firewall/sync', {}, { timeout: 600000 })
+    ElMessage.success(r?.message || '同步完成')
+    load()
+  } finally {
+    syncing.value = false
+  }
+}
+
+async function toggleAntiScan() {
+  const enable = !fw.value.anti_scan
+  const r: any = await api.post('/firewall/anti-scan', { enabled: enable }, { timeout: 300000 })
+  ElMessage.success(r?.message || (enable ? '防扫描已开启' : '防扫描已关闭'))
+  load()
+}
+
+async function switchFw() {
+  await api.post('/firewall/switch', { enabled: fw.value.enabled })
+  ElMessage.success(fw.value.enabled ? '防火墙已启用' : '防火墙已关闭')
+}
 
 async function installFw() {
   installing.value = true
@@ -51,42 +225,24 @@ async function installFw() {
   }
 }
 
-const toolLabel = computed(() => ({ ufw: 'ufw (Debian/Ubuntu)', firewalld: 'firewalld (RHEL)', none: '未检测到防火墙' } as any)[fw.value.tool] || fw.value.tool)
-
-async function load() {
-  fw.value = { ...fw.value, ...(await api.get('/firewall/status')) }
-  if (fw.value.tool !== 'none') {
-    const p: any = await api.get('/firewall/ports')
-    fw.value.ports = p.ports
-  }
-}
-
-async function addPort() {
-  const v = newPort.value.trim()
-  if (!/^\d+(-\d+)?\/(tcp|udp)$/.test(v)) {
-    ElMessage.warning('格式应为 8080/tcp 或 53/udp')
-    return
-  }
-  await api.post('/firewall/port', { port: v, action: 'add' })
-  ElMessage.success('已放行')
-  newPort.value = ''
-  load()
-}
-
-async function delPort(p: string) {
-  try {
-    await ElMessageBox.confirm(`确认移除 ${p} 的放行规则？`, '确认', { type: 'warning' })
-  } catch {
-    return
-  }
-  await api.post('/firewall/port', { port: p, action: 'remove' })
-  load()
-}
-
-async function switchFw() {
-  await api.post('/firewall/switch', { enabled: fw.value.enabled })
-  ElMessage.success(fw.value.enabled ? '防火墙已启用' : '防火墙已关闭')
-}
-
 onMounted(load)
 </script>
+
+<style scoped>
+.rule-actions :deep(button:first-child) {
+  background: #00b96b;
+  border-color: #00b96b;
+}
+.rule-hints {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  color: var(--wm-text-2, #8492a6);
+  font-size: 12px;
+  line-height: 1.9;
+}
+.rule-hints code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+</style>
