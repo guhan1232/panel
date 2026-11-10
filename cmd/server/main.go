@@ -164,7 +164,9 @@ func main() {
 			return
 		}
 		if !authSvc.SpaAllowed(c) {
-			c.String(http.StatusNotFound, "404 page not found")
+			// 无入口 Cookie 的页面请求：302 引导到安全入口（写 Cookie 后回首页），
+			// 而非 404——避免已登录用户刷新/直达路径时页面断裂。
+			c.Redirect(http.StatusFound, "/s/"+cfg.Server.Entrance)
 			return
 		}
 		if f, err := spaFS.Open(strings.TrimPrefix(p, "/")); err == nil {
