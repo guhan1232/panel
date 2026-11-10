@@ -156,7 +156,6 @@ func main() {
 
 	// SPA 静态资源（嵌入前端）
 	spaFS := webui.FS()
-	fileServer := http.FileServer(http.FS(spaFS))
 	r.NoRoute(func(c *gin.Context) {
 		p := c.Request.URL.Path
 		if p == "/api" || strings.HasPrefix(p, "/api/") {
@@ -168,12 +167,11 @@ func main() {
 			c.Redirect(http.StatusFound, "/s/"+cfg.Server.Entrance)
 			return
 		}
-		// 真实静态资源（/assets/*、favicon 等）直接由 embed 文件系统输出
+		// 真实静态资源（/assets/*、favicon 等）由 embed 文件系统输出（assets 带长缓存头）
 		if f, err := spaFS.Open(strings.TrimPrefix(p, "/")); err == nil {
 			defer f.Close()
-			st, statErr := f.Stat()
-			if statErr == nil && !st.IsDir() {
-				fileServer.ServeHTTP(c.Writer, c.Request)
+			if st, statErr := f.Stat(); statErr == nil && !st.IsDir() {
+				webui.ServeStatic(c.Writer, c.Request, spaFS)
 				return
 			}
 		}
