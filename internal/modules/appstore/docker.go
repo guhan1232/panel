@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -354,19 +356,72 @@ func dockerVolumeRemove(c *gin.Context) {
 	core.OK(c, nil)
 }
 
-// dockerSearch 线上镜像搜索。
+// builtinImages 常用镜像清单（Docker Hub 被墙时的搜索回退，可自由输入任意镜像名拉取）。
+var builtinImages = []map[string]any{
+	{"name": "nginx", "description": "Official build of Nginx.", "star_count": 20000, "official": true},
+	{"name": "redis", "description": "Redis is an open source key-value store.", "star_count": 13000, "official": true},
+	{"name": "mysql", "description": "MySQL is a widely used, open-source relational database.", "star_count": 15000, "official": true},
+	{"name": "postgres", "description": "PostgreSQL object-relational database.", "star_count": 13000, "official": true},
+	{"name": "mongo", "description": "MongoDB document database.", "star_count": 11000, "official": true},
+	{"name": "mariadb", "description": "MariaDB is a community-developed fork of MySQL.", "star_count": 6000, "official": true},
+	{"name": "node", "description": "Node.js JavaScript runtime.", "star_count": 12000, "official": true},
+	{"name": "python", "description": "Python programming language.", "star_count": 11000, "official": true},
+	{"name": "golang", "description": "Go programming language.", "star_count": 9000, "official": true},
+	{"name": "openjdk", "description": "OpenJDK Java runtime.", "star_count": 7000, "official": true},
+	{"name": "rabbitmq", "description": "RabbitMQ message broker.", "star_count": 5000, "official": true},
+	{"name": "elasticsearch", "description": "Elasticsearch search engine.", "star_count": 6000, "official": true},
+	{"name": "traefik", "description": "Traefik reverse proxy / load balancer.", "star_count": 4000, "official": true},
+	{"name": "grafana/grafana", "description": "Grafana metrics dashboards.", "star_count": 4500},
+	{"name": "prometheus", "description": "Prometheus monitoring.", "star_count": 5000, "official": true},
+	{"name": "minio/minio", "description": "S3-compatible object storage.", "star_count": 3000},
+	{"name": "n8nio/n8n", "description": "n8n workflow automation.", "star_count": 2500},
+	{"name": "gitea/gitea", "description": "Gitea self-hosted Git service.", "star_count": 1500},
+	{"name": "linuxserver/uptime-kuma", "description": "Uptime-Kuma self-hosted monitor.", "star_count": 800},
+	{"name": "halo-dev/halo", "description": "Halo 博客/建站系统。", "star_count": 400},
+}
+
+// dockerSearch 线上镜像搜索：优先 Docker Hub API（3s 超时），被墙自动回退内置清单。
 func dockerSearch(c *gin.Context) {
 	term := strings.TrimSpace(c.Query("term"))
 	if term == "" {
 		core.OK(c, []map[string]any{})
 		return
 	}
-	rows, err := dockerJSONList("search", "--limit", "12", term)
-	if err != nil {
-		core.Err(c, 500, "docker 不可用: "+err.Error())
+	if rows := hubSearchAPI(term); rows != nil {
+		core.OK(c, rows)
 		return
 	}
-	core.OK(c, rows)
+	// 回退：内置清单按关键词过滤
+	out := []map[string]any{}
+	term = strings.ToLower(term)
+	for _, m := range builtinImages {
+		name, _ := m["name"].(string)
+		desc, _ := m["description"].(string)
+		if term == "" || strings.Contains(strings.ToLower(name), term) || strings.Contains(strings.ToLower(desc), term) {
+			row := map[string]any{"name": name, "description": desc, "star_count": m["star_count"], "official": m["official"], "builtin": true}
+			out = append(out, row)
+		}
+	}
+	core.OK(c, out)
+}
+
+func hubSearchAPI(term string) []map[string]any {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://hub.docker.com/v2/search/repositories/?query=" + url.QueryEscape(term) + "&page_size=12")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	var data struct {
+		Results []map[string]any `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || len(data.Results) == 0 {
+		return nil
+	}
+	return data.Results
 }
 
 // dockerPull 拉取镜像（同步限时执行）。

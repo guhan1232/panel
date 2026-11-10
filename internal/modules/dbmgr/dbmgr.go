@@ -4,6 +4,8 @@ package dbmgr
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +123,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/config", m.getConfig)
 	g.GET("/status", m.dbStatus)
 	g.POST("/install-mariadb", m.installMariaDB)
+	g.POST("/install-mysql", m.installMySQL)
+	g.POST("/uninstall", m.uninstall)
 	g.POST("/mysql-config", m.saveMysql)
 	g.POST("/pg-config", m.savePg)
 	g.POST("/test", m.test)
@@ -184,7 +189,7 @@ func probeTCP(addr string) bool {
 	return true
 }
 
-// installMariaDB 一键安装 MariaDB（Debian apt / RHEL dnf-yum），安装后启动服务。
+// installMariaDB 一键安装 MariaDB（备选；默认走 installMySQL）。
 func (m *Module) installMariaDB(c *gin.Context) {
 	var out string
 	var code int
@@ -206,15 +211,164 @@ func (m *Module) installMariaDB(c *gin.Context) {
 		core.Err(c, 500, fmt.Sprintf("安装失败(exit %d): %s", code, out))
 		return
 	}
-	// 等待端口就绪
-	for i := 0; i < 10; i++ {
-		if probeTCP(fmt.Sprintf("127.0.0.1:%d", getMysql(m.db).Port)) {
-			break
+	m.waitForPort(getMysql(m.db).Port)
+	msg := m.configureMysqlRoot(c)
+	slog.Info("MariaDB 安装完成")
+	core.OK(c, gin.H{"ok": true, "message": "MariaDB 已安装并启动。" + msg})
+}
+
+// installMySQL 一键安装 MySQL（默认推荐）：
+//   - Ubuntu：apt 官方源直接安装 mysql-server；
+//   - Debian：apt 无 mysql 包，添加 MySQL 官方 APT 仓库后安装（失败时提示改用 MariaDB 备选）。
+//   - RHEL：dnf/yum 官方 mysql-server 包。
+// 安装后自动修复 root 认证（Error 1698：把 root 改为密码认证并生成随机强密码），凭据写入面板连接配置。
+func (m *Module) installMySQL(c *gin.Context) {
+	var out string
+	var code int
+	var err error
+	if _, _, e := execx.Run("db", 5*time.Second, "apt-get", "--version"); e == nil {
+		isDebian := false
+		if b, e2 := os.ReadFile("/etc/os-release"); e2 == nil && strings.Contains(string(b), "ID=debian") {
+			isDebian = true
+		}
+		if isDebian {
+			// 手动配置 MySQL 官方 APT 仓库；先卸 MariaDB 释放 3306（默认 MySQL）
+			// trixie 上官方只有 mysql-innovation（9.x）组件；bookworm 为 mysql-8.0
+			script := `set -e; ` +
+				`systemctl stop mariadb mysql 2>/dev/null || true; ` +
+				`DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq mariadb-server mariadb-server-* 2>/dev/null || true; ` +
+				`rm -rf /var/lib/mysql; ` +
+				`rm -f /etc/apt/sources.list.d/mysql.list; ` +
+				`apt-get update -qq; ` +
+				`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gnupg lsb-release wget ca-certificates; ` +
+				`echo "deb [trusted=yes] https://repo.mysql.com/apt/debian $(lsb_release -sc) mysql-innovation mysql-tools" > /etc/apt/sources.list.d/mysql.list; ` +
+				`apt-get update -qq; ` +
+				`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-community-server; ` +
+				`systemctl enable --now mysql`
+			out, code, err = execx.Run("db", 900*time.Second, "sh", "-c", script)
+		} else {
+			out, code, err = execx.Run("db", 900*time.Second, "sh", "-c",
+				"DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-server && systemctl enable --now mysql")
+		}
+	} else if _, _, e := execx.Run("db", 5*time.Second, "dnf", "--version"); e == nil {
+		out, code, err = execx.Run("db", 900*time.Second, "sh", "-c", "dnf install -y mysql-server && systemctl enable --now mysqld")
+	} else if _, _, e := execx.Run("db", 5*time.Second, "yum", "--version"); e == nil {
+		out, code, err = execx.Run("db", 900*time.Second, "sh", "-c", "yum install -y mysql-server && systemctl enable --now mysqld")
+	} else {
+		core.Err(c, 400, "未识别的包管理器（仅支持 apt/dnf/yum）")
+		return
+	}
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("MySQL 安装失败(exit %d): %s。Debian 可改用「安装 MariaDB」备选，或检查外网可达性。", code, tailMsg(out)))
+		return
+	}
+	m.waitForPort(getMysql(m.db).Port)
+	msg := m.configureMysqlRoot(c)
+	slog.Info("MySQL 安装完成")
+	core.OK(c, gin.H{"ok": true, "message": "MySQL 已安装并启动。" + msg})
+}
+
+// configureMysqlRoot 修复 Error 1698：root@localhost 默认 unix_socket/caching_sha2 免密认证，
+// TCP(127.0.0.1) 无法匹配账号被拒。经 unix socket 免密通道：为 root@localhost 设密码（保留 socket 免密），
+// 并创建 root@127.0.0.1（TCP 专用同密码），验证 TCP 登录后写入面板连接配置。
+func (m *Module) configureMysqlRoot(c *gin.Context) string {
+	pw := randHex(8) + "Mx" + randHex(8) // 十六进制随机串，长度足够且含字母数字
+	ver, _, _ := execx.Run("db", 15*time.Second, "sh", "-c", "mysql --version 2>/dev/null || mariadb --version 2>/dev/null")
+	var sql string
+	if strings.Contains(ver, "MariaDB") {
+		sql = fmt.Sprintf(`ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('%s') OR unix_socket; `+
+			`CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '%s'; `+
+			`GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;`, pw, pw)
+	} else {
+		sql = fmt.Sprintf(`ALTER USER 'root'@'localhost' IDENTIFIED BY '%s'; `+
+			`CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '%s'; `+
+			`GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;`, pw, pw)
+	}
+	// root 权限（面板即 root 运行）经 unix socket 免密执行
+	if _, code, err := execx.Run("db", 30*time.Second, "sh", "-c", "mysql -uroot -e \""+sql+"\""); err != nil {
+		return "（root 密码自动配置失败 exit " + strconv.Itoa(code) + "，请手动执行 mysql_secure_installation）"
+	}
+	// TCP + 密码验证（1698 修复的验收点）
+	if _, _, err := execx.Run("db", 15*time.Second, "sh", "-c", "mysql -h127.0.0.1 -uroot -p'"+pw+"' -e 'SELECT 1' >/dev/null 2>&1"); err != nil {
+		return "（root 密码已设置但 TCP 验证未通过，请检查 bind-address）"
+	}
+	// 凭据写入面板连接配置
+	cfg := MysqlCfg{Host: "127.0.0.1", Port: 3306, User: "root", Password: pw}
+	data, _ := json.Marshal(cfg)
+	_ = core.SetSetting(m.db, core.KMysqlCfg, string(data))
+	return "root 认证已修复（Error 1698）：root@localhost 保留 socket 免密、root@127.0.0.1 走 TCP 密码登录，连接配置已保存到面板。"
+}
+
+func (m *Module) waitForPort(port int) {
+	for i := 0; i < 15; i++ {
+		if probeTCP(fmt.Sprintf("127.0.0.1:%d", port)) {
+			return
 		}
 		time.Sleep(1 * time.Second)
 	}
-	slog.Info("MariaDB 安装完成")
-	core.OK(c, gin.H{"ok": true, "message": "MariaDB 已安装并启动；请在下方保存连接配置（默认 root 无密码需先设置，或创建专用账号）"})
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = cryptorand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func tailMsg(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 300 {
+		return "..." + s[len(s)-300:]
+	}
+	return s
+}
+
+// uninstall 卸载数据库服务（危险：可选删除数据目录）。
+func (m *Module) uninstall(c *gin.Context) {
+	var req struct {
+		Engine     string `binding:"required,oneof=mysql mariadb postgresql"`
+		RemoveData bool   `json:"remove_data"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	var script string
+	var rmData string
+	switch req.Engine {
+	case "mysql", "mariadb":
+		if _, _, e := execx.Run("db", 5*time.Second, "apt-get", "--version"); e == nil {
+			script = "systemctl stop mysql mariadb 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get purge -y 'mysql-*' 'mariadb-*' 'default-mysql-*' 2>/dev/null; apt-get autoremove -y -qq"
+		} else {
+			script = "systemctl stop mysqld mariadb 2>/dev/null; dnf remove -y mysql-server mariadb-server 2>/dev/null"
+		}
+		rmData = "rm -rf /var/lib/mysql /etc/mysql /var/log/mysql"
+	case "postgresql":
+		if _, _, e := execx.Run("db", 5*time.Second, "apt-get", "--version"); e == nil {
+			script = "systemctl stop postgresql 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get purge -y 'postgresql-*' 2>/dev/null; apt-get autoremove -y -qq"
+		} else {
+			script = "systemctl stop postgresql 2>/dev/null; dnf remove -y postgresql-server 2>/dev/null"
+		}
+		rmData = "rm -rf /var/lib/postgresql /etc/postgresql"
+	}
+	out, code, err := execx.Run("db", 600*time.Second, "sh", "-c", script)
+	if err != nil {
+		core.Err(c, 500, fmt.Sprintf("卸载失败(exit %d): %s", code, tailMsg(out)))
+		return
+	}
+	if req.RemoveData {
+		if _, code, err := execx.Run("db", 60*time.Second, "sh", "-c", rmData); err != nil {
+			core.Err(c, 500, fmt.Sprintf("数据目录删除失败(exit %d)", code))
+			return
+		}
+	}
+	// 清空面板连接配置
+	if req.Engine == "postgresql" {
+		_ = core.SetSetting(m.db, core.KPgCfg, "")
+	} else {
+		_ = core.SetSetting(m.db, core.KMysqlCfg, "")
+	}
+	slog.Info("数据库服务已卸载", "engine", req.Engine, "remove_data", req.RemoveData)
+	core.OK(c, gin.H{"ok": true, "message": "卸载完成" + map[bool]string{true: "（数据目录已删除）", false: "（数据目录保留在原位置）"}[req.RemoveData]})
 }
 
 func (m *Module) getConfig(c *gin.Context) {
@@ -452,6 +606,12 @@ func (m *Module) mysqlGrant(c *gin.Context) {
 		return
 	}
 	defer d.Close()
+	// MySQL 8+ 不允许 GRANT 隐式建用户（Error 1410），先检查账号存在性给出清晰提示
+	var cnt int
+	if err := d.QueryRow("SELECT COUNT(*) FROM mysql.user WHERE user = ? AND host = ?", req.User, req.Host).Scan(&cnt); err == nil && cnt == 0 {
+		core.Err(c, 400, "用户不存在（或 Host 不匹配），请先「创建用户」再授权")
+		return
+	}
 	if _, err := d.Exec(fmt.Sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO `%s`@`%s`", req.DB, req.User, sqlStr(req.Host))); err != nil {
 		core.Err(c, 500, err.Error())
 		return

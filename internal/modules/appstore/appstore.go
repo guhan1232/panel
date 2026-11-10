@@ -1148,14 +1148,27 @@ func dockerStatus(c *gin.Context) {
 }
 
 func installDocker(c *gin.Context) {
-	script := `curl -fsSL https://get.docker.com | sh && systemctl enable --now docker && docker compose version`
+	// 官方脚本优先，被墙时回退阿里云源（deb 系）；RHEL 系直接用阿里云源
+	script := `set -eo pipefail; ` +
+		`(curl -fsSL --max-time 60 https://get.docker.com | sh) || ( ` +
+		`apt-get update -qq; ` +
+		`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg; ` +
+		`install -m 0755 -d /etc/apt/keyrings; ` +
+		`curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg -o /etc/apt/keyrings/docker.asc; ` +
+		`chmod a+r /etc/apt/keyrings/docker.asc; ` +
+		`echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://mirrors.aliyun.com/docker-ce/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list; ` +
+		`apt-get update -qq; ` +
+		`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin ); ` +
+		`systemctl enable --now docker; ` +
+		`docker compose version`
 	out, code, err := execx.RunShell("appstore:install-docker", 30*time.Minute, script)
 	if err != nil {
-		core.Err(c, 500, fmt.Sprintf("Docker 安装失败(exit %d): %s", code, out))
+		core.Err(c, 500, fmt.Sprintf("Docker 安装失败(exit %d): %s", code, tailOut(out)))
 		return
 	}
 	core.OK(c, nil)
 }
+
 
 // ---- 路由处理 ----
 

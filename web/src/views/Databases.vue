@@ -6,8 +6,9 @@
           <WmNotice v-if="mysqlMissing" tone="warning" title="MySQL/MariaDB 服务未运行">
             探测 {{ mysql.host }}:{{ mysql.port }} 无监听（服务未安装或未启动），数据库管理功能暂不可用。
             <div class="wm-mt-4">
-              <a-button type="primary" :loading="installingDb" @click="installDb">一键安装 MariaDB（默认安装）</a-button>
-              <span class="wm-text-muted" style="margin-left:12px">自动识别 apt/dnf/yum；安装后服务自启，再保存连接配置即可管理。</span>
+              <a-button type="primary" :loading="installingDb === 'mysql'" @click="installDb('mysql')">一键安装 MySQL（推荐）</a-button>
+              <a-button :loading="installingDb === 'mariadb'" @click="installDb('mariadb')" style="margin-left:12px">安装 MariaDB（备选）</a-button>
+              <p class="wm-text-muted" style="margin-top:8px">MySQL 优先（Ubuntu 走官方源；Debian 自动添加 MySQL 官方 APT 仓库），失败可改用 MariaDB。安装后自动修复 root 免密认证（Error 1698）并保存连接配置。</p>
             </div>
           </WmNotice>
           <template v-else>
@@ -24,6 +25,7 @@
             <a-button size="small" @click="createUser('mysql')">创建用户</a-button>
             <a-button size="small" @click="grant('mysql')">授权用户到库</a-button>
             <a-button size="small" @click="loadData">刷新</a-button>
+            <a-button size="small" data-tone="danger" :loading="installingDb === 'uninstall'" @click="uninstallDb('mysql')">卸载 MySQL 服务</a-button>
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
@@ -65,6 +67,7 @@
             <a-button size="small" @click="createUser('pg')">创建用户</a-button>
             <a-button size="small" @click="grant('pg')">授权用户到库</a-button>
             <a-button size="small" @click="loadData">刷新</a-button>
+            <a-button size="small" data-tone="danger" :loading="installingDb === 'uninstall'" @click="uninstallDb('postgresql')">卸载 PostgreSQL</a-button>
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
@@ -235,7 +238,7 @@ async function loadData() {
 const dbStatus = ref<any>({})
 const mysqlMissing = ref(false)
 const pgMissing = ref(false)
-const installingDb = ref(false)
+const installingDb = ref<string | false>(false)
 
 async function loadStatus() {
   try {
@@ -245,12 +248,35 @@ async function loadStatus() {
   }
 }
 
-async function installDb() {
-  installingDb.value = true
+async function installDb(kind: 'mysql' | 'mariadb') {
+  installingDb.value = kind
   try {
-    const r: any = await api.post('/dbmgr/install-mariadb', {}, { timeout: 620000 })
-    ElMessage.success(r?.message || 'MariaDB 已安装并启动')
+    const r: any = await api.post('/dbmgr/install-' + kind, {}, { timeout: 1500000 })
+    ElMessage.success(r?.message || '安装完成')
     await loadStatus()
+    loadCfg()
+    loadData()
+  } finally {
+    installingDb.value = false
+  }
+}
+
+async function uninstallDb(engine: 'mysql' | 'postgresql') {
+  const label = engine === 'mysql' ? 'MySQL/MariaDB' : 'PostgreSQL'
+  try {
+    await ElMessageBox.confirm('确认卸载 ' + label + ' 服务？数据库管理功能将不可用。', '卸载服务', { type: 'warning' })
+  } catch { return }
+  let removeData = false
+  try {
+    await ElMessageBox.confirm('是否同时删除数据目录（/var/lib 下全部库文件，不可恢复）？', '删除数据', { type: 'error', confirmButtonText: '删除数据', cancelButtonText: '保留数据' })
+    removeData = true
+  } catch { removeData = false }
+  installingDb.value = 'uninstall'
+  try {
+    const r: any = await api.post('/dbmgr/uninstall', { engine, remove_data: removeData }, { timeout: 620000 })
+    ElMessage.success(r?.message || '卸载完成')
+    await loadStatus()
+    loadCfg()
     loadData()
   } finally {
     installingDb.value = false
