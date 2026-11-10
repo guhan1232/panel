@@ -67,7 +67,17 @@
       <p class="wm-text-muted">备份包含 panel.db（一致性好快照）、config.yaml（含安全入口）与 certs-managed 目录；恢复时停服解压覆盖对应文件即可。</p>
     </WmSectionCard>
 
-      <WmSectionCard title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效" marker dense>
+      <WmSectionCard title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
+      <template #actions>
+        <a-button size="small" type="primary" :loading="savingName" @click="saveUsername">保存用户名</a-button>
+      </template>
+      <a-form layout="inline">
+        <a-form-item label="当前用户名"><span class="wm-mono"><b>{{ auth.username }}</b></span></a-form-item>
+        <a-form-item label="新用户名"><a-input v-model:value="newUsername" placeholder="3-64 位，字母/数字/_/-" style="width: 220px" /></a-form-item>
+      </a-form>
+      <WmNotice tone="neutral" class="wm-mt-4">修改后需用新用户名重新登录；SSH 首次输出的初始凭据文件将在你首次修改密码后自动删除。</WmNotice>
+    </WmSectionCard>
+    <WmSectionCard title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效" marker dense>
         <a-form :label-col="{ style: { width: '100px' } }" style="max-width: 440px">
           <a-form-item label="原密码"><a-input-password v-model:value="form.old" /></a-form-item>
           <a-form-item label="新密码"><a-input-password v-model:value="form.n1"  placeholder="至少 8 位" /></a-form-item>
@@ -172,6 +182,7 @@ async function applyUpgrade() {
   }
 }
 
+const auth = useAuth()
 const sessions = ref<any[]>([])
 
 async function loadSessions() {
@@ -189,5 +200,25 @@ async function revoke(row: any) {
   await api.delete('/auth/sessions/' + row.id)
   ElMessage.success('已踢出')
   loadSessions()
+}
+
+const newUsername = ref('')
+const savingName = ref(false)
+
+async function saveUsername() {
+  const name = newUsername.value.trim()
+  if (name.length < 3) {
+    ElMessage.warning('用户名至少 3 位')
+    return
+  }
+  savingName.value = true
+  try {
+    await api.post('/setting/profile', { username: name })
+    ElMessage.success('用户名已改为 ' + name + '，下次登录使用新用户名')
+    auth.username = name
+    newUsername.value = ''
+  } finally {
+    savingName.value = false
+  }
 }
 </script>

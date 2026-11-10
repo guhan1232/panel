@@ -39,6 +39,7 @@ func (m *Module) Register(api gin.IRouter) {
 	g := api.Group("/setting")
 	g.GET("/info", m.info)
 	g.POST("/password", m.changePassword)
+	g.POST("/profile", m.changeUsername)
 	g.GET("/panel-backup", m.panelBackup)
 	g.GET("/upgrade/check", m.upgradeCheck)
 	g.POST("/upgrade/apply", m.upgradeApply)
@@ -99,6 +100,8 @@ func (m *Module) changePassword(c *gin.Context) {
 		core.Err(c, 500, err.Error())
 		return
 	}
+	// 初始凭据文件仅保留到用户首次改密，避免明文残留
+	core.RemoveInitialAdminFile(m.cfg.DataDir)
 	// 注销除当前会话外的所有会话
 	cur := c.GetString("session")
 	m.db.Where("user_id = ? AND token <> ?", uid, cur).Delete(&core.Session{})
@@ -276,4 +279,44 @@ func (m *Module) upgradeApply(c *gin.Context) {
 			_ = syscall.Exec(exePath, os.Args, os.Environ())
 		}
 	}()
+}
+
+// changeUsername 当前登录用户修改自己的用户名（唯一性校验，3-64 位）。
+func (m *Module) changeUsername(c *gin.Context) {
+	var req struct {
+		Username string `binding:"required,min=3,max=64"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	name := strings.TrimSpace(req.Username)
+	for _, r := range name {
+		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
+		if !ok {
+			core.Err(c, 400, "用户名仅允许字母、数字、下划线与短横线")
+			return
+		}
+	}
+	uid := c.GetUint("uid")
+	var u core.User
+	if err := m.db.First(&u, uid).Error; err != nil {
+		core.Err(c, 404, "用户不存在")
+		return
+	}
+	if name == u.Username {
+		core.OK(c, gin.H{"username": name})
+		return
+	}
+	var cnt int64
+	m.db.Model(&core.User{}).Where("username = ?", name).Count(&cnt)
+	if cnt > 0 {
+		core.Err(c, 400, "用户名已被占用")
+		return
+	}
+	if err := m.db.Model(&u).Update("username", name).Error; err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	core.OK(c, gin.H{"username": name})
 }
