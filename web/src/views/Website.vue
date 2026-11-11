@@ -10,25 +10,41 @@
         <a-button size="small" @click="load">刷新</a-button>
       </WmToolbar>
 
-      <WmTable :data="sites" v-loading="loading" empty-title="还没有站点" empty-description="创建静态站、PHP 站或反向代理，域名与证书可随时绑定。">
-        <WmColumn label="站点" min-width="150"><template #default="{ row }"><b>{{ row.site.name }}</b></template></WmColumn>
-        <WmColumn label="类型" width="100">
-          <template #default="{ row }"><WmStatusPill :label="typeLabel(row.site.type)" tone="neutral" :dot="false" outline /></template>
+      <!-- 类型 Tab（宝塔式分类） -->
+      <div class="type-tabs">
+        <a-radio-group v-model:value="typeFilter" size="small" button-style="solid">
+          <a-radio-button value="all">全部</a-radio-button>
+          <a-radio-button value="html">HTML项目</a-radio-button>
+          <a-radio-button value="php">PHP项目</a-radio-button>
+          <a-radio-button value="proxy">反向代理</a-radio-button>
+          <a-radio-button value="java">Java项目</a-radio-button>
+          <a-radio-button value="node">Node项目</a-radio-button>
+          <a-radio-button value="go">Go项目</a-radio-button>
+          <a-radio-button value="python">Python项目</a-radio-button>
+          <a-radio-button value="dotnet">.Net项目</a-radio-button>
+          <a-radio-button value="other">其他项目</a-radio-button>
+        </a-radio-group>
+      </div>
+
+      <WmTable :data="filteredSites" v-loading="loading" empty-title="该分类下还没有站点" empty-description="点击「创建站点」，按类型创建；HTML/PHP 为文件站，其余分类为反向代理到本机后端。">
+        <WmColumn label="站点" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></WmColumn>
+        <WmColumn label="类型" width="110">
+          <template #default="{ row }"><WmStatusPill :label="typeLabel(row)" tone="neutral" :dot="false" outline /></template>
         </WmColumn>
-        <WmColumn label="域名" min-width="210"><template #default="{ row }"><span class="wm-mono">{{ row.site.domains }}</span></template></WmColumn>
+        <WmColumn label="域名" min-width="210"><template #default="{ row }"><span class="wm-mono">{{ row.domains }}</span></template></WmColumn>
         <WmColumn label="SSL" width="90">
           <template #default="{ row }">
-            <WmStatusPill v-if="row.site.ssl_cert" label="HTTPS" tone="success" :dot="false" />
+            <WmStatusPill v-if="row.ssl_cert" label="HTTPS" tone="success" :dot="false" />
             <span v-else class="wm-text-muted">—</span>
           </template>
         </WmColumn>
         <WmColumn label="启用" width="80">
-          <template #default="{ row }"><a-switch :checked="row.site.enabled && row.conf_exists" @change="toggle(row)" /></template>
+          <template #default="{ row }"><a-switch :checked="row.enabled && row.conf_exists" @change="toggle(row)" /></template>
         </WmColumn>
-        <WmColumn label="操作" width="250" fixed="right">
+        <WmColumn label="操作" width="290" fixed="right">
           <template #default="{ row }">
             <a-button size="small" @click="openSiteBackup(row)">备份</a-button>
-                <a-button size="small" @click="viewLog(row, 'access')">访问日志</a-button>
+            <a-button size="small" @click="viewLog(row, 'access')">访问日志</a-button>
             <a-button size="small" @click="viewLog(row, 'error')">错误日志</a-button>
             <a-button size="small" @click="openEdit(row)">编辑</a-button>
             <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
@@ -59,6 +75,18 @@
           <a-input v-if="!phpOptions.length || phpChoice === PHP_CUSTOM" v-model:value="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" :class="{ 'wm-mt-2': phpOptions.length }" />
           <WmNotice v-if="!phpOptions.length" tone="warning" class="wm-mt-2">未检测到面板安装的 PHP：请先到「软件商店」安装 PHP 后刷新，或直接填写 FPM 地址</WmNotice>
         </a-form-item>
+        <a-form-item v-if="form.type === 'proxy'" label="项目分类">
+          <a-select v-model:value="form.sub_type" style="width: 100%">
+            <a-select-option value="">无（纯反代）</a-select-option>
+            <a-select-option value="java">Java 项目</a-select-option>
+            <a-select-option value="node">Node 项目</a-select-option>
+            <a-select-option value="go">Go 项目</a-select-option>
+            <a-select-option value="python">Python 项目</a-select-option>
+            <a-select-option value="dotnet">.Net 项目</a-select-option>
+            <a-select-option value="other">其他项目</a-select-option>
+          </a-select>
+          <div class="hint">分类仅用于列表 Tab 区分展示；Java/Node/Go/Python/.Net 项目 = 反向代理到本机端口，请先在「进程管理」启动后端服务。</div>
+        </a-form-item>
         <a-form-item v-if="form.type === 'proxy'" label="反代目标"><a-input v-model:value="form.upstream" placeholder="http://127.0.0.1:3000" /></a-form-item>
         <a-form-item v-if="form.type === 'proxy'" label="附加路径规则">
           <div v-for="(loc, i) in form.extra" :key="i" class="loc-row">
@@ -85,9 +113,9 @@
     <a-modal v-model:open="logDlg" :title="`日志 - ${logSite} (${logType})`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logSite} / ${logType}.log`" empty-text="（日志为空）" />
     </a-modal>
-  </div>
+
     <!-- 站点数据备份 -->
-    <a-modal v-model:open="bakDlg" :title="'数据备份 - ' + (bakSite?.site?.name || '')" width="760px" :footer="null">
+    <a-modal v-model:open="bakDlg" :title="'数据备份 - ' + (bakSite?.name || '')" width="760px" :footer="null">
       <WmToolbar>
         <a-button type="primary" size="small" :loading="bakCreating" @click="createSiteBackup">立即备份</a-button>
         <a-button size="small" @click="loadSiteBackups">刷新</a-button>
@@ -111,6 +139,7 @@
         <a-button size="small" :disabled="!uploadBakFile" @click="uploadRestore">上传恢复</a-button>
       </WmToolbar>
     </a-modal>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -119,18 +148,39 @@ import { ElMessage, ElMessageBox } from '../antd-compat'
 import { Delete } from '../antd-compat'
 import api from '../api'
 
-const typeMap: Record<string, string> = { static: '静态', php: 'PHP', proxy: '反代' }
-const typeLabel = (t: string) => typeMap[t] || t
+// 类型显示：subtype 优先（Java/Node/...），否则按 type
+const typeLabel = (row: any) => {
+  const st = row.sub_type || ''
+  if (st) return ({ java: 'Java', node: 'Node', go: 'Go', python: 'Python', dotnet: '.Net', other: '其他' } as any)[st] || st
+  return ({ static: 'HTML', php: 'PHP', proxy: '反代' } as any)[row.type] || row.type
+}
 
 const nginx = ref<any>({})
 const sites = ref<any[]>([])
+const typeFilter = ref('all')
+
+// 分类归一：proxy → proxy；static → html；php → php；proxy+sub_type → java/node/go/python/dotnet/other
+function siteCategory(row: any): string {
+  if (row.type === 'proxy') return 'proxy'
+  if (row.type === 'php') return 'php'
+  if (row.type === 'static') return 'html'
+  const st = row.sub_type || ''
+  if (['java', 'node', 'go', 'python', 'dotnet'].includes(st)) return st
+  return 'other'
+}
+
+const filteredSites = computed(() => {
+  if (typeFilter.value === 'all') return sites.value
+  return sites.value.filter((r: any) => siteCategory(r) === typeFilter.value)
+})
+
 const certs = ref<any[]>([])
 const loading = ref(false)
 const dlg = ref(false)
 const saving = ref(false)
 const installing = ref(false)
 
-const emptyForm = () => ({ id: 0, name: '', type: 'static', domains: '', root: '', php_socket: '', upstream: '', extra: [] as any[], ssl_cert: '', force_https: false })
+const emptyForm = () => ({ id: 0, name: '', type: 'static', sub_type: '', domains: '', root: '', php_socket: '', upstream: '', extra: [] as any[], ssl_cert: '', force_https: false })
 const form = reactive(emptyForm())
 const certBase = ref('')
 
@@ -194,7 +244,7 @@ function openCreate() {
 }
 
 function openEdit(row: any) {
-  const s = row.site
+  const s = row
   let extra: any[] = []
   try {
     extra = s.locations ? JSON.parse(s.locations) : []
@@ -202,12 +252,11 @@ function openEdit(row: any) {
     extra = []
   }
   Object.assign(form, emptyForm(), {
-    id: s.id, name: s.name, type: s.type, domains: s.domains, root: s.root,
+    id: s.id, name: s.name, type: s.type, sub_type: s.sub_type || '', domains: s.domains, root: s.root,
     php_socket: s.php_socket, upstream: s.upstream,
     ssl_cert: s.ssl_cert ? s.ssl_cert.replace(/.*certs-managed\//, '').replace(/\/fullchain\.pem$/, '') : '',
     force_https: s.force_https, extra
   })
-  // 已有 socket 匹配已安装版本则回显，否则按自定义/未填写处理（不擅自改动线上配置）
   const known = phpOptions.value.find((p) => p.value === form.php_socket)
   phpChoice.value = known ? known.value : form.php_socket ? PHP_CUSTOM : ''
   dlg.value = true
@@ -218,7 +267,7 @@ function payload() {
   const certPath = form.ssl_cert ? `/opt/hanyuxin/data/certs-managed/${form.ssl_cert}/fullchain.pem` : ''
   const keyPath = form.ssl_cert ? `/opt/hanyuxin/data/certs-managed/${form.ssl_cert}/privkey.pem` : ''
   return {
-    name: form.name, type: form.type, domains: form.domains, root: form.root,
+    name: form.name, type: form.type, sub_type: form.type === 'proxy' ? form.sub_type : '', domains: form.domains, root: form.root,
     php_socket: form.php_socket, upstream: form.upstream,
     locations: JSON.stringify(locations),
     ssl_cert: certPath, ssl_key: keyPath, force_https: form.force_https
@@ -239,17 +288,17 @@ async function save() {
 }
 
 async function toggle(row: any) {
-  await api.post(`/sites/${row.site.id}/toggle`)
+  await api.post(`/sites/${row.id}/toggle`)
   load()
 }
 
 async function del(row: any) {
   try {
-    await ElMessageBox.confirm(`确认删除站点「${row.site.name}」？（仅移除 Nginx 配置，不删除网站文件）`, '删除站点', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除站点「${row.name}」？（仅移除 Nginx 配置，不删除网站文件）`, '删除站点', { type: 'warning' })
   } catch {
     return
   }
-  await api.delete(`/sites/${row.site.id}`)
+  await api.delete(`/sites/${row.id}`)
   load()
 }
 
@@ -259,8 +308,8 @@ const logType = ref('access')
 const logContent = ref('')
 
 async function viewLog(row: any, type: string) {
-  const d: any = await api.get(`/sites/${row.site.id}/log`, { params: { type, lines: 200 } })
-  logSite.value = row.site.name
+  const d: any = await api.get(`/sites/${row.id}/log`, { params: { type, lines: 200 } })
+  logSite.value = row.name
   logType.value = type
   logContent.value = d.content
   logDlg.value = true
@@ -324,10 +373,10 @@ async function loadSiteBackups() {
 }
 
 async function createSiteBackup() {
-  if (!bakSite.value?.site?.id) return
+  if (!bakSite.value?.id) return
   bakCreating.value = true
   try {
-    const r: any = await api.post('/sites/' + bakSite.value.site.id + '/backup', {}, { timeout: 1800000 })
+    const r: any = await api.post('/sites/' + bakSite.value.id + '/backup', {}, { timeout: 1800000 })
     ElMessage.success('备份完成：' + (r?.file || ''))
     loadSiteBackups()
   } finally {
@@ -344,10 +393,11 @@ async function restoreSiteBackup(row: any) {
     await ElMessageBox.confirm('将用备份「' + row.file + '」覆盖站点数据并自动留存当前数据，继续？', '恢复确认', { type: 'warning' })
   } catch { return }
   const fd = new FormData()
-  fd.append('id', String(bakSite.value.site.id))
+  fd.append('id', String(bakSite.value.id))
   fd.append('file', row.file)
   const r: any = await api.post('/sites/backups/restore', fd, { timeout: 1800000, headers: { 'Content-Type': 'multipart/form-data' } })
   ElMessage.success(r?.message || '恢复完成')
+  loadSiteBackups()
 }
 
 async function deleteSiteBackup(row: any) {
@@ -359,12 +409,12 @@ async function deleteSiteBackup(row: any) {
 }
 
 async function uploadRestore() {
-  if (!uploadBakFile.value || !bakSite.value?.site?.id) return
+  if (!uploadBakFile.value || !bakSite.value?.id) return
   try {
     await ElMessageBox.confirm('上传的备份将覆盖站点数据并自动留存当前数据，继续？', '上传恢复', { type: 'warning' })
   } catch { return }
   const fd = new FormData()
-  fd.append('id', String(bakSite.value.site.id))
+  fd.append('id', String(bakSite.value.id))
   fd.append('file', uploadBakFile.value)
   const r: any = await api.post('/sites/backups/restore', fd, { timeout: 1800000, headers: { 'Content-Type': 'multipart/form-data' } })
   ElMessage.success(r?.message || '恢复完成')
@@ -372,3 +422,20 @@ async function uploadRestore() {
   loadSiteBackups()
 }
 </script>
+
+<style scoped>
+.type-tabs {
+  margin: 8px 0 4px;
+}
+.loc-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.hint {
+  color: var(--wm-text-2, #8492a6);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+</style>

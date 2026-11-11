@@ -35,6 +35,7 @@ type Site struct {
 	Domains    string    `gorm:"size:512" json:"domains"`         // 空格分隔
 	SSLCert    string    `gorm:"size:256" json:"ssl_cert"`
 	SSLKey     string    `gorm:"size:256" json:"ssl_key"`
+	SubType    string    `json:"sub_type"` // 分类：html|php|proxy|java|node|go|python|dotnet|other（Tab 区分）
 	ForceHTTPS bool      `json:"force_https"`
 	Enabled    bool      `json:"enabled"`
 	System     bool      `json:"system"`  // 系统站点（面板反代等），不在网站页显示
