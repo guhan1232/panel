@@ -438,12 +438,21 @@ func listOpenJDK(source, goarch, vendor string) ([]runtimeVersion, error) {
 			ver := strings.ReplaceAll(tail, "_", "+")
 			out = append(out, runtimeVersion{
 				Version: ver,
-				URL:     base + "/Adoptium/" + h,
+				URL:     fmt.Sprintf("%s/Adoptium/%d/jdk/%s/linux/%s", base, major, vendor, file),
 				Date:    "",
 			})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Version > out[j].Version })
+	// 按版本号数值排序（字符串比较会跨位数出错，如 9.x vs 25.x）
+	sort.Slice(out, func(i, j int) bool {
+		a, b := versionNums(out[i].Version), versionNums(out[j].Version)
+		for k := 0; k < 2; k++ {
+			if a[k] != b[k] {
+				return a[k] > b[k]
+			}
+		}
+		return false
+	})
 	return out, nil
 }
 
@@ -825,21 +834,15 @@ func (m *Module) installRuntime(lang, version, source string) ([]string, error) 
 	}
 	m.db.Model(&RuntimeInst{}).Where("lang = ?", lang).Update("is_default", false)
 	inst := RuntimeInst{Lang: lang, Version: version, Dir: dir, IsDefault: true}
-	if !l.Tool() {
-		inst.Binary = m.unitNameRT(lang + "-" + version)
-	}
 	if err := m.db.Create(&inst).Error; err != nil {
 		return nil, fail(err)
 	}
 	return links, nil
 }
 
-// unitNameRT 运行时服务的 systemd 单元名。
-func (m *Module) unitNameRT(name string) string { return "hanyuxin-rt-" + name }
-
-// Tool 判断该语言是否工具类（仅 nodejs/golang/python 为解压工具/运行时）。
+// Tool 判断该语言是否解压型（下载解压即用，无 systemd 服务单元）。
 func (l *langDef) Tool() bool {
-	return l.Key == "nodejs" || l.Key == "golang" || l.Key == "python"
+	return l.Key == "nodejs" || l.Key == "golang" || l.Key == "python" || l.Key == "openjdk"
 }
 
 // parseGoListing 解析镜像站 golang/ 目录列表（纯函数）。

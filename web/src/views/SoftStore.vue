@@ -451,7 +451,9 @@ async function loadVersions() {
 async function installVer(row: any) {
   installingVer.value = row.version
   try {
-    const d: any = await api.post(`/runtimes/${rtLang.value.key}/install`, { version: row.version, source: rtSource.value }, { timeout: 900000 })
+    // PHP 经发行版仓库安装（含仓库配置与 apt-get update），服务端上限 30 分钟
+    const timeout = rtLang.value.key === 'php' ? 1800000 : 900000
+    const d: any = await api.post(`/runtimes/${rtLang.value.key}/install`, { version: row.version, source: rtSource.value }, { timeout })
     ElMessage.success('安装完成，软链: ' + (d.links || []).join(', '))
     loadRuntimes()
   } finally {
