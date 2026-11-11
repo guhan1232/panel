@@ -29,6 +29,7 @@ import (
 	"cnb.cool/hanyuxin/panel/internal/modules/dbmgr"
 	"cnb.cool/hanyuxin/panel/internal/modules/filem"
 	"cnb.cool/hanyuxin/panel/internal/modules/firewall"
+	"cnb.cool/hanyuxin/panel/internal/modules/mcp"
 	"cnb.cool/hanyuxin/panel/internal/modules/node"
 	"cnb.cool/hanyuxin/panel/internal/modules/proc"
 	rtm "cnb.cool/hanyuxin/panel/internal/modules/runtime"
@@ -93,6 +94,10 @@ func main() {
 	r.GET("/api/ws/agent", nodeMod.HandleAgent)
 	nodeMod.Register(protected, protectedRW, protectedAdmin)
 	r.GET("/api/ws/nodeterm/:id", authSvc.EntranceRequired(), authSvc.Middleware(), nodeMod.HandleNodeTerm)
+
+	// 开放 API 与 MCP Server（外部脚本 / AI 客户端接入，凭 API Token 等效 admin）
+	mcpMod := mcp.New(db, cfg)
+	mcpMod.Register(protected, protectedAdmin)
 
 	// 计划任务（依赖节点执行通道，需在 nodeMod 之后组装）
 	cronMod := cron.New(db, cfg.DataDir, nodeMod.ExecOnNode)

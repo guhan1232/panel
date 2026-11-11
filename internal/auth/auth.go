@@ -176,6 +176,20 @@ func (s *Service) me(c *gin.Context) {
 
 // ---- 中间件 ----
 
+// apiTokenFrom 提取开放 API Token（Authorization: Bearer xxx 或 X-Api-Token）。
+func apiTokenFrom(c *gin.Context) string {
+	if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+	}
+	return strings.TrimSpace(c.GetHeader("X-Api-Token"))
+}
+
+// APITokenValid 请求携带的开放 API Token 是否有效（未启用/不匹配均视为无效）。
+func (s *Service) APITokenValid(c *gin.Context) bool {
+	t := apiTokenFrom(c)
+	return t != "" && t == core.GetSetting(s.db, core.KApiToken)
+}
+
 func (s *Service) currentSession(c *gin.Context) (*core.Session, bool) {
 	tok, err := c.Cookie(CookieSession)
 	if err != nil || tok == "" {
@@ -195,6 +209,14 @@ func (s *Service) currentSession(c *gin.Context) (*core.Session, bool) {
 // Middleware API 鉴权：校验会话、注入 user/uid/role/session，并拦截 viewer 的写操作。
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 开放 API Token：等效 admin 会话（外部脚本 / MCP 客户端）
+		if s.APITokenValid(c) {
+			c.Set("user", "api")
+			c.Set("uid", uint(0))
+			c.Set("role", string(RoleAdmin))
+			c.Next()
+			return
+		}
 		sess, ok := s.currentSession(c)
 		if !ok {
 			core.Unauthorized(c)
@@ -229,9 +251,14 @@ func (s *Service) Middleware() gin.HandlerFunc {
 	}
 }
 
-// EntranceRequired API 入口防护：包括登录在内的所有 /api 请求必须先经过安全入口。
+// EntranceRequired API 入口防护：包括登录在内的所有 /api 请求必须先经过安全入口；
+// 持有效开放 API Token 的客户端（外部脚本/MCP）豁免入口 Cookie。
 func (s *Service) EntranceRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if s.APITokenValid(c) {
+			c.Next()
+			return
+		}
 		if ck, err := c.Cookie(CookieEntrance); err == nil && ck == s.cfg.Server.Entrance {
 			c.Next()
 			return

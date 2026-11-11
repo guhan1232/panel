@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.38.8"
+const Version = "0.38.9"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
@@ -21,6 +21,7 @@ const (
 	KPgCfg          = "dbmgr_pg_json"
 	KS3Cfg          = "objectstore_s3_json"
 	KNodeToken      = "nodes_token"
+	KApiToken       = "openapi_token" // 开放 API / MCP Token（空 = 未启用）
 	KAppSourceURL   = "appstore_source_url"
 	KAppSourceCache = "appstore_source_cache"
 	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）

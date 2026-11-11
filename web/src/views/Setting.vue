@@ -82,6 +82,30 @@
         <WmNotice tone="neutral" class="wm-mt-4">反代由 NGINX 承载：域名 → NGINX(80/443) → 面板端口。反代配置含 WebSocket 支持（终端/实时数据可用）。启用后可用 https://域名/s/安全入口 访问面板。</WmNotice>
       </WmSectionCard>
 
+      <WmSectionCard title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板" marker>
+        <template #actions>
+          <a-button size="small" @click="loadApiToken">刷新</a-button>
+        </template>
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="状态">
+            <WmStatusPill :label="apiToken.enabled ? '已启用' : '未启用'" :tone="apiToken.enabled ? 'success' : 'warning'" :dot="false" />
+          </a-descriptions-item>
+          <a-descriptions-item label="Token">
+            <span class="wm-mono">{{ apiToken.token ? (tokenRevealed ? apiToken.token : apiToken.token.slice(0, 8) + '••••••••') : '—' }}</span>
+            <a-button v-if="apiToken.token" size="small" type="link" @click="tokenRevealed = !tokenRevealed">{{ tokenRevealed ? '隐藏' : '显示' }}</a-button>
+          </a-descriptions-item>
+          <a-descriptions-item label="MCP 端点"><span class="wm-mono">{{ panelOrigin }}/api/mcp</span></a-descriptions-item>
+        </a-descriptions>
+        <div class="wm-mt-4">
+          <a-space wrap>
+            <a-button type="primary" :loading="tokenBusy" @click="genApiToken">{{ apiToken.enabled ? '重置 Token' : '生成 Token 启用' }}</a-button>
+            <a-button v-if="apiToken.enabled" data-tone="danger" :loading="tokenBusy" @click="clearApiToken">禁用开放 API</a-button>
+          </a-space>
+        </div>
+        <WmCodeBlock v-if="apiToken.enabled && tokenRevealed" :content="mcpCfg" label="MCP 客户端配置（Trae / Claude Code / Cursor 通用）" class="wm-mt-4" />
+        <WmNotice tone="warning" class="wm-mt-4">Token 等效管理员权限：仅经 HTTPS 调用，泄露后立即重置。REST 示例：curl -H "Authorization: Bearer &lt;token&gt;" {{ panelOrigin }}/api/sites</WmNotice>
+      </WmSectionCard>
+
       <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
           <a-button size="small" data-tone="danger" :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
@@ -190,7 +214,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 import { useAuth } from '../stores/auth'
@@ -492,6 +516,67 @@ onMounted(async () => {
   loadSessions()
   loadTls()
   loadProxy()
+  if (auth.role === 'admin') loadApiToken()
   checkUpgrade().catch(() => {})
 })
+
+// ---- 开放 API 与 MCP ----
+const panelOrigin = location.origin
+const apiToken = ref<any>({ enabled: false, token: '', mcp_url: '' })
+const tokenRevealed = ref(false)
+const tokenBusy = ref(false)
+
+async function loadApiToken() {
+  try {
+    apiToken.value = (await api.get('/mcp/token')) as any
+  } catch {
+    /* 非 admin 忽略 */
+  }
+}
+
+const mcpCfg = computed(() =>
+  JSON.stringify(
+    {
+      mcpServers: {
+        'hanyuxin-panel': { url: `${panelOrigin}/api/mcp`, headers: { Authorization: `Bearer ${apiToken.value.token}` } }
+      }
+    },
+    null,
+    2
+  )
+)
+
+async function genApiToken() {
+  if (apiToken.value.enabled) {
+    try {
+      await ElMessageBox.confirm('重置后已配置的 API/MCP 客户端将立即失效，需更新 Token，继续？', '重置 API Token', { type: 'warning' })
+    } catch {
+      return
+    }
+  }
+  tokenBusy.value = true
+  try {
+    apiToken.value = (await api.post('/mcp/token')) as any
+    tokenRevealed.value = true
+    ElMessage.success('Token 已生成')
+  } finally {
+    tokenBusy.value = false
+  }
+}
+
+async function clearApiToken() {
+  try {
+    await ElMessageBox.confirm('禁用后所有 API/MCP 客户端立即失效，继续？', '禁用开放 API', { type: 'warning' })
+  } catch {
+    return
+  }
+  tokenBusy.value = true
+  try {
+    apiToken.value = (await api.delete('/mcp/token')) as any
+    tokenRevealed.value = false
+    ElMessage.success('已禁用')
+  } finally {
+    tokenBusy.value = false
+  }
+}
 </script>
