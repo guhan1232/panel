@@ -39,6 +39,48 @@
         </div>
       </WmSectionCard>
 
+      <WmSectionCard title="域名反代访问（可选）" description="安装 NGINX 后可用自有域名反代面板并挂证书，域名 HTTPS 访问" marker>
+        <template #actions>
+          <a-button size="small" @click="loadProxy">刷新</a-button>
+        </template>
+        <!-- NGINX 状态 -->
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="NGINX">
+            <WmStatusPill :label="nginx.installed ? (nginx.running ? '已安装 · 运行中' : '已安装 · 未运行') : '未安装'" :tone="nginx.installed ? 'success' : 'warning'" :dot="false" />
+          </a-descriptions-item>
+          <a-descriptions-item v-if="proxySite" label="反代站点">
+            <span class="wm-mono">{{ proxySite.site?.domains }} → {{ proxySite.site?.upstream }}</span>
+            <WmStatusPill :label="proxySite.site?.enabled ? '启用中' : '已停用'" :tone="proxySite.site?.enabled ? 'success' : 'default'" :dot="false" />
+          </a-descriptions-item>
+        </a-descriptions>
+        <div class="wm-mt-4">
+          <a-space wrap>
+            <a-button v-if="!nginx.installed" size="small" type="primary" :loading="nginxInstalling" @click="installNginx">一键安装 NGINX</a-button>
+          </a-space>
+        </div>
+        <a-form layout="vertical" style="max-width: 560px" class="wm-mt-4">
+          <a-form-item label="反代域名（需先把域名 A 记录解析到服务器公网 IP）">
+            <a-input v-model:value="proxyForm.domain" placeholder="如 panel.example.com" />
+          </a-form-item>
+          <a-form-item label="证书（HTTPS 用）">
+            <a-select v-model:value="proxyForm.certSel" style="width: 100%">
+              <a-select-option value="">暂不启用 HTTPS（HTTP 反代）</a-select-option>
+              <a-select-option v-if="tls.cert_path" value="panel">面板自用证书（{{ tls.cert_subject || '面板 CA' }}）</a-select-option>
+              <a-select-option v-for="c in certList" :key="c.domain" :value="c.domain">{{ c.domain }}（{{ c.days_left }} 天，{{ c.source }}）</a-select-option>
+            </a-select>
+            <div class="hint">证书在「SSL 证书」页上传；面板自用证书即当前 HTTPS 所用的 CA 签发证书（SAN 为 IP，浏览器对域名会提示不匹配，可上传域名证书消除）。</div>
+          </a-form-item>
+          <a-form-item>
+            <a-checkbox v-model:checked="proxyForm.forceHttps">HTTP 自动跳转 HTTPS</a-checkbox>
+          </a-form-item>
+          <a-space wrap>
+            <a-button type="primary" :loading="proxySaving" :disabled="!nginx.installed || !proxyForm.domain" @click="applyProxy">启用反代</a-button>
+            <a-button v-if="proxySite" data-tone="danger" @click="removeProxy">移除反代</a-button>
+          </a-space>
+        </a-form>
+        <WmNotice tone="neutral" class="wm-mt-4">反代由 NGINX 承载：域名 → NGINX(80/443) → 面板端口。反代配置含 WebSocket 支持（终端/实时数据可用）。启用后可用 https://域名/s/安全入口 访问面板。</WmNotice>
+      </WmSectionCard>
+
       <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
           <a-button size="small" @click="loadSessions">刷新</a-button>
@@ -267,6 +309,94 @@ async function submit() {
   }
 }
 
+// ---- 域名反代（复用 website 模块 NGINX 能力）----
+const nginx = ref<any>({})
+const nginxInstalling = ref(false)
+const proxySite = ref<any>(null)
+const certList = ref<any[]>([])
+const proxyForm = reactive({ domain: '', certSel: '', forceHttps: true })
+const proxySaving = ref(false)
+
+async function loadProxy() {
+  try {
+    nginx.value = await api.get('/sites/nginx/status')
+  } catch {
+    nginx.value = { installed: false }
+  }
+  try {
+    const sites: any[] = (await api.get('/sites')) as any
+    proxySite.value = sites.find((x: any) => x.site?.name === 'panel-proxy') || null
+  } catch {
+    proxySite.value = null
+  }
+  try {
+    certList.value = (await api.get('/certs')) as any
+  } catch {
+    certList.value = []
+  }
+}
+
+async function installNginx() {
+  nginxInstalling.value = true
+  try {
+    await api.post('/sites/nginx/install', {}, { timeout: 700000 })
+    ElMessage.success('NGINX 安装完成')
+    loadProxy()
+  } finally {
+    nginxInstalling.value = false
+  }
+}
+
+async function applyProxy() {
+  const domain = proxyForm.domain.trim().toLowerCase()
+  if (!domain) {
+    ElMessage.warning('请填写反代域名')
+    return
+  }
+  proxySaving.value = true
+  try {
+    let certPath = '', keyPath = ''
+    if (proxyForm.certSel === 'panel' && tls.value.cert_path) {
+      certPath = tls.value.cert_path
+      keyPath = tls.value.key_path || ''
+    } else if (proxyForm.certSel && proxyForm.certSel !== 'panel') {
+      const c: any = certList.value.find((x: any) => x.domain === proxyForm.certSel)
+      if (!c?.cert_path) {
+        ElMessage.warning('所选证书缺少路径信息')
+        return
+      }
+      certPath = c.cert_path
+      keyPath = c.key_path
+    }
+    // 已存在则先删除旧配置再重建（幂等）
+    if (proxySite.value) {
+      await api.delete('/website/' + proxySite.value.site?.id)
+      proxySite.value = null
+    }
+    await api.post('/website', {
+      name: 'panel-proxy', type: 'proxy',
+      upstream: (tls.value.tls ? 'https' : 'http') + '://127.0.0.1:' + String(tls.value.listen || '').replace(':', ''),
+      domains: domain,
+      ssl_cert: certPath, ssl_key: keyPath,
+      force_https: !!proxyForm.forceHttps && !!certPath,
+      enabled: true
+    }, { timeout: 120000 })
+    ElMessage.success('反代已启用：请确认域名 A 记录已指向服务器公网 IP，然后用 https://' + domain + '/s/入口 访问')
+    loadProxy()
+  } finally {
+    proxySaving.value = false
+  }
+}
+
+async function removeProxy() {
+  try {
+    await ElMessageBox.confirm('移除反代站点后，域名将不再指向面板。继续？', '移除反代', { type: 'warning' })
+  } catch { return }
+  if (proxySite.value) await api.delete('/website/' + proxySite.value.site?.id)
+  ElMessage.success('反代已移除')
+  loadProxy()
+}
+
 // ---- HTTPS 证书 ----
 const tls = ref<any>({})
 const tlsBusy = ref('')
@@ -316,6 +446,7 @@ onMounted(async () => {
   await loadInfo()
   loadSessions()
   loadTls()
+  loadProxy()
   checkUpgrade().catch(() => {})
 })
 </script>

@@ -55,12 +55,52 @@ func publicIPv4() net.IP {
 	return nil
 }
 
-// PublicIPs 汇总服务器 IP：出口 IP + 全部网卡地址 + 127.0.0.1/::1。
+// publicIPv6 经外部服务获取公网 IPv6（IPv6 网络下的出口地址）。
+func publicIPv6() net.IP {
+	for _, u := range []string{"https://ifconfig.me/ip", "https://api64.ipify.org"} {
+		client := &http.Client{Timeout: 4 * time.Second}
+		resp, err := client.Get(u)
+		if err != nil {
+			continue
+		}
+		b, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		ip := net.ParseIP(strings.TrimSpace(string(b)))
+		if ip != nil && ip.To4() == nil && isPublicIP(ip) {
+			return ip
+		}
+	}
+	return nil
+}
+
+// isPublicIP 是否公网地址：排除回环、私网（RFC1918/ULA）、链路本地、未指定地址。
+func isPublicIP(ip net.IP) bool {
+	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		// 10/8、172.16/12、192.168/16、169.254/16（云元数据/链路本地）
+		if ip4[0] == 10 || ip4[0] == 127 ||
+			(ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31) ||
+			(ip4[0] == 192 && ip4[1] == 168) ||
+			(ip4[0] == 169 && ip4[1] == 254) {
+			return false
+		}
+		return true
+	}
+	return !ip.IsPrivate() // IPv6 排除 ULA fc00::/7
+}
+
+// PublicIPs 汇总服务器公网 IP：出口探测 + 网卡上的公网地址。
+// 内网/回环一律排除——证书 SAN 必须是公网 IP（用户要求）。
 func PublicIPs() []net.IP {
 	var out []net.IP
 	seen := map[string]bool{}
 	add := func(ip net.IP) {
-		if ip == nil || seen[ip.String()] {
+		if !isPublicIP(ip) || seen[ip.String()] {
 			return
 		}
 		seen[ip.String()] = true
@@ -68,6 +108,7 @@ func PublicIPs() []net.IP {
 	}
 	add(outboundIP())
 	add(publicIPv4())
+	add(publicIPv6())
 	if ifaces, err := net.Interfaces(); err == nil {
 		for _, f := range ifaces {
 			addrs, err := f.Addrs()
@@ -85,8 +126,6 @@ func PublicIPs() []net.IP {
 			}
 		}
 	}
-	add(net.ParseIP("127.0.0.1"))
-	add(net.ParseIP("::1"))
 	return out
 }
 
@@ -151,7 +190,7 @@ func ensure(dir string, force bool, extraDNS []string, extraIPs []net.IP) (strin
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", err
 	}
-	dns := append([]string{"localhost"}, extraDNS...)
+	dns := append([]string{}, extraDNS...)
 	ips := append(PublicIPs(), extraIPs...)
 	certPEM, keyPEM, err := IssueSelfSigned(dns, ips)
 	if err != nil {

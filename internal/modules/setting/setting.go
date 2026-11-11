@@ -70,6 +70,8 @@ func (m *Module) tlsStatus(c *gin.Context) {
 	}
 	// 当前证书有效期
 	if m.cfg.Server.TLS.Cert != "" {
+		out["cert_path"] = m.cfg.Server.TLS.Cert
+		out["key_path"] = m.cfg.Server.TLS.Key
 		if data, err := os.ReadFile(m.cfg.Server.TLS.Cert); err == nil {
 			if subject, notAfter, err := selfcert.Inspect(data); err == nil {
 				out["cert_subject"] = subject
@@ -114,7 +116,7 @@ func (m *Module) tlsApply(c *gin.Context) {
 			ips = append(ips, ip)
 		}
 	}
-	hostnames := []string{"localhost"}
+	hostnames := []string{}
 	for _, s := range req.ExtraDNS {
 		if s = strings.TrimSpace(s); s != "" {
 			hostnames = append(hostnames, s)

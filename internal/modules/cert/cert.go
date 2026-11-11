@@ -60,6 +60,8 @@ type Info struct {
 	NotAfter time.Time `json:"not_after"`
 	DaysLeft int       `json:"days_left"`
 	Source   string    `json:"source"`
+	CertPath string    `json:"cert_path"` // 绝对路径（nginx 反代引用）
+	KeyPath  string    `json:"key_path"`
 }
 
 type Module struct {
@@ -135,9 +137,18 @@ func (m *Module) scan() ([]Info, []certMeta) {
 		items = append(items, Info{
 			Domain: e.Name(), Domains: leaf.DNSNames,
 			NotAfter: leaf.NotAfter, DaysLeft: days, Source: meta.Source,
+			CertPath: absPath(filepath.Join(m.certsDir(), e.Name(), "fullchain.pem")),
+			KeyPath:  absPath(filepath.Join(m.certsDir(), e.Name(), "privkey.pem")),
 		})
 	}
 	return items, metas
+}
+
+func absPath(p string) string {
+	if a, err := filepath.Abs(p); err == nil {
+		return a
+	}
+	return p
 }
 
 func (m *Module) saveCert(domain string, certPEM, keyPEM []byte, meta certMeta) (string, error) {

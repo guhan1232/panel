@@ -118,6 +118,10 @@ func genConf(s *Site) string {
 		w("    location ~ \\.php$ {\n        fastcgi_pass %s;\n        fastcgi_index index.php;\n        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n        include fastcgi_params;\n    }\n", sock)
 	case "proxy":
 		w("    location / {\n        proxy_pass %s;\n", s.Upstream)
+		// upstream 为 https（如反代面板自身 TLS）时不校验后端证书（自签/私有 CA 常见）
+		if strings.HasPrefix(s.Upstream, "https://") {
+			w("        proxy_ssl_verify off;\n")
+		}
 		w("        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 300s;\n    }\n")
 		var extra []proxyLoc
 		_ = json.Unmarshal([]byte(s.Locations), &extra)
