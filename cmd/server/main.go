@@ -109,7 +109,9 @@ func main() {
 	term.RegisterHosts(termGrp, db, cfg)
 	term.RegisterSSH(termGrp, db, cfg)
 	proc.Register(protected)
-	setting.New(db, cfg).Register(protected)
+	certMod := cert.New(db, cfg.DataDir)
+	setting.New(db, cfg, certMod).Register(protected)
+	certMod.Register(protected)
 
 	// P1 模块
 	auditMod := audit.New(db)
@@ -123,8 +125,6 @@ func main() {
 		slog.Error("网站模块启动失败", "err", err)
 	}
 	websiteMod.Register(protected)
-	certMod := cert.New(db, cfg.DataDir)
-	certMod.Register(protected)
 	certMod.Start()
 	dbmgr.New(db, cfg.DataDir).Register(protected)
 

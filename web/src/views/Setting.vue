@@ -14,7 +14,7 @@
         <WmNotice tone="info" title="修改入口需重启服务" class="wm-mt-4">面板端口与安全入口在 config.yaml 中配置，修改后需执行 systemctl restart hanyuxin。</WmNotice>
       </WmSectionCard>
 
-      <WmSectionCard title="HTTPS 加密连接" description="默认加密访问；CA 签发有效期跟随 CA，仅无 CA 时自签 10 年兜底" marker>
+      <WmSectionCard title="HTTPS 加密连接" description="中间 CA 签发（推荐）/ Let's Encrypt 公共免费 CA（域名）/ 纯自签 10 年兜底" marker>
         <template #actions>
           <a-button size="small" @click="loadTls">刷新</a-button>
         </template>
@@ -30,8 +30,9 @@
         </a-descriptions>
         <div class="wm-mt-4">
           <a-space wrap>
-            <a-button type="primary" :loading="tlsBusy === 'self'" @click="applyTls('self')">自签证书（10 年兜底）</a-button>
-            <a-button :loading="tlsBusy === 'ca'" @click="openCaDlg">用中间 CA 签发（跟随 CA 有效期）</a-button>
+            <a-button type="primary" :loading="tlsBusy === 'ca'" @click="openCaDlg">用中间 CA 签发（推荐 · 跟随 CA 有效期）</a-button>
+            <a-button :loading="tlsBusy === 'acme'" @click="openAcmeDlg">Let's Encrypt 免费签发（公共 CA · 域名）</a-button>
+            <a-button :loading="tlsBusy === 'self'" @click="applyTls('self')">纯自签兜底（10 年 · 无 CA 时）</a-button>
           </a-space>
           <a-form-item label="访问 IP/域名（写入证书 SAN，逗号分隔）" style="margin-top:12px"><a-input v-model:value="extraIps" placeholder="如 203.0.113.10, panel.example.com" /></a-form-item>
 <p class="wm-text-muted" style="margin-top:8px">CA 上传一次后保存于服务器（data/certs/ca），续签无需重复上传。云服务器 NAT 下公网 IP 不在网卡上，请在上方显式填写访问 IP 以保证证书 SAN 匹配。应用后面板自动重启为 HTTPS。</p>
@@ -158,6 +159,18 @@
       </WmSectionCard>
     </div>
 
+    <!-- Let's Encrypt 免费签发 -->
+    <a-modal v-model:open="acmeDlg" title="Let's Encrypt 免费签发（公共 CA）" ok-text="签发并启用 HTTPS" cancel-text="取消" @ok="acmeApply">
+      <a-form layout="vertical">
+        <a-form-item label="域名" required>
+          <a-input v-model:value="acmeForm.domain" placeholder="如 panel.example.com（需已解析到本服务器公网 IP）" />
+        </a-form-item>
+        <a-form-item label="联系邮箱（可选，到期提醒用）">
+          <a-input v-model:value="acmeForm.email" placeholder="admin@example.com" />
+        </a-form-item>
+        <WmNotice tone="warning">签发通过 HTTP-01 挑战：本服务器需占用 80 端口约 10 秒，且域名必须已解析到本服务器公网 IP。证书 90 天有效，面板自动续期。</WmNotice>
+      </a-form>
+    </a-modal>
     <!-- 中间 CA 上传 -->
     <a-modal v-model:open="caDlg" title="上传中间 CA（签发叶子证书，有效期跟随 CA）" ok-text="签发并启用 HTTPS" cancel-text="取消" @ok="applyTls('ca')">
       <a-form layout="vertical">
@@ -402,6 +415,21 @@ const tls = ref<any>({})
 const tlsBusy = ref('')
 const caDlg = ref(false)
 const extraIps = ref('')
+const acmeDlg = ref(false)
+const acmeForm = reactive({ domain: '', email: '' })
+
+function openAcmeDlg() {
+  acmeDlg.value = true
+}
+
+async function acmeApply() {
+  if (!acmeForm.domain.trim()) {
+    ElMessage.warning('请填写域名（需已解析到本服务器公网 IP）')
+    return
+  }
+  acmeDlg.value = false
+  applyTls('acme')
+}
 const caForm = reactive({ cert: '', key: '' })
 
 async function loadTls() {
@@ -412,14 +440,14 @@ async function loadTls() {
   }
 }
 
-async function applyTls(mode: 'self' | 'ca') {
+async function applyTls(mode: 'self' | 'ca' | 'acme') {
   if (mode === 'ca' && (!caForm.cert || !caForm.key) && !tls.value.has_ca) {
     caDlg.value = true
     return
   }
   tlsBusy.value = mode
   try {
-    await api.post('/setting/tls/apply', { mode, ca_cert: caForm.cert, ca_key: caForm.key, extra_ips: extraIps.value.split(',').map((s: string) => s.trim()).filter(Boolean), extra_dns: [] }, { timeout: 60000 })
+    await api.post('/setting/tls/apply', { mode, ca_cert: caForm.cert, ca_key: caForm.key, extra_ips: extraIps.value.split(',').map((s: string) => s.trim()).filter(Boolean), extra_dns: [], acme_domain: acmeForm.domain, acme_email: acmeForm.email }, { timeout: mode === 'acme' ? 240000 : 60000 })
     ElMessage.success('证书已签发，面板正在重启为 HTTPS…约 3 秒后用 https://IP:端口/s/入口 重新打开')
   } finally {
     tlsBusy.value = ''

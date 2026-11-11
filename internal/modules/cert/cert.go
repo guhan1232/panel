@@ -372,6 +372,12 @@ func (m *Module) saveAccount(u *acmeUser) {
 }
 
 // issueDomains 申请证书（阻塞，HTTP-01 需 80 端口可达面板所在服务器）。
+// IssuePublicCert 面板 HTTPS 用：HTTP-01 给域名签发公共免费 CA 证书（Let's Encrypt），返回证书/私钥目录。
+// 独立于「SSL 证书」页的常规签发（那边支持 DNS-01/泛域名/测试环境）。
+func (m *Module) IssuePublicCert(domain, email string) (string, error) {
+	return m.issueDomains([]string{domain}, email, false, nil)
+}
+
 func (m *Module) issueDomains(domains []string, email string, staging bool, dns *dnsCfg) (string, error) {
 	u, err := m.ensureAccount(email)
 	if err != nil {

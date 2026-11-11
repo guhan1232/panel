@@ -24,17 +24,19 @@ import (
 
 	"cnb.cool/hanyuxin/panel/internal/archive"
 	"cnb.cool/hanyuxin/panel/internal/config"
+	"cnb.cool/hanyuxin/panel/internal/modules/cert"
 	"cnb.cool/hanyuxin/panel/internal/core"
 	"cnb.cool/hanyuxin/panel/internal/selfcert"
 )
 
 type Module struct {
-	db  *gorm.DB
-	cfg *config.Config
+	db   *gorm.DB
+	cfg  *config.Config
+	cert *cert.Module
 }
 
-func New(db *gorm.DB, cfg *config.Config) *Module {
-	return &Module{db: db, cfg: cfg}
+func New(db *gorm.DB, cfg *config.Config, certMod *cert.Module) *Module {
+	return &Module{db: db, cfg: cfg, cert: certMod}
 }
 
 func (m *Module) Register(api gin.IRouter) {
@@ -91,16 +93,22 @@ func (m *Module) tlsStatus(c *gin.Context) {
 	core.OK(c, out)
 }
 
-// tlsApply 签发证书并启用 HTTPS：mode=self（自签 10 年兜底）| ca（中间 CA 交叉签发，跟随 CA 有效期）。
-// extra_ips/extra_dns：用户显式指定的访问地址（云服务器 NAT 下公网 IP 不在网卡上，外部探测不可靠时用此参数保证 SAN）。
-// 成功后写入 config.yaml 并自动重启面板。
+// tlsApply 签发证书并启用 HTTPS。三种模式：
+//   - ca（默认推荐）：用户中间 CA 交叉签发，有效期跟随 CA；无已存 CA 时回退自签 10 年。
+//   - self：纯自签 10 年兜底（无 CA 时）。
+//   - acme：公共免费 CA（Let's Encrypt）签发域名证书（HTTP-01，需 80 端口与域名解析）。
+//
+// extra_ips/extra_dns：显式指定的访问地址写入 SAN。成功后写 config.yaml 并自动重启面板。
 func (m *Module) tlsApply(c *gin.Context) {
 	var req struct {
-		Mode     string   `binding:"required,oneof=self ca"`
+		Mode     string   `binding:"required,oneof=self ca acme"`
 		CACert   string   `json:"ca_cert"` // PEM 文本（mode=ca 时必填，除非已保存过 CA）
 		CAKey    string   `json:"ca_key"`
 		ExtraIPs []string `json:"extra_ips"`
 		ExtraDNS []string `json:"extra_dns"`
+		// acme 专用
+		AcmeDomain string `json:"acme_domain"`
+		AcmeEmail  string `json:"acme_email"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)
@@ -108,6 +116,31 @@ func (m *Module) tlsApply(c *gin.Context) {
 	}
 	panelDir := filepath.Join(m.cfg.DataDir, "certs", "panel")
 	var certPEM, keyPEM []byte
+
+	if req.Mode == "acme" {
+		// 公共免费 CA（Let's Encrypt）：域名必须已解析到本服务器（HTTP-01 占 80）
+		dom := strings.TrimSpace(req.AcmeDomain)
+		if dom == "" {
+			core.Err(c, 400, "请填写要签发的域名")
+			return
+		}
+		certPath, keyPath, err := m.acmeIssue(dom, strings.TrimSpace(req.AcmeEmail))
+		if err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		if certPEM, err = os.ReadFile(certPath); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		if keyPEM, err = os.ReadFile(keyPath); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		m.writePanelCertAndRestart(certPEM, keyPEM, panelDir, "acme")
+		core.OK(c, gin.H{"ok": true, "restarting": true, "mode": "acme"})
+		return
+	}
 
 	// 显式指定的 SAN（公网 IP / 域名）
 	ips := selfcert.PublicIPs()
@@ -157,7 +190,7 @@ func (m *Module) tlsApply(c *gin.Context) {
 			return
 		}
 	} else {
-		// 自签兜底：10 年，SAN 含本机 IP + 显式指定的访问地址
+		// 自签兜底：10 年，SAN 含公网 IP + 显式指定的访问地址
 		var serr error
 		certPEM, keyPEM, serr = selfcert.IssueSelfSigned(hostnames, ips)
 		if serr != nil {
@@ -166,30 +199,58 @@ func (m *Module) tlsApply(c *gin.Context) {
 		}
 	}
 
-	// 落盘 + 写配置 + 重启
+	m.writePanelCertAndRestart(certPEM, keyPEM, panelDir, req.Mode)
+	core.OK(c, gin.H{"ok": true, "restarting": true, "mode": req.Mode})
+}
+
+// acmeIssue 用公共免费 CA（Let's Encrypt，HTTP-01）给域名签发证书，返回证书/私钥路径。
+// 前提：域名已解析到本服务器公网 IP，且 80 端口可从外网访问（面板与 nginx 都不占用 80）。
+func (m *Module) acmeIssue(domain, email string) (string, string, error) {
+	if email == "" {
+		email = "admin@" + domain
+	}
+	// nginx 占 80（面板反代 vhost）时临时让位：停 nginx → 签发 → 立即恢复（约 15 秒）
+	nginxWasRunning := false
+	if _, err := exec.Command("sh", "-c", "systemctl is-active --quiet nginx").CombinedOutput(); err == nil {
+		nginxWasRunning = true
+		_, _ = exec.Command("sh", "-c", "systemctl stop nginx").CombinedOutput()
+		slog.Info("ACME 签发：临时停止 nginx 释放 80 端口")
+	}
+	dir, err := m.cert.IssuePublicCert(domain, email)
+	if nginxWasRunning {
+		_, _ = exec.Command("sh", "-c", "systemctl start nginx").CombinedOutput()
+		slog.Info("ACME 签发完成，nginx 已恢复")
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("公共 CA 签发失败（确认域名已解析到本服务器且 80 端口外网可达）: %w", err)
+	}
+	return filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem"), nil
+}
+
+// writePanelCertAndRestart 落盘证书 → 写 config.yaml → 异步重启面板。
+func (m *Module) writePanelCertAndRestart(certPEM, keyPEM []byte, panelDir, mode string) {
 	if err := os.MkdirAll(panelDir, 0o700); err != nil {
-		core.Err(c, 500, err.Error())
+		slog.Error("创建证书目录失败", "err", err)
 		return
 	}
 	certPath := filepath.Join(panelDir, "panel.crt")
 	keyPath := filepath.Join(panelDir, "panel.key")
 	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
-		core.Err(c, 500, err.Error())
+		slog.Error("写证书失败", "err", err)
 		return
 	}
 	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
-		core.Err(c, 500, err.Error())
+		slog.Error("写私钥失败", "err", err)
 		return
 	}
 	m.cfg.Server.TLS.Enabled = true
 	m.cfg.Server.TLS.Cert = certPath
 	m.cfg.Server.TLS.Key = keyPath
 	if err := m.cfg.Save(m.cfg.Path); err != nil {
-		core.Err(c, 500, "写入配置失败: "+err.Error())
+		slog.Error("写入配置失败", "err", err)
 		return
 	}
-	slog.Info("HTTPS 证书已更新，准备重启面板", "mode", req.Mode, "cert", certPath)
-	core.OK(c, gin.H{"ok": true, "restarting": true, "mode": req.Mode})
+	slog.Info("HTTPS 证书已更新，准备重启面板", "mode", mode, "cert", certPath)
 	go func() {
 		time.Sleep(800 * time.Millisecond)
 		cmd2 := exec.Command("sh", "-c", "systemctl restart hanyuxin || systemctl restart digong 2>/dev/null")
