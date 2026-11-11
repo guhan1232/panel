@@ -52,6 +52,11 @@
           <a-descriptions-item v-if="proxySite" label="反代站点">
             <span class="wm-mono">{{ proxySite.site?.domains }} → {{ proxySite.site?.upstream }}</span>
             <WmStatusPill :label="proxySite.site?.enabled ? '启用中' : '已停用'" :tone="proxySite.site?.enabled ? 'success' : 'default'" :dot="false" />
+            <a-space :size="4" style="margin-left:12px">
+              <a-switch :checked="proxySite.site?.enabled" size="small" @change="toggleProxy" />
+              <a-button size="small" @click="viewProxyLog('access')">访问日志</a-button>
+              <a-button size="small" @click="viewProxyLog('error')">错误日志</a-button>
+            </a-space>
           </a-descriptions-item>
         </a-descriptions>
         <div class="wm-mt-4">
@@ -225,6 +230,11 @@
         <WmNotice tone="warning">签发通过 HTTP-01 挑战：本服务器需占用 80 端口约 10 秒，且域名必须已解析到本服务器公网 IP。证书 90 天有效，面板自动续期。</WmNotice>
       </a-form>
     </a-modal>
+    <!-- 反代日志 -->
+    <a-modal v-model:open="proxyLogDlg" :title="proxyLogName" width="820px">
+      <WmCodeBlock :content="proxyLogContent" :label="proxyLogName" />
+    </a-modal>
+
     <!-- 中间 CA 上传 -->
     <a-modal v-model:open="caDlg" title="上传中间 CA（签发叶子证书，有效期跟随 CA）" ok-text="签发并启用 HTTPS" cancel-text="取消" @ok="applyTls('ca')">
       <a-form layout="vertical">
@@ -407,8 +417,7 @@ async function loadProxy() {
     nginx.value = { installed: false }
   }
   try {
-    const sites: any[] = (await api.get('/sites')) as any
-    proxySite.value = sites.find((x: any) => x.site?.name === 'panel-proxy') || null
+    proxySite.value = (await api.get('/sites/panel-proxy')) as any
   } catch {
     proxySite.value = null
   }
@@ -456,8 +465,8 @@ async function applyProxy() {
       await api.delete('/website/' + proxySite.value.site?.id)
       proxySite.value = null
     }
-    await api.post('/website', {
-      name: 'panel-proxy', type: 'proxy',
+    await api.post('/sites', {
+      name: 'panel-proxy', type: 'proxy', system: true,
       upstream: (tls.value.tls ? 'https' : 'http') + '://127.0.0.1:' + String(tls.value.listen || '').replace(':', ''),
       domains: domain,
       ssl_cert: certPath, ssl_key: keyPath,
@@ -469,6 +478,28 @@ async function applyProxy() {
   } finally {
     proxySaving.value = false
   }
+}
+
+async function toggleProxy() {
+  try {
+    await api.post('/sites/panel-proxy/toggle')
+    ElMessage.success('已切换')
+    loadProxy()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '切换失败')
+  }
+}
+
+const proxyLogDlg = ref(false)
+const proxyLogName = ref('')
+const proxyLogContent = ref('')
+
+async function viewProxyLog(type: string) {
+  if (!proxySite.value?.site?.id) return
+  const d: any = await api.get('/sites/' + proxySite.value.site.id + '/log', { params: { type, lines: 200 } })
+  proxyLogName.value = (proxySite.value.site?.domains || 'panel-proxy') + ' / ' + (type === 'error' ? '错误日志' : '访问日志')
+  proxyLogContent.value = d.content || d.logs || '（暂无日志）'
+  proxyLogDlg.value = true
 }
 
 async function removeProxy() {

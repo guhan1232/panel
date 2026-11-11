@@ -37,6 +37,7 @@ type Site struct {
 	SSLKey     string    `gorm:"size:256" json:"ssl_key"`
 	ForceHTTPS bool      `json:"force_https"`
 	Enabled    bool      `json:"enabled"`
+	System     bool      `json:"system"`  // 系统站点（面板反代等），不在网站页显示
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -60,6 +61,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.DELETE("/:id", m.remove)
 	g.POST("/:id/toggle", m.toggle)
 	g.GET("/:id/log", m.siteLog)
+	g.GET("/panel-proxy", m.panelProxySite)
+	g.POST("/panel-proxy/toggle", m.panelProxyToggle)
 	g.GET("/nginx/status", nginxStatus)
 	g.POST("/nginx/reload", nginxReload)
 	g.POST("/nginx/install", nginxInstall)
@@ -213,7 +216,7 @@ func nginxInstall(c *gin.Context) {
 
 func (m *Module) list(c *gin.Context) {
 	var sites []Site
-	if err := m.db.Order("id").Find(&sites).Error; err != nil {
+	if err := m.db.Where("system = ?", false).Order("id").Find(&sites).Error; err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -264,6 +267,9 @@ func (m *Module) create(c *gin.Context) {
 	}
 	s.ID = 0
 	s.Enabled = true
+	if s.Name == "panel-proxy" {
+		s.System = true
+	}
 	if err := m.validate(&s); err != nil {
 		core.Err(c, 400, err.Error())
 		return
@@ -380,6 +386,49 @@ func (m *Module) toggle(c *gin.Context) {
 	if _, err := reloadNginx(); err != nil {
 		core.Err(c, 400, err.Error())
 		return
+	}
+	core.OK(c, gin.H{"enabled": s.Enabled})
+}
+
+// panelProxySite 返回面板反代站点（system 站点，不在网站页显示）。
+func (m *Module) panelProxySite(c *gin.Context) {
+	var s Site
+	if err := m.db.Where("system = ? AND name = ?", true, "panel-proxy").First(&s).Error; err != nil {
+		core.OK(c, nil)
+		return
+	}
+	_, confErr := os.Stat(confPath(s.Name, true))
+	core.OK(c, gin.H{"site": s, "conf_exists": confErr == nil})
+}
+
+// panelProxyToggle 启用/停用面板反代（设置页开关）。
+func (m *Module) panelProxyToggle(c *gin.Context) {
+	var s Site
+	if err := m.db.Where("system = ? AND name = ?", true, "panel-proxy").First(&s).Error; err != nil {
+		core.Err(c, 404, "面板反代站点不存在")
+		return
+	}
+	s.Enabled = !s.Enabled
+	if err := m.db.Model(&s).Update("enabled", s.Enabled).Error; err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	if s.Enabled {
+		if err := writeConfWithCheck(confPath(s.Name, true), genConf(&s)); err != nil {
+			core.Err(c, 400, err.Error())
+			return
+		}
+		if out, err := reloadNginx(); err != nil {
+			core.Err(c, 400, out+" "+err.Error())
+			return
+		}
+		openWebPorts()
+	} else {
+		_ = os.Remove(confPath(s.Name, true))
+		if out, err := reloadNginx(); err != nil {
+			core.Err(c, 400, out+" "+err.Error())
+			return
+		}
 	}
 	core.OK(c, gin.H{"enabled": s.Enabled})
 }

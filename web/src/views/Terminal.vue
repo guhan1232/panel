@@ -505,10 +505,10 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .s-connecting {
-  background: #faad14;
+  background: var(--wm-warning);
 }
 .s-connected {
-  background: #52c41a;
+  background: var(--wm-success);
 }
 .s-closed {
   background: #bfbfbf;

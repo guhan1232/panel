@@ -15,18 +15,19 @@ const store = useTheme()
 const antTheme = computed(() => ({
   algorithm: store.dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
   token: {
-    colorPrimary: '#1677ff',
-    colorInfo: '#1677ff',
-    colorSuccess: '#52c41a',
-    colorWarning: '#faad14',
-    colorError: '#ff4d4f',
+    colorPrimary: '#18181b',
+    colorInfo: '#18181b',
+    colorSuccess: '#059669',
+    colorWarning: '#d97706',
+    colorError: '#dc2626',
+    colorLink: '#2563eb',
     borderRadius: 6,
     borderRadiusLG: 8,
     borderRadiusSM: 4,
-    controlHeight: 32,
+    controlHeight: 36,
     fontSize: 14,
     fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif'
+      '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif'
   }
 }))
 </script>

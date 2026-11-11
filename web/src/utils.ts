@@ -36,13 +36,13 @@ export function chartPalette() {
   const s = getComputedStyle(document.documentElement)
   const read = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback
   return {
-    accent: read('--wm-primary', '#1677ff'),
-    success: read('--wm-success', '#52c41a'),
-    warning: read('--wm-warning', '#faad14'),
-    muted: read('--wm-ink-3', 'rgba(0,0,0,.45)'),
-    line: read('--wm-line', '#f0f0f0'),
+    accent: read('--wm-primary', '#18181b'),
+    success: read('--wm-success', '#059669'),
+    warning: read('--wm-warning', '#d97706'),
+    muted: read('--wm-ink-3', '#a1a1aa'),
+    line: read('--wm-line', '#e4e4e7'),
     surface: read('--wm-surface', '#ffffff'),
-    ink: read('--wm-ink', 'rgba(0,0,0,.88)')
+    ink: read('--wm-ink', '#18181b')
   }
 }
 

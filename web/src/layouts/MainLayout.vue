@@ -10,7 +10,7 @@
       </div>
       <div class="wm-sider__scroll">
         <a-menu
-          theme="dark"
+          theme="light"
           mode="inline"
           :inline-collapsed="collapsed && !isMobile"
           :selected-keys="[route.path]"
@@ -41,7 +41,7 @@
       class="wm-mobile-drawer"
     >
       <div class="wm-brand wm-brand--drawer"><span class="wm-brand__mark">寒</span><span class="wm-brand__text">寒语馨面板</span></div>
-      <a-menu theme="dark" mode="inline" :selected-keys="[route.path]" class="wm-nav">
+      <a-menu theme="light" mode="inline" :selected-keys="[route.path]" class="wm-nav">
         <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
           <a-menu-item v-for="item in group.items" :key="item.path" @click="go(item.path)">
             <template #icon><component :is="item.icon" /></template>
