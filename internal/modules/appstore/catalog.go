@@ -65,6 +65,9 @@ func remoteToTemplate(def remoteApp) *Template {
 		}
 		return t
 	}
+	if def.Kind == "script" {
+		return t // Script 字段已在构造时带入（installScript 解析 URL/内容）
+	}
 	nd := def.Native
 	t.Native = &NativeSpec{
 		Archive:            nd.Archive,
@@ -102,7 +105,7 @@ func remoteToTemplate(def remoteApp) *Template {
 }
 
 // DefaultAppSource 面板脚本仓库默认清单（jiaoben 分支，详见仓库内 jiaoben/README.md）。
-const DefaultAppSource = "https://cnb.cool/hanyuxin/panel/-/raw/jiaoben/catalog.json"
+const DefaultAppSource = "https://cnb.cool/hanyuxin/panel/-/git/raw/main/jiaoben/catalog.json"
 
 // EnsureDefaultSource 启动时：用户未配置应用源且无缓存时，拉取默认脚本仓库清单并缓存（失败静默，用户可手动在设置里刷新）。
 func (m *Module) EnsureDefaultSource() {
@@ -175,6 +178,10 @@ func validateRemoteDefs(defs []remoteApp) error {
 			if d.Native == nil || len(d.Native.URLs) == 0 || d.Native.Binary == "" {
 				return fmt.Errorf("原生应用 %s 缺少 urls 或 binary", d.Key)
 			}
+		case "script":
+			if strings.TrimSpace(d.Script) == "" {
+				return fmt.Errorf("脚本应用 %s 缺少 script", d.Key)
+			}
 		default:
 			return fmt.Errorf("应用 %s kind 非法: %s", d.Key, d.Kind)
 		}
@@ -196,8 +203,13 @@ func fetchCatalog(url string) ([]remoteApp, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 兼容两种格式：裸数组 或 {"apps":[...]}（jiaoben 分支清单格式）
+	var wrapper struct {
+		Apps []remoteApp 	}
 	var defs []remoteApp
-	if err := json.Unmarshal(data, &defs); err != nil {
+	if err := json.Unmarshal(data, &wrapper); err == nil && len(wrapper.Apps) > 0 {
+		defs = wrapper.Apps
+	} else if err := json.Unmarshal(data, &defs); err != nil {
 		return nil, fmt.Errorf("清单 JSON 解析失败: %w", err)
 	}
 	if err := validateRemoteDefs(defs); err != nil {
