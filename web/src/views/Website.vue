@@ -10,20 +10,24 @@
         <a-button size="small" @click="load">刷新</a-button>
       </WmToolbar>
 
-      <!-- 类型 Tab（宝塔式分类） -->
-      <div class="type-tabs">
-        <a-radio-group v-model:value="typeFilter" size="small" button-style="solid">
-          <a-radio-button value="all">全部</a-radio-button>
-          <a-radio-button value="html">HTML项目</a-radio-button>
-          <a-radio-button value="php">PHP项目</a-radio-button>
-          <a-radio-button value="proxy">反向代理</a-radio-button>
-          <a-radio-button value="java">Java项目</a-radio-button>
-          <a-radio-button value="node">Node项目</a-radio-button>
-          <a-radio-button value="go">Go项目</a-radio-button>
-          <a-radio-button value="python">Python项目</a-radio-button>
-          <a-radio-button value="dotnet">.Net项目</a-radio-button>
-          <a-radio-button value="other">其他项目</a-radio-button>
-        </a-radio-group>
+      <!-- 类型分类（胶囊分段器，带计数） -->
+      <div class="tabs-row">
+        <div class="type-tabs">
+          <div
+            v-for="cat in categories"
+            :key="cat.id"
+            class="tab-pill"
+            :class="{ active: typeFilter === cat.id }"
+            @click="typeFilter = cat.id"
+          >
+            {{ cat.name }}<span class="tab-cnt">{{ catCounts[cat.id] || 0 }}</span>
+          </div>
+        </div>
+        <div class="mini-stats">
+          <span class="mini-stat"><b>{{ totalStats.total }}</b>站点</span>
+          <span class="mini-stat"><b>{{ totalStats.enabled }}</b>启用</span>
+          <span class="mini-stat"><b>{{ totalStats.https }}</b>HTTPS</span>
+        </div>
       </div>
 
       <WmTable :data="filteredSites" v-loading="loading" empty-title="该分类下还没有站点" empty-description="点击「创建站点」，按类型创建；HTML/PHP 为文件站，其余分类为反向代理到本机后端。">
@@ -172,6 +176,38 @@ function siteCategory(row: any): string {
 const filteredSites = computed(() => {
   if (typeFilter.value === 'all') return sites.value
   return sites.value.filter((r: any) => siteCategory(r) === typeFilter.value)
+})
+
+// 分类清单与计数（Tab 胶囊渲染）
+const categories = [
+  { id: 'all', name: '全部' },
+  { id: 'html', name: 'HTML项目' },
+  { id: 'php', name: 'PHP项目' },
+  { id: 'proxy', name: '反向代理' },
+  { id: 'java', name: 'Java项目' },
+  { id: 'node', name: 'Node项目' },
+  { id: 'go', name: 'Go项目' },
+  { id: 'python', name: 'Python项目' },
+  { id: 'dotnet', name: '.Net项目' },
+  { id: 'other', name: '其他项目' }
+]
+
+const catCounts = computed(() => {
+  const m: Record<string, number> = { all: sites.value.length }
+  for (const r of sites.value) {
+    const c = siteCategory(r)
+    m[c] = (m[c] || 0) + 1
+  }
+  return m
+})
+
+const totalStats = computed(() => {
+  const list = sites.value
+  return {
+    total: list.length,
+    enabled: list.filter((r: any) => r.enabled && r.conf_exists !== false).length,
+    https: list.filter((r: any) => !!r.ssl_cert).length
+  }
 })
 
 const certs = ref<any[]>([])
@@ -424,8 +460,69 @@ async function uploadRestore() {
 </script>
 
 <style scoped>
+/* 类型分类胶囊分段器 */
+.tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 10px 0 6px;
+}
 .type-tabs {
-  margin: 8px 0 4px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--wm-bg, #f2f4f7);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.tab-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--wm-text-2, #5c6b80);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.tab-pill:hover {
+  color: var(--wm-primary, #3a7afe);
+}
+.tab-pill.active {
+  background: var(--wm-primary, #3a7afe);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(58, 122, 254, 0.35);
+}
+.tab-cnt {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.07);
+}
+.tab-pill.active .tab-cnt {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+.mini-stats {
+  display: inline-flex;
+  gap: 14px;
+}
+.mini-stat {
+  font-size: 12px;
+  color: var(--wm-text-2, #8492a6);
+}
+.mini-stat b {
+  font-size: 16px;
+  color: var(--wm-text-1, #2a3550);
+  margin-right: 4px;
 }
 .loc-row {
   display: flex;
