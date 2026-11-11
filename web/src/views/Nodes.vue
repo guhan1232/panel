@@ -4,10 +4,11 @@
       <WmToolbar>
         <a-input :value="agentCmd" readonly class="wm-agent-cmd" aria-label="Agent 接入命令" />
         <a-button @click="copyCmd">复制</a-button>
+        <a-button v-if="auth.role === 'admin'" type="primary" @click="openSSH">SSH 自动安装</a-button>
         <a-button v-if="auth.role === 'admin'" @click="regenToken" data-tone="warning">重置 Token</a-button>
         <a-button @click="load">刷新</a-button>
       </WmToolbar>
-      <WmNotice tone="neutral">在目标服务器下载对应架构的 hanyuxin-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。</WmNotice>
+      <WmNotice tone="neutral">在目标服务器下载对应架构的 hanyuxin-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。admin 可用「SSH 自动安装」免手动部署。</WmNotice>
     </WmSectionCard>
 
     <WmSectionCard title="节点列表" description="在线状态依据最近心跳判定" flush>
@@ -94,11 +95,37 @@
         <a-button type="primary" :loading="eRunning" @click="runExec">执行</a-button>
       </template>
     </a-modal>
+
+    <a-modal v-model:open="sDlg" title="SSH 自动安装 Agent" width="640px">
+      <a-form :label-col="{ style: { width: '96px' } }">
+        <a-form-item label="目标主机"><a-input v-model:value="sshForm.host" placeholder="IP 或主机名" /></a-form-item>
+        <a-form-item label="SSH 端口"><a-input-number v-model:value="sshForm.port" :min="1" :max="65535" style="width: 160px" /></a-form-item>
+        <a-form-item label="用户名"><a-input v-model:value="sshForm.user" placeholder="root" /></a-form-item>
+        <a-form-item label="认证方式">
+          <a-radio-group v-model:value="sshForm.auth_type">
+            <a-radio-button value="password">密码</a-radio-button>
+            <a-radio-button value="key">私钥</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item v-if="sshForm.auth_type === 'password'" label="密码"><a-input-password v-model:value="sshForm.password" placeholder="SSH 登录密码" /></a-form-item>
+        <template v-else>
+          <a-form-item label="私钥"><a-textarea v-model:value="sshForm.private_key" :rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" /></a-form-item>
+          <a-form-item label="私钥口令"><a-input-password v-model:value="sshForm.passphrase" placeholder="无口令留空" /></a-form-item>
+        </template>
+        <a-form-item label="节点名"><a-input v-model:value="sshForm.name" placeholder="留空默认取主机" /></a-form-item>
+        <a-form-item label="面板地址"><a-input v-model:value="sshForm.server" placeholder="ws://IP:端口（目标机需可达）" /></a-form-item>
+      </a-form>
+      <WmNotice tone="neutral">流程：探测架构 → 推送 Agent（面板同目录优先，缺失时目标机从仓库下载）→ 注册 systemd 服务 → 自动上线。SSH 凭据仅本次使用，不保存。</WmNotice>
+      <template #footer>
+        <a-button @click="sDlg = false">取消</a-button>
+        <a-button type="primary" :loading="sRunning" @click="runSSHInstall">安装并接入</a-button>
+      </template>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
@@ -178,6 +205,41 @@ async function regenToken() {
   }
   token.value = ((await api.post('/nodes/token/regenerate')) as any).token
   ElMessage.success('已重置')
+}
+
+// ---- SSH 自动安装 Agent ----
+const sDlg = ref(false)
+const sRunning = ref(false)
+const emptySSHForm = () => ({
+  host: '', port: 22, user: 'root', auth_type: 'password', password: '',
+  private_key: '', passphrase: '', name: '',
+  server: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+})
+const sshForm = reactive(emptySSHForm())
+
+function openSSH() {
+  Object.assign(sshForm, emptySSHForm())
+  sDlg.value = true
+}
+
+async function runSSHInstall() {
+  if (!sshForm.host.trim()) {
+    ElMessage.warning('请填写目标主机')
+    return
+  }
+  if (sshForm.auth_type === 'password' && !sshForm.password) {
+    ElMessage.warning('请填写 SSH 密码')
+    return
+  }
+  sRunning.value = true
+  try {
+    const d: any = await api.post('/nodes/ssh-install', sshForm, { timeout: 900000 })
+    ElMessage.success(`节点「${d.name}」已接入（${d.arch}${d.systemd ? ' · systemd' : ''}）`)
+    sDlg.value = false
+    load()
+  } finally {
+    sRunning.value = false
+  }
 }
 
 function openMetrics(row: any) {

@@ -168,6 +168,7 @@ func (m *Module) Register(all gin.IRouter, rw gin.IRouter, admin gin.IRouter) {
 	rw.POST("/nodes/:id/exec", m.exec)
 	admin.GET("/nodes/token", m.getToken)
 	admin.POST("/nodes/token/regenerate", m.regenToken)
+	admin.POST("/nodes/ssh-install", m.sshInstall)
 	admin.DELETE("/nodes/:id", m.remove)
 	all.GET("/nodes/:id/metrics/hourly", m.metricsHourly)
 }

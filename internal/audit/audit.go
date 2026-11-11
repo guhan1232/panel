@@ -74,6 +74,7 @@ var opRules = []struct {
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/stop$`), "停止应用"},
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/restart$`), "重启应用"},
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/uninstall$`), "卸载应用"},
+	{regexp.MustCompile(`^POST /api/nodes/ssh-install$`), "SSH 接入节点（自动安装 Agent）"},
 	{regexp.MustCompile(`^POST /api/runtimes/[^/]+/install$`), "安装运行时"},
 	{regexp.MustCompile(`^POST /api/runtimes/[^/]+/set-default$`), "设置默认运行时版本"},
 	{regexp.MustCompile(`^DELETE /api/runtimes/[^/]+$`), "卸载运行时版本"},
