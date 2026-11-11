@@ -177,17 +177,12 @@ func (s *Service) me(c *gin.Context) {
 // ---- 中间件 ----
 
 // apiTokenFrom 提取开放 API Token（Authorization: Bearer xxx 或 X-Api-Token）。
+// Token 记录与 scope 校验见 apitoken.go。
 func apiTokenFrom(c *gin.Context) string {
 	if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 	}
 	return strings.TrimSpace(c.GetHeader("X-Api-Token"))
-}
-
-// APITokenValid 请求携带的开放 API Token 是否有效（未启用/不匹配均视为无效）。
-func (s *Service) APITokenValid(c *gin.Context) bool {
-	t := apiTokenFrom(c)
-	return t != "" && t == core.GetSetting(s.db, core.KApiToken)
 }
 
 func (s *Service) currentSession(c *gin.Context) (*core.Session, bool) {
@@ -209,12 +204,21 @@ func (s *Service) currentSession(c *gin.Context) (*core.Session, bool) {
 // Middleware API 鉴权：校验会话、注入 user/uid/role/session，并拦截 viewer 的写操作。
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 开放 API Token：等效 admin 会话（外部脚本 / MCP 客户端）
-		if s.APITokenValid(c) {
-			c.Set("user", "api")
-			c.Set("uid", uint(0))
-			c.Set("role", string(RoleAdmin))
-			c.Next()
+		// 开放 API Token：等效 admin 会话 + scope 权限校验（外部脚本 / MCP 客户端）
+		if apiTokenFrom(c) != "" {
+			rec := s.APITokenRec()
+			if rec != nil && s.apiTokenMatch(c, rec) {
+				if !s.apiTokenDenied(c, rec) {
+					c.Set("user", "api")
+					c.Set("uid", uint(0))
+					c.Set("role", string(RoleAdmin))
+					c.Next()
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "API Token 权限不足（模块未授权或只读模式）"})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "API Token 无效或未启用"})
 			return
 		}
 		sess, ok := s.currentSession(c)

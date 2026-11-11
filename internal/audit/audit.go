@@ -76,6 +76,7 @@ var opRules = []struct {
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/uninstall$`), "卸载应用"},
 	{regexp.MustCompile(`^POST /api/nodes/ssh-install$`), "SSH 接入节点（自动安装 Agent）"},
 	{regexp.MustCompile(`^POST /api/mcp/token$`), "生成开放 API Token"},
+	{regexp.MustCompile(`^PUT /api/mcp/token$`), "更新开放 API Token 权限"},
 	{regexp.MustCompile(`^DELETE /api/mcp/token$`), "禁用开放 API Token"},
 	{regexp.MustCompile(`^POST /api/mcp$`), "MCP 工具调用"},
 	{regexp.MustCompile(`^POST /api/runtimes/[^/]+/install$`), "安装运行时"},

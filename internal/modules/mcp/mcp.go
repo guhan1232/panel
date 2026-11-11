@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"cnb.cool/hanyuxin/panel/internal/auth"
 	"cnb.cool/hanyuxin/panel/internal/config"
 	"cnb.cool/hanyuxin/panel/internal/core"
 )
@@ -28,15 +29,17 @@ const protoVer = "2025-03-26"
 
 // Module MCP 模块。
 type Module struct {
-	db  *gorm.DB
-	cfg *config.Config
-	hc  *http.Client
+	db      *gorm.DB
+	cfg     *config.Config
+	authSvc *auth.Service
+	hc      *http.Client
 }
 
-func New(db *gorm.DB, cfg *config.Config) *Module {
+func New(db *gorm.DB, cfg *config.Config, authSvc *auth.Service) *Module {
 	return &Module{
-		db:  db,
-		cfg: cfg,
+		db:      db,
+		cfg:     cfg,
+		authSvc: authSvc,
 		hc: &http.Client{
 			Timeout: 15 * time.Minute,
 			Transport: &http.Transport{
@@ -51,30 +54,109 @@ func (m *Module) Register(protected gin.IRouter, admin gin.IRouter) {
 	protected.POST("/mcp", m.handle)
 	admin.GET("/mcp/token", m.getToken)
 	admin.POST("/mcp/token", m.genToken)
+	admin.PUT("/mcp/token", m.updateTokenPerm)
 	admin.DELETE("/mcp/token", m.clearToken)
 }
 
 // ---- 开放 API Token 管理 ----
 
 func (m *Module) getToken(c *gin.Context) {
-	t := core.GetSetting(m.db, core.KApiToken)
-	core.OK(c, gin.H{"enabled": t != "", "token": t, "mcp_url": m.publicURL() + "/api/mcp"})
+	rec := m.authSvc.APITokenRec()
+	if rec == nil {
+		core.OK(c, gin.H{"enabled": false, "token": "", "mode": "full", "scopes": []string{}, "readonly": false, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+		return
+	}
+	scopes := rec.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
-// genToken 生成/重置开放 API Token（启用开放 API）。
+// genToken 生成/重置开放 API Token（可携带权限配置：mode/scopes/readonly）。
 func (m *Module) genToken(c *gin.Context) {
+	var p struct {
+		Mode     string   `json:"mode"`
+		Scopes   []string `json:"scopes"`
+		ReadOnly bool     `json:"readonly"`
+	}
+	_ = c.ShouldBindJSON(&p) // 空请求体 = 默认 full
+	rec, err := m.buildPerm(&p)
+	if err != nil {
+		core.Err(c, 400, err.Error())
+		return
+	}
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
 		core.Err(c, 500, "生成 Token 失败")
 		return
 	}
-	t := hex.EncodeToString(b)
-	if err := core.SetSetting(m.db, core.KApiToken, t); err != nil {
+	rec.Token = hex.EncodeToString(b)
+	if err := auth.SaveTokenRecord(m.db, rec); err != nil {
 		core.Err(c, 500, "保存 Token 失败")
 		return
 	}
-	slog.Info("开放 API Token 已生成", "by", c.GetString("user"))
-	core.OK(c, gin.H{"enabled": true, "token": t, "mcp_url": m.publicURL() + "/api/mcp"})
+	slog.Info("开放 API Token 已生成", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+}
+
+// updateTokenPerm 仅更新权限（Token 值不变，客户端无需重新配置）。
+func (m *Module) updateTokenPerm(c *gin.Context) {
+	rec := m.authSvc.APITokenRec()
+	if rec == nil {
+		core.Err(c, 400, "尚未启用开放 API Token")
+		return
+	}
+	var p struct {
+		Mode     string   `json:"mode"`
+		Scopes   []string `json:"scopes"`
+		ReadOnly bool     `json:"readonly"`
+	}
+	if err := c.ShouldBindJSON(&p); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	perm, err := m.buildPerm(&p)
+	if err != nil {
+		core.Err(c, 400, err.Error())
+		return
+	}
+	rec.Mode, rec.Scopes, rec.ReadOnly = perm.Mode, perm.Scopes, perm.ReadOnly
+	if err := auth.SaveTokenRecord(m.db, rec); err != nil {
+		core.Err(c, 500, "保存权限失败")
+		return
+	}
+	slog.Info("开放 API Token 权限已更新", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+}
+
+// buildPerm 校验并归一化权限配置。
+func (m *Module) buildPerm(p *struct {
+	Mode     string   `json:"mode"`
+	Scopes   []string `json:"scopes"`
+	ReadOnly bool     `json:"readonly"`
+}) (*auth.APITokenRec, error) {
+	rec := &auth.APITokenRec{Mode: p.Mode, Scopes: p.Scopes, ReadOnly: p.ReadOnly}
+	if rec.Mode == "" {
+		rec.Mode = "full"
+	}
+	if rec.Mode != "full" && rec.Mode != "custom" {
+		return nil, fmt.Errorf("mode 仅支持 full / custom")
+	}
+	if rec.Mode == "custom" {
+		known := map[string]bool{}
+		for _, s := range auth.ScopesKnown {
+			known[s] = true
+		}
+		for _, s := range rec.Scopes {
+			if !known[s] {
+				return nil, fmt.Errorf("未知模块 scope: %s", s)
+			}
+		}
+	} else {
+		rec.Scopes = nil
+	}
+	return rec, nil
 }
 
 // clearToken 禁用开放 API（清空 Token，已有客户端立即失效）。
@@ -118,26 +200,28 @@ type rpcErr struct {
 }
 
 // toolDef MCP 工具定义；执行统一按 name 分发到 execTool，经内部回环调用面板 API
-// （转发请求方 Token/Cookie，权限与审计与会话操作完全一致）。
+// （转发请求方 Token/Cookie，权限与审计与会话操作完全一致）。Scope 为所需模块权限，
+// Token 模式下 tools/list 按 scope 过滤、tools/call 预检查。
 type toolDef struct {
 	Name        string
+	Scope       string
 	Description string
 	Schema      map[string]any
 }
 
 var tools = []toolDef{
 	{
-		Name:        "panel_status",
+		Name: "panel_status", Scope: "status",
 		Description: "面板总览：系统信息、CPU/内存/磁盘、站点数、节点数等仪表盘汇总",
 		Schema:      obj(map[string]any{}),
 	},
 	{
-		Name:        "list_sites",
+		Name: "list_sites", Scope: "sites",
 		Description: "网站站点列表（名称/类型/域名/SSL/启用状态）",
 		Schema:      obj(map[string]any{}),
 	},
 	{
-		Name:        "create_site",
+		Name: "create_site", Scope: "sites",
 		Description: "创建网站站点：type=static 静态站 / php PHP 站 / proxy 反向代理",
 		Schema: obj(map[string]any{
 			"name":    map[string]any{"type": "string", "description": "站点标识，小写字母数字点短横线"},
@@ -148,26 +232,26 @@ var tools = []toolDef{
 		}),
 	},
 	{
-		Name:        "delete_site",
+		Name: "delete_site", Scope: "sites",
 		Description: "删除站点（仅移除 Nginx 配置，不删除网站文件）",
 		Schema: obj(map[string]any{
 			"id": map[string]any{"type": "number", "description": "站点 ID（先 list_sites 获取）"},
 		}),
 	},
 	{
-		Name:        "toggle_site",
+		Name: "toggle_site", Scope: "sites",
 		Description: "启用/停用站点",
 		Schema: obj(map[string]any{
 			"id": map[string]any{"type": "number", "description": "站点 ID"},
 		}),
 	},
 	{
-		Name:        "list_nodes",
+		Name: "list_nodes", Scope: "nodes",
 		Description: "多节点列表（名称/系统架构/IP/在线状态/最近心跳）",
 		Schema:      obj(map[string]any{}),
 	},
 	{
-		Name:        "node_exec",
+		Name: "node_exec", Scope: "nodes",
 		Description: "在指定节点执行 shell 命令并返回输出（经审计）",
 		Schema: obj(map[string]any{
 			"node_id":     map[string]any{"type": "number", "description": "节点 ID（先 list_nodes 获取）"},
@@ -176,12 +260,12 @@ var tools = []toolDef{
 		}),
 	},
 	{
-		Name:        "list_runtimes",
+		Name: "list_runtimes", Scope: "runtimes",
 		Description: "运行时（PHP/Node.js/Go/Python/OpenJDK）已安装版本与状态",
 		Schema:      obj(map[string]any{}),
 	},
 	{
-		Name:        "install_runtime",
+		Name: "install_runtime", Scope: "runtimes",
 		Description: "安装运行时版本（如 php 8.5 / nodejs v22 等，耗时操作）",
 		Schema: obj(map[string]any{
 			"lang":    map[string]any{"type": "string", "enum": []string{"php", "nodejs", "golang", "python", "openjdk"}},
@@ -189,7 +273,7 @@ var tools = []toolDef{
 		}),
 	},
 	{
-		Name:        "api_request",
+		Name: "api_request", Scope: "", // 按实际 method/path 判定
 		Description: "万能工具：直接调用面板任意 REST API（路径以 /api 开头），适合上述工具未覆盖的操作",
 		Schema: obj(map[string]any{
 			"method": map[string]any{"type": "string", "enum": []string{"GET", "POST", "PUT", "DELETE"}},
@@ -213,6 +297,8 @@ func (m *Module) handle(c *gin.Context) {
 		}
 	}
 	cookie := c.GetHeader("Cookie")
+	authHdr := auth
+	permRec, isToken := m.authSvc.APIPerm(c)
 	var req rpcReq
 	body, err := c.GetRawData()
 	if err != nil || json.Unmarshal(body, &req) != nil {
@@ -225,14 +311,14 @@ func (m *Module) handle(c *gin.Context) {
 		_ = json.Unmarshal(body, &arr)
 		out := make([]rpcResp, 0, len(arr))
 		for _, r := range arr {
-			if res, isNotice := m.dispatch(auth, cookie, r); !isNotice {
+			if res, isNotice := m.dispatch(permRec, isToken, authHdr, cookie, r); !isNotice {
 				out = append(out, res)
 			}
 		}
 		c.JSON(http.StatusOK, out)
 		return
 	}
-	res, isNotice := m.dispatch(auth, cookie, req)
+	res, isNotice := m.dispatch(permRec, isToken, authHdr, cookie, req)
 	if isNotice {
 		c.Status(http.StatusAccepted)
 		return
@@ -245,7 +331,8 @@ func writeRPC(c *gin.Context, res rpcResp) {
 }
 
 // dispatch 处理单条 JSON-RPC；通知类请求返回 isNotice=true（无响应体）。
-func (m *Module) dispatch(auth, cookie string, req rpcReq) (rpcResp, bool) {
+// permRec 非 nil 表示 Token 调用（按 scope 过滤工具）；authHdr/cookie 用于工具回环调用。
+func (m *Module) dispatch(permRec *auth.APITokenRec, isToken bool, authHdr, cookie string, req rpcReq) (rpcResp, bool) {
 	switch req.Method {
 	case "initialize":
 		var p struct {
@@ -266,6 +353,10 @@ func (m *Module) dispatch(auth, cookie string, req rpcReq) (rpcResp, bool) {
 	case "tools/list":
 		items := make([]gin.H, 0, len(tools))
 		for _, t := range tools {
+			// Token 自定义权限模式：过滤无权模块的工具（full 模式/会话调用全量）
+			if permRec != nil && isToken && permRec.Mode == "custom" && !m.toolAllowed(permRec, t.Scope) {
+				continue
+			}
 			items = append(items, gin.H{"name": t.Name, "description": t.Description, "inputSchema": t.Schema})
 		}
 		return rpcResp{JSONRPC: protoVer, ID: req.ID, Result: gin.H{"tools": items}}, false
@@ -277,7 +368,7 @@ func (m *Module) dispatch(auth, cookie string, req rpcReq) (rpcResp, bool) {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return rpcErrResp(req.ID, -32602, "参数错误"), false
 		}
-		text, err := m.execTool(auth, cookie, p.Name, p.Arguments)
+		text, err := m.execTool(authHdr, cookie, p.Name, p.Arguments)
 		if err != nil {
 			return rpcResp{JSONRPC: protoVer, ID: req.ID, Result: gin.H{
 				"content": []gin.H{{"type": "text", "text": err.Error()}}, "isError": true,
@@ -295,8 +386,22 @@ func rpcErrResp(id json.RawMessage, code int, msg string) rpcResp {
 	return rpcResp{JSONRPC: protoVer, ID: id, Error: &rpcErr{Code: code, Message: msg}}
 }
 
+// toolAllowed Token 自定义权限下工具是否可见/可调：工具 scope 已授权；
+// api_request（无固定 scope）需至少授权一个模块。readonly 不影响可见性（仅拦截写方法）。
+func (m *Module) toolAllowed(rec *auth.APITokenRec, scope string) bool {
+	if scope == "" {
+		return len(rec.Scopes) > 0
+	}
+	for _, s := range rec.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
 // execTool 执行工具：统一走内部回环 HTTP（除 api_request 外按工具映射）。
-func (m *Module) execTool(auth, cookie, name string, raw json.RawMessage) (string, error) {
+func (m *Module) execTool(authHdr, cookie, name string, raw json.RawMessage) (string, error) {
 	var args map[string]any
 	_ = json.Unmarshal(raw, &args)
 	num := func(k string) (int64, error) {
@@ -366,7 +471,7 @@ func (m *Module) execTool(auth, cookie, name string, raw json.RawMessage) (strin
 	default:
 		return "", fmt.Errorf("未知工具: %s", name)
 	}
-	code, out, err := m.loop(auth, cookie, method, path, body)
+	code, out, err := m.loop(authHdr, cookie, method, path, body)
 	if err != nil {
 		return "", fmt.Errorf("面板调用失败: %w", err)
 	}

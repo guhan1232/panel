@@ -96,7 +96,7 @@ func main() {
 	r.GET("/api/ws/nodeterm/:id", authSvc.EntranceRequired(), authSvc.Middleware(), nodeMod.HandleNodeTerm)
 
 	// 开放 API 与 MCP Server（外部脚本 / AI 客户端接入，凭 API Token 等效 admin）
-	mcpMod := mcp.New(db, cfg)
+	mcpMod := mcp.New(db, cfg, authSvc)
 	mcpMod.Register(protected, protectedAdmin)
 
 	// 计划任务（依赖节点执行通道，需在 nodeMod 之后组装）
