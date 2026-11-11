@@ -4,7 +4,7 @@
 
 ![Version](https://img.shields.io/badge/version-0.39.8-blue) ![Go](https://img.shields.io/badge/Go-1.26-00ADD8)
 
-仓库：https://cnb.cool/hanyuxin/panel · 规划文档 [PLAN.md](PLAN.md) · 部署手册 [DEPLOY.md](DEPLOY.md) · 脚本开发 [docs/SCRIPT-REPO.md](docs/SCRIPT-REPO.md)
+仓库：https://cnb.cool/hanyuxin/panel · 脚本应用开发文档 [docs/SCRIPT-REPO.md](docs/SCRIPT-REPO.md) · 开放 API [docs/API.md](docs/API.md) · MCP [docs/MCP.md](docs/MCP.md)
 
 ## 快速开始
 
