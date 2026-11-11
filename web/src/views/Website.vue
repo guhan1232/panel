@@ -27,7 +27,8 @@
         </WmColumn>
         <WmColumn label="操作" width="250" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" @click="viewLog(row, 'access')">访问日志</a-button>
+            <a-button size="small" @click="openSiteBackup(row)">备份</a-button>
+                <a-button size="small" @click="viewLog(row, 'access')">访问日志</a-button>
             <a-button size="small" @click="viewLog(row, 'error')">错误日志</a-button>
             <a-button size="small" @click="openEdit(row)">编辑</a-button>
             <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
@@ -85,6 +86,31 @@
       <WmCodeBlock :content="logContent" :label="`${logSite} / ${logType}.log`" empty-text="（日志为空）" />
     </a-modal>
   </div>
+    <!-- 站点数据备份 -->
+    <a-modal v-model:open="bakDlg" :title="'数据备份 - ' + (bakSite?.site?.name || '')" width="760px" :footer="null">
+      <WmToolbar>
+        <a-button type="primary" size="small" :loading="bakCreating" @click="createSiteBackup">立即备份</a-button>
+        <a-button size="small" @click="loadSiteBackups">刷新</a-button>
+        <template #note>打包站点根目录与 Nginx 配置为 tar.gz，可下载导出、上传导入恢复。</template>
+      </WmToolbar>
+      <WmTable :data="siteBackups" size="small" v-loading="bakLoading" empty-title="暂无备份" empty-description="点击「立即备份」生成第一个备份包。">
+        <WmColumn label="文件" min-width="300"><template #default="{ row }"><span class="wm-mono">{{ row.file }}</span></template></WmColumn>
+        <WmColumn label="大小" width="110"><template #default="{ row }">{{ fmtSize(row.size) }}</template></WmColumn>
+        <WmColumn label="时间" width="170"><template #default="{ row }">{{ row.time }}</template></WmColumn>
+        <WmColumn label="操作" width="240" fixed="right">
+          <template #default="{ row }">
+            <a-button size="small" @click="downloadSiteBackup(row)">下载</a-button>
+            <a-button size="small" @click="restoreSiteBackup(row)">恢复</a-button>
+            <a-button size="small" data-tone="danger" @click="deleteSiteBackup(row)">删除</a-button>
+          </template>
+        </WmColumn>
+      </WmTable>
+      <p class="hint" style="margin-top:8px">恢复前当前数据自动留存为 *.pre-restore-*.tar.gz 安全备份；也支持「上传恢复」导入外部 tar.gz。</p>
+      <WmToolbar>
+        <input type="file" accept=".tar.gz,.tgz" @change="e => uploadBakFile = e.target?.files?.[0] || null" />
+        <a-button size="small" :disabled="!uploadBakFile" @click="uploadRestore">上传恢复</a-button>
+      </WmToolbar>
+    </a-modal>
 </template>
 
 <script setup lang="ts">
@@ -265,4 +291,84 @@ watch(
 )
 
 onMounted(load)
+
+// ---- 站点数据备份 ----
+const bakDlg = ref(false)
+const bakSite = ref<any>(null)
+const siteBackups = ref<any[]>([])
+const bakLoading = ref(false)
+const bakCreating = ref(false)
+const uploadBakFile = ref<File | null>(null)
+
+function fmtSize(n: number) {
+  if (n < 1024) return n + ' B'
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'
+  return (n / 1048576).toFixed(1) + ' MB'
+}
+
+function openSiteBackup(row: any) {
+  bakSite.value = row
+  bakDlg.value = true
+  loadSiteBackups()
+}
+
+async function loadSiteBackups() {
+  bakLoading.value = true
+  try {
+    siteBackups.value = (await api.get('/sites/backups')) as any
+  } catch {
+    siteBackups.value = []
+  } finally {
+    bakLoading.value = false
+  }
+}
+
+async function createSiteBackup() {
+  if (!bakSite.value?.site?.id) return
+  bakCreating.value = true
+  try {
+    const r: any = await api.post('/sites/' + bakSite.value.site.id + '/backup', {}, { timeout: 1800000 })
+    ElMessage.success('备份完成：' + (r?.file || ''))
+    loadSiteBackups()
+  } finally {
+    bakCreating.value = false
+  }
+}
+
+function downloadSiteBackup(row: any) {
+  window.open('/api/sites/backups/download?file=' + encodeURIComponent(row.file))
+}
+
+async function restoreSiteBackup(row: any) {
+  try {
+    await ElMessageBox.confirm('将用备份「' + row.file + '」覆盖站点数据并自动留存当前数据，继续？', '恢复确认', { type: 'warning' })
+  } catch { return }
+  const fd = new FormData()
+  fd.append('id', String(bakSite.value.site.id))
+  fd.append('file', row.file)
+  const r: any = await api.post('/sites/backups/restore', fd, { timeout: 1800000, headers: { 'Content-Type': 'multipart/form-data' } })
+  ElMessage.success(r?.message || '恢复完成')
+}
+
+async function deleteSiteBackup(row: any) {
+  try {
+    await ElMessageBox.confirm('删除备份「' + row.file + '」？', '删除', { type: 'warning' })
+  } catch { return }
+  await api.delete('/sites/backups', { params: { file: row.file } })
+  loadSiteBackups()
+}
+
+async function uploadRestore() {
+  if (!uploadBakFile.value || !bakSite.value?.site?.id) return
+  try {
+    await ElMessageBox.confirm('上传的备份将覆盖站点数据并自动留存当前数据，继续？', '上传恢复', { type: 'warning' })
+  } catch { return }
+  const fd = new FormData()
+  fd.append('id', String(bakSite.value.site.id))
+  fd.append('file', uploadBakFile.value)
+  const r: any = await api.post('/sites/backups/restore', fd, { timeout: 1800000, headers: { 'Content-Type': 'multipart/form-data' } })
+  ElMessage.success(r?.message || '恢复完成')
+  uploadBakFile.value = null
+  loadSiteBackups()
+}
 </script>

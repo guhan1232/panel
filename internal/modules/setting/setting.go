@@ -2,6 +2,7 @@
 package setting
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -45,6 +46,8 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/password", m.changePassword)
 	g.POST("/profile", m.changeUsername)
 	g.GET("/panel-backup", m.panelBackup)
+	g.POST("/panel-restore", m.panelRestore)
+	g.POST("/panel-restore/rollback", m.panelRestoreRollback)
 	g.GET("/upgrade/check", m.upgradeCheck)
 	g.POST("/upgrade/apply", m.upgradeApply)
 	// HTTPS 证书（自签兜底 10 年 / 中间 CA 交叉签发跟随 CA 有效期）
@@ -335,32 +338,232 @@ func (m *Module) panelBackup(c *gin.Context) {
 		return
 	}
 	defer os.RemoveAll(tmpDir)
-
-	snap := filepath.Join(tmpDir, "panel.db")
-	if err := m.db.Exec("VACUUM INTO ?", snap).Error; err != nil {
-		core.Err(c, 500, "数据库快照失败: "+err.Error())
-		return
-	}
-
-	paths := []string{snap}
-	if m.cfg.Path != "" {
-		if _, err := os.Stat(m.cfg.Path); err == nil {
-			paths = append(paths, m.cfg.Path)
-		}
-	}
-	certsDir := filepath.Join(m.cfg.DataDir, "certs-managed")
-	if _, err := os.Stat(certsDir); err == nil {
-		paths = append(paths, certsDir)
-	}
-
 	out := filepath.Join(tmpDir, "hanyuxin-panel-backup.zip")
-	if err := archive.ZipAt(c.Request.Context(), tmpDir, paths, out); err != nil {
-		core.Err(c, 500, "打包失败: "+err.Error())
+	if err := m.packPanelData(c.Request.Context(), []string{"db", "config", "certs"}, out); err != nil {
+		core.Err(c, 500, err.Error())
 		return
 	}
 	name := "hanyuxin-panel-backup-" + time.Now().Format("20060102-150405") + ".zip"
 	c.FileAttachment(out, name)
 }
+
+// packPanelData 统一打包面板数据到暂存目录再压缩（条目名干净：panel.db/config.yaml/certs-managed/…）。
+// items: db | config | certs 子集；out 为输出 zip 绝对路径。
+func (m *Module) packPanelData(ctx context.Context, items []string, out string) error {
+	stage, err := os.MkdirTemp("", "hanyuxin-pack-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	for _, it := range items {
+		switch it {
+		case "db":
+			snap := filepath.Join(stage, "panel.db")
+			if err := m.db.Exec("VACUUM INTO ?", snap).Error; err != nil {
+				return fmt.Errorf("数据库快照失败: %w", err)
+			}
+		case "config":
+			if m.cfg.Path == "" {
+				continue
+			}
+			data, err := os.ReadFile(m.cfg.Path)
+			if err != nil {
+				continue
+			}
+			_ = os.WriteFile(filepath.Join(stage, "config.yaml"), data, 0o600)
+		case "certs":
+			src := filepath.Join(m.cfg.DataDir, "certs-managed")
+			if _, err := os.Stat(src); err == nil {
+				_ = copyDirLocal(src, filepath.Join(stage, "certs-managed"))
+			}
+		}
+	}
+	var tops []string
+	entries, _ := os.ReadDir(stage)
+	for _, e := range entries {
+		tops = append(tops, filepath.Join(stage, e.Name()))
+	}
+	if err := archive.ZipAt(ctx, stage, tops, out); err != nil {
+		return fmt.Errorf("打包失败: %w", err)
+	}
+	return nil
+}
+
+// copyDirLocal 递归拷贝目录（备份暂存用）。
+func copyDirLocal(src, dst string) error {
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm())
+	})
+}
+
+// buildRestoreScript 生成脱离执行的恢复脚本（停服 → 替换 → 启动 → 清理）。
+func buildRestoreScript(workDir, restoreDir, cfgPath, dataDir, exeName string, items []string) string {
+	stop := "systemctl stop hanyuxin 2>/dev/null || pkill -f \"" + exeName + "\" 2>/dev/null || true"
+	start := "systemctl start hanyuxin 2>/dev/null || (cd \"" + workDir + "\" && nohup ./" + exeName + " -c config.yaml >> panel.log 2>&1 &)"
+	itemLines := ""
+	for _, it := range items {
+		switch it {
+		case "db":
+			itemLines += "cp -f \"" + restoreDir + "/check/panel.db\" \"" + workDir + "/data/panel.db\"\n"
+		case "config":
+			itemLines += "cp -f \"" + restoreDir + "/check/config.yaml\" \"" + cfgPath + "\"\n"
+		case "certs":
+			itemLines += "rm -rf \"" + dataDir + "/certs-managed\"\n" +
+				"cp -r \"" + restoreDir + "/check/certs-managed\" \"" + dataDir + "/certs-managed\"\n"
+		}
+	}
+	return "#!/bin/sh\n" +
+		"sleep 2\n" +
+		stop + "\n" +
+		"sleep 1\n" +
+		"cd \"" + workDir + "\"\n" +
+		itemLines +
+		start + "\n" +
+		"rm -rf \"" + restoreDir + "\"\n"
+}
+
+// panelRestore 导入备份包并恢复：multipart 上传 zip（panel.db / config.yaml / certs-managed/）。
+// items 指定恢复项（缺省全恢复）；恢复前自动留存当前数据为回滚点；由 setsid 脱离脚本执行替换与重启。
+func (m *Module) panelRestore(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	items := c.PostFormArray("items")
+	if len(items) == 0 {
+		items = []string{"db", "config", "certs"}
+	}
+	restoreDir := filepath.Join(m.cfg.DataDir, "restore-pending")
+	if err := os.MkdirAll(restoreDir, 0o700); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	zipPath := filepath.Join(restoreDir, "restore.zip")
+	if err := c.SaveUploadedFile(file, zipPath); err != nil {
+		core.Err(c, 500, "保存上传失败: " + err.Error())
+		return
+	}
+	// 解包校验（防路径穿越由 archive.UnZip 处理；必含所选恢复项）
+	checkDir := filepath.Join(restoreDir, "check")
+	_ = os.RemoveAll(checkDir)
+	if err := archive.UnZip(zipPath, checkDir); err != nil {
+		_ = os.RemoveAll(restoreDir)
+		core.Err(c, 400, "备份包解析失败: " + err.Error())
+		return
+	}
+	itemFiles := map[string]string{"db": "panel.db", "config": "config.yaml", "certs": "certs-managed"}
+	for _, it := range items {
+		if _, err := os.Stat(filepath.Join(checkDir, itemFiles[it])); err != nil {
+			_ = os.RemoveAll(restoreDir)
+			core.Err(c, 400, "备份包中缺少 "+itemFiles[it]+" 项，无法恢复")
+			return
+		}
+	}
+	defer os.RemoveAll(checkDir)
+
+	// 回滚点：当前数据打包留存
+	rollbackZip, err := m.makeRollback(c, items)
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+
+	exe, _ := os.Executable()
+	workDir := filepath.Dir(exe)
+	exeName := filepath.Base(exe)
+	script := buildRestoreScript(workDir, restoreDir, m.cfg.Path, m.cfg.DataDir, exeName, items)
+	if err := os.WriteFile(filepath.Join(restoreDir, "restore.sh"), []byte(script), 0o700); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	slog.Info("面板恢复任务已受理", "items", strings.Join(items, ","), "rollback", filepath.Base(rollbackZip))
+	_, _ = exec.Command("sh", "-c", "setsid nohup sh "+filepath.Join(restoreDir, "restore.sh")+" >/dev/null 2>&1 &").CombinedOutput()
+	core.OK(c, gin.H{"ok": true, "message": "恢复任务已执行：面板将在数秒内重启，恢复前数据已留存为回滚点", "rollback": filepath.Base(rollbackZip)})
+}
+
+// makeRollback 把当前面板数据打包为回滚点 zip（复用 packPanelData，条目名干净）。
+func (m *Module) makeRollback(c *gin.Context, items []string) (string, error) {
+	bakDir := filepath.Join(m.cfg.DataDir, "restore-rollback")
+	if err := os.MkdirAll(bakDir, 0o700); err != nil {
+		return "", err
+	}
+	rollbackZip := filepath.Join(bakDir, "restore-bak-"+time.Now().Format("20060102-150405")+".zip")
+	if err := m.packPanelData(c.Request.Context(), items, rollbackZip); err != nil {
+		return "", err
+	}
+	return rollbackZip, nil
+}
+
+// panelRestoreRollback 用最近一次回滚点恢复（同一恢复模板）。
+func (m *Module) panelRestoreRollback(c *gin.Context) {
+	bakDir := filepath.Join(m.cfg.DataDir, "restore-rollback")
+	entries, err := os.ReadDir(bakDir)
+	if err != nil || len(entries) == 0 {
+		core.Err(c, 404, "没有可用的回滚点")
+		return
+	}
+	latest := entries[0]
+	for _, e := range entries {
+		if e.Name() > latest.Name() {
+			latest = e
+		}
+	}
+	restoreDir := filepath.Join(m.cfg.DataDir, "restore-pending")
+	_ = os.MkdirAll(restoreDir, 0o700)
+	zipPath := filepath.Join(restoreDir, "restore.zip")
+	in, err := os.Open(filepath.Join(bakDir, latest.Name()))
+	if err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	out, err := os.Create(zipPath)
+	if err != nil {
+		in.Close()
+		core.Err(c, 500, err.Error())
+		return
+	}
+	_, _ = io.Copy(out, in)
+	in.Close()
+	out.Close()
+	checkDir := filepath.Join(restoreDir, "check")
+	_ = os.RemoveAll(checkDir)
+	if err := archive.UnZip(zipPath, checkDir); err != nil {
+		core.Err(c, 400, "回滚点解析失败: "+err.Error())
+		return
+	}
+	// 回滚点包内 db 在顶层，config/certs 也在顶层
+	items := []string{}
+	itemFiles := map[string]string{"db": "panel.db", "config": "config.yaml", "certs": "certs-managed"}
+	for _, it := range []string{"db", "config", "certs"} {
+		if _, err := os.Stat(filepath.Join(checkDir, itemFiles[it])); err == nil {
+			items = append(items, it)
+		}
+	}
+	if len(items) == 0 {
+		items = []string{"db", "config", "certs"}
+	}
+	exe, _ := os.Executable()
+	workDir := filepath.Dir(exe)
+	exeName := filepath.Base(exe)
+	script := buildRestoreScript(workDir, restoreDir, m.cfg.Path, m.cfg.DataDir, exeName, items)
+	_ = os.WriteFile(filepath.Join(restoreDir, "restore.sh"), []byte(script), 0o700)
+	_, _ = exec.Command("sh", "-c", "setsid nohup sh "+filepath.Join(restoreDir, "restore.sh")+" >/dev/null 2>&1 &").CombinedOutput()
+	core.OK(c, gin.H{"ok": true, "message": "回滚任务已执行（使用 " + latest.Name() + "），面板将重启"})
+}
+
 
 // ---- 面板在线自升级：清单 JSON {version, binary_url, sha256?} ----
 

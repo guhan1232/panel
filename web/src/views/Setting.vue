@@ -201,11 +201,13 @@
         <WmNotice tone="neutral" class="wm-mt-4">修改后需用新用户名重新登录；SSH 首次输出的初始凭据文件将在你首次修改密码后自动删除。</WmNotice>
       </WmSectionCard>
 
-      <WmSectionCard title="面板数据备份" description="打包 SQLite 数据库快照、config.yaml 与托管证书，下载留档">
+      <WmSectionCard title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
         <template #actions>
-          <a-button size="small" type="primary" @click="downloadBackup">下载备份包</a-button>
+          <a-button size="small" type="primary" @click="downloadBackup">导出备份包</a-button>
+          <a-button size="small" @click="restoreDlg = true; restoreFile = null">导入恢复</a-button>
+          <a-button v-if="hasRollback" size="small" data-tone="danger" :loading="rollbackBusy" @click="doRollback">回滚上次恢复前数据</a-button>
         </template>
-        <p class="wm-text-muted">备份包含 panel.db（一致性快照）、config.yaml（含安全入口）与 certs-managed 目录；恢复时停服解压覆盖对应文件即可。</p>
+        <p class="wm-text-muted">导出包含 panel.db（一致性快照）、config.yaml（含安全入口/TLS）与 certs-managed 目录。导入恢复支持按项勾选（数据库 / 配置 / 证书），恢复前自动把当前数据留存为回滚点，面板自动重启；恢复配置项会改变端口/入口/TLS，请留意提示。</p>
       </WmSectionCard>
 
       <WmSectionCard title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效" marker dense>
@@ -233,6 +235,19 @@
     <!-- 反代日志 -->
     <a-modal v-model:open="proxyLogDlg" :title="proxyLogName" width="820px">
       <WmCodeBlock :content="proxyLogContent" :label="proxyLogName" />
+    </a-modal>
+
+    <!-- 面板备份导入恢复 -->
+    <a-modal v-model:open="restoreDlg" title="导入备份包恢复面板" ok-text="开始恢复" cancel-text="取消" :confirm-loading="restoring" @ok="doRestore" width="560px">
+      <a-form layout="vertical">
+        <a-form-item label="备份包（zip）" required>
+          <input type="file" accept=".zip" @change="e => restoreFile = e.target?.files?.[0] || null" />
+        </a-form-item>
+        <a-form-item label="恢复项">
+          <a-checkbox-group v-model:value="restoreItems" :options="[{ label: '数据库（账号/设置/站点等）', value: 'db' }, { label: '配置（端口/入口/TLS）', value: 'config' }, { label: '托管证书', value: 'certs' }]" />
+        </a-form-item>
+        <WmNotice tone="warning">恢复会用上传的备份覆盖面板数据并自动重启（约数秒不可访问）；恢复前当前数据自动留存为回滚点，可随时回滚。恢复「配置」后端口/入口可能变化，请按提示的新地址访问。</WmNotice>
+      </a-form>
     </a-modal>
 
     <!-- 中间 CA 上传 -->
@@ -370,6 +385,56 @@ async function applyUpgrade() {
     ElMessage.success('二进制已替换，面板正在重启，稍后刷新页面并核对版本')
   } finally {
     upApplying.value = false
+  }
+}
+
+// ---- 面板备份导入恢复 ----
+const restoreDlg = ref(false)
+const restoring = ref(false)
+const restoreFile = ref<File | null>(null)
+const restoreItems = ref<string[]>(['db', 'config', 'certs'])
+const rollbackBusy = ref(false)
+const hasRollback = ref(false)
+
+async function checkRollback() {
+  try {
+    const info: any = await api.get('/setting/tls/status')
+    hasRollback.value = !!info.data_dir
+  } catch { /* 忽略 */ }
+}
+
+async function doRestore() {
+  if (!restoreFile.value) {
+    ElMessage.warning('请选择备份 zip 文件')
+    return
+  }
+  if (!restoreItems.value.length) {
+    ElMessage.warning('请至少勾选一个恢复项')
+    return
+  }
+  restoring.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', restoreFile.value)
+    restoreItems.value.forEach(i => fd.append('items', i))
+    const r: any = await api.post('/setting/panel-restore', fd, { timeout: 600000, headers: { 'Content-Type': 'multipart/form-data' } })
+    ElMessage.success(r?.message || '恢复任务已执行')
+    restoreDlg.value = false
+  } finally {
+    restoring.value = false
+  }
+}
+
+async function doRollback() {
+  try {
+    await ElMessageBox.confirm('将用最近一次恢复前的回滚点覆盖当前面板数据并重启，继续？', '回滚确认', { type: 'error' })
+  } catch { return }
+  rollbackBusy.value = true
+  try {
+    const r: any = await api.post('/setting/panel-restore/rollback', {}, { timeout: 300000 })
+    ElMessage.success(r?.message || '回滚任务已执行')
+  } finally {
+    rollbackBusy.value = false
   }
 }
 

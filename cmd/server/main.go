@@ -125,7 +125,7 @@ func main() {
 	notify.New(db).Register(protected)
 	objectstore.New(db).Register(protected)
 	firewall.Register(protected, cfg.Server.Listen, db)
-	websiteMod := website.New(db)
+	websiteMod := website.New(db, cfg.DataDir)
 	if err := websiteMod.Start(); err != nil {
 		slog.Error("网站模块启动失败", "err", err)
 	}

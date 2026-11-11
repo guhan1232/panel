@@ -48,10 +48,11 @@ type proxyLoc struct {
 }
 
 type Module struct {
-	db *gorm.DB
+	db      *gorm.DB
+	dataDir string
 }
 
-func New(db *gorm.DB) *Module { return &Module{db: db} }
+func New(db *gorm.DB, dataDir string) *Module { return &Module{db: db, dataDir: dataDir} }
 
 func (m *Module) Register(api gin.IRouter) {
 	g := api.Group("/sites")
@@ -62,6 +63,11 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/:id/toggle", m.toggle)
 	g.GET("/:id/log", m.siteLog)
 	g.GET("/panel-proxy", m.panelProxySite)
+	g.POST("/:id/backup", m.siteBackup)
+	g.GET("/backups", m.siteBackupList)
+	g.GET("/backups/download", m.siteBackupDownload)
+	g.POST("/backups/restore", m.siteBackupRestore)
+	g.DELETE("/backups", m.siteBackupDelete)
 	g.POST("/panel-proxy/toggle", m.panelProxyToggle)
 	g.GET("/nginx/status", nginxStatus)
 	g.POST("/nginx/reload", nginxReload)
