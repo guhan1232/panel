@@ -33,7 +33,7 @@
             <a-button type="primary" :loading="tlsBusy === 'self'" @click="applyTls('self')">自签证书（10 年兜底）</a-button>
             <a-button :loading="tlsBusy === 'ca'" @click="openCaDlg">用中间 CA 签发（跟随 CA 有效期）</a-button>
           </a-space>
-          <a-form-item label="访问 IP/域名（写入证书 SAN，逗号分隔）" style="margin-top:12px"><a-input v-model:value="extraIps" placeholder="如 154.8.165.155, panel.example.com" /></a-form-item>
+          <a-form-item label="访问 IP/域名（写入证书 SAN，逗号分隔）" style="margin-top:12px"><a-input v-model:value="extraIps" placeholder="如 203.0.113.10, panel.example.com" /></a-form-item>
 <p class="wm-text-muted" style="margin-top:8px">CA 上传一次后保存于服务器（data/certs/ca），续签无需重复上传。云服务器 NAT 下公网 IP 不在网卡上，请在上方显式填写访问 IP 以保证证书 SAN 匹配。应用后面板自动重启为 HTTPS。</p>
           <WmNotice tone="info" class="wm-mt-4">仓库一键安装脚本 scripts/install.sh 同样支持：--ca-cert/--ca-key 用中间 CA 签发（有效期跟随 CA）；不给 CA 自动自签 10 年。</WmNotice>
         </div>

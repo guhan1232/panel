@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.38.1"
+const Version = "0.38.2"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (

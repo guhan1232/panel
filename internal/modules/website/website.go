@@ -275,7 +275,20 @@ func (m *Module) create(c *gin.Context) {
 		core.Err(c, 400, "站点已创建，但 "+out+" "+err.Error())
 		return
 	}
+	// 站点启用 80/443 对外服务：放行防火墙（未装防火墙时静默跳过）
+	openWebPorts()
 	core.OK(c, s)
+}
+
+// openWebPorts 放行 80/443（ufw/firewalld），失败仅记录日志。
+func openWebPorts() {
+	if _, _, err := execx.Run("website", 30*time.Second, "ufw", "allow", "80/tcp"); err == nil {
+		_, _, _ = execx.Run("website", 30*time.Second, "ufw", "allow", "443/tcp")
+		return
+	}
+	if _, _, err := execx.Run("website", 5*time.Second, "firewall-cmd", "--version"); err == nil {
+		_, _, _ = execx.RunShell("website", 30*time.Second, "firewall-cmd --permanent --add-service=http --permanent --add-service=https && firewall-cmd --reload")
+	}
 }
 
 func (m *Module) update(c *gin.Context) {
