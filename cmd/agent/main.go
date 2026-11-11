@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -138,7 +139,9 @@ func run(server, token, nodeName, hostname string, quit <-chan os.Signal) error 
 		return err
 	}
 	dialURL := fmt.Sprintf("%s/api/ws/agent?token=%s&name=%s", wsURL, url.QueryEscape(token), url.QueryEscape(nodeName))
-	ws, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
+	// 面板 HTTPS 多为自签/私有 CA 证书（v0.37 CA 签发），跳过证书校验
+	dialer := &websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	ws, _, err := dialer.Dial(dialURL, nil)
 	if err != nil {
 		return fmt.Errorf("连接面板失败: %w", err)
 	}
