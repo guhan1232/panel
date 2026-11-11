@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ls -la && find . -type f -not -path './.git/*' -not -path './node_modules/*' -not -path './dist/*' | head -100)"
-    ]
-  }
-}

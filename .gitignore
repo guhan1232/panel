@@ -10,3 +10,8 @@ config.yaml
 data/
 logs/
 .workbuddy/
+
+# AI 工具本地配置
+.qwen/
+.claude/
+.qoder/
