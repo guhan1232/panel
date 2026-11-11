@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,9 +31,25 @@ import (
 	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
+	"github.com/go-acme/lego/v4/providers/dns/acmedns"
 	"github.com/go-acme/lego/v4/providers/dns/alidns"
+	"github.com/go-acme/lego/v4/providers/dns/azuredns"
+	"github.com/go-acme/lego/v4/providers/dns/baiducloud"
 	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
+	"github.com/go-acme/lego/v4/providers/dns/desec"
+	"github.com/go-acme/lego/v4/providers/dns/duckdns"
 	"github.com/go-acme/lego/v4/providers/dns/dnspod"
+	"github.com/go-acme/lego/v4/providers/dns/gandiv5"
+	"github.com/go-acme/lego/v4/providers/dns/gcloud"
+	"github.com/go-acme/lego/v4/providers/dns/godaddy"
+	"github.com/go-acme/lego/v4/providers/dns/hetzner"
+	"github.com/go-acme/lego/v4/providers/dns/huaweicloud"
+	"github.com/go-acme/lego/v4/providers/dns/namecheap"
+	"github.com/go-acme/lego/v4/providers/dns/ovh"
+	"github.com/go-acme/lego/v4/providers/dns/porkbun"
+	"github.com/go-acme/lego/v4/providers/dns/route53"
+	"github.com/go-acme/lego/v4/providers/dns/tencentcloud"
+	"github.com/go-acme/lego/v4/providers/dns/westcn"
 	"github.com/go-acme/lego/v4/registration"
 	"gorm.io/gorm"
 
@@ -47,10 +64,11 @@ type certMeta struct {
 	Source       string    `json:"source"` // upload | acme
 	Email        string    `json:"email,omitempty"`
 	Staging      bool      `json:"staging,omitempty"`
-	DNSProvider  string    `json:"dns_provider,omitempty"`
-	DNSAPIKey    string    `json:"dns_api_key,omitempty"`
-	DNSAPISecret string    `json:"dns_api_secret,omitempty"`
-	IssuedAt     time.Time `json:"issued_at"`
+	DNSProvider  string             `json:"dns_provider,omitempty"`
+	DNSAPIKey    string             `json:"dns_api_key,omitempty"`
+	DNSAPISecret string             `json:"dns_api_secret,omitempty"`
+	DNSFields    map[string]string  `json:"dns_fields,omitempty"`
+	IssuedAt     time.Time          `json:"issued_at"`
 }
 
 // Info 对外展示的证书信息。
@@ -77,6 +95,7 @@ func New(db *gorm.DB, dataDir string) *Module {
 func (m *Module) Register(api gin.IRouter) {
 	g := api.Group("/certs")
 	g.GET("", m.list)
+	g.GET("/dns-providers", dnsProvidersMeta)
 	g.POST("/upload", m.upload)
 	g.DELETE("/:domain", m.remove)
 	g.POST("/issue", m.issue)
@@ -173,39 +192,247 @@ func (m *Module) saveCert(domain string, certPEM, keyPEM []byte, meta certMeta) 
 
 // dnsCfg DNS-01 挑战的 DNS 服务商凭据。
 type dnsCfg struct {
-	Provider  string `json:"provider"` // aliyun | dnspod | cloudflare
-	APIKey    string `json:"api_key"`
-	APISecret string `json:"api_secret"`
+	Provider  string            `json:"provider"` // alidns | dnspod | cloudflare | tencentcloud | ... 见 DNS_PROVIDERS
+	APIKey    string            `json:"api_key"`  // 旧字段（兼容），并入 Fields
+	APISecret string            `json:"api_secret"`
+	Fields    map[string]string `json:"fields"`   // 各服务商凭据（key 见 DNS_PROVIDERS 元数据）
 }
 
-// dnsProvider 按服务商构造 lego DNS Provider（凭据经环境变量注入，官方约定字段）。
+// fieldsMap 合并旧字段与新 Fields（旧字段优先级低）。
+func (c *dnsCfg) fieldsMap() map[string]string {
+	m := map[string]string{}
+	for k, v := range c.Fields {
+		m[k] = v
+	}
+	if c.APIKey != "" {
+		m["api_key"] = c.APIKey
+	}
+	if c.APISecret != "" {
+		m["api_secret"] = c.APISecret
+	}
+	return m
+}
+
+// ---- DNS 服务商元数据（spec 驱动：前端动态表单 + 后端 env 注入共用一份定义） ----
+
+// dnsFieldSpec 一个凭据字段。
+type dnsFieldSpec struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Env         string `json:"-"`
+	Secret      bool   `json:"secret,omitempty"`
+	Textarea    bool   `json:"textarea,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
+}
+
+// dnsSpec 一个服务商：id 与 lego 包名一致（持久化记录沿用）。
+type dnsSpec struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Fields []dnsFieldSpec `json:"fields"`
+}
+
+// DNS_PROVIDERS 主流 DNS 服务商（国内 + 国际）。
+var DNS_PROVIDERS = []dnsSpec{
+	{ID: "alidns", Name: "阿里云 DNS", Fields: []dnsFieldSpec{
+		{Key: "api_key", Label: "AccessKey ID", Env: "ALIYUN_ACCESS_KEY_ID", Required: true},
+		{Key: "api_secret", Label: "AccessKey Secret", Env: "ALIYUN_ACCESS_KEY_SECRET", Secret: true, Required: true},
+	}},
+	{ID: "dnspod", Name: "腾讯云 DNSPod", Fields: []dnsFieldSpec{
+		{Key: "api_key", Label: "API Token ID", Env: "DNSPOD_ID", Required: true, Placeholder: "ID,Token 的前半段"},
+		{Key: "api_secret", Label: "API Token", Env: "DNSPOD_TOKEN", Secret: true, Required: true},
+	}},
+	{ID: "tencentcloud", Name: "腾讯云（API 密钥）", Fields: []dnsFieldSpec{
+		{Key: "secret_id", Label: "SecretId", Env: "TENCENTCLOUD_SECRET_ID", Required: true},
+		{Key: "secret_key", Label: "SecretKey", Env: "TENCENTCLOUD_SECRET_KEY", Secret: true, Required: true},
+	}},
+	{ID: "huaweicloud", Name: "华为云 DNS", Fields: []dnsFieldSpec{
+		{Key: "access_key", Label: "Access Key Id", Env: "HUAWEICLOUD_ACCESS_KEY_ID", Required: true},
+		{Key: "secret_key", Label: "Secret Access Key", Env: "HUAWEICLOUD_SECRET_ACCESS_KEY", Secret: true, Required: true},
+		{Key: "region", Label: "Region（可选，如 cn-north-4）", Env: "HUAWEICLOUD_REGION"},
+	}},
+	{ID: "baiducloud", Name: "百度智能云 DNS", Fields: []dnsFieldSpec{
+		{Key: "access_key", Label: "Access Key ID", Env: "BAIDUCLOUD_ACCESS_KEY_ID", Required: true},
+		{Key: "secret_key", Label: "Secret Access Key", Env: "BAIDUCLOUD_SECRET_ACCESS_KEY", Secret: true, Required: true},
+	}},
+	{ID: "cloudflare", Name: "Cloudflare", Fields: []dnsFieldSpec{
+		{Key: "api_token", Label: "API Token", Env: "CF_DNS_API_TOKEN", Secret: true, Required: true},
+	}},
+	{ID: "westcn", Name: "西部数码", Fields: []dnsFieldSpec{
+		{Key: "username", Label: "用户名", Env: "WESTCN_USERNAME", Required: true},
+		{Key: "password", Label: "密码", Env: "WESTCN_PASSWORD", Secret: true, Required: true},
+	}},
+	{ID: "route53", Name: "AWS Route 53", Fields: []dnsFieldSpec{
+		{Key: "access_key", Label: "AWS Access Key ID", Env: "AWS_ACCESS_KEY_ID", Required: true},
+		{Key: "secret_key", Label: "AWS Secret Access Key", Env: "AWS_SECRET_ACCESS_KEY", Secret: true, Required: true},
+		{Key: "region", Label: "Region（可选，如 us-east-1）", Env: "AWS_REGION"},
+	}},
+	{ID: "gcloud", Name: "Google Cloud DNS", Fields: []dnsFieldSpec{
+		{Key: "project", Label: "项目 ID（可选，SA 内含时可留空）", Env: "GCE_PROJECT"},
+		{Key: "sa_json", Label: "服务账号 JSON", Env: "", Textarea: true, Required: true, Placeholder: `{"type": "service_account", ...}`},
+	}},
+	{ID: "azuredns", Name: "Azure DNS", Fields: []dnsFieldSpec{
+		{Key: "client_id", Label: "Client ID", Env: "AZURE_CLIENT_ID", Required: true},
+		{Key: "client_secret", Label: "Client Secret", Env: "AZURE_CLIENT_SECRET", Secret: true, Required: true},
+		{Key: "tenant_id", Label: "Tenant ID", Env: "AZURE_TENANT_ID", Required: true},
+		{Key: "subscription_id", Label: "Subscription ID", Env: "AZURE_SUBSCRIPTION_ID", Required: true},
+		{Key: "resource_group", Label: "Resource Group（可选）", Env: "AZURE_RESOURCE_GROUP"},
+	}},
+	{ID: "godaddy", Name: "GoDaddy", Fields: []dnsFieldSpec{
+		{Key: "api_key", Label: "API Key", Env: "GODADDY_API_KEY", Required: true},
+		{Key: "api_secret", Label: "API Secret", Env: "GODADDY_API_SECRET", Secret: true, Required: true},
+	}},
+	{ID: "namecheap", Name: "Namecheap", Fields: []dnsFieldSpec{
+		{Key: "api_user", Label: "API User", Env: "NAMECHEAP_API_USER", Required: true},
+		{Key: "api_key", Label: "API Key", Env: "NAMECHEAP_API_KEY", Secret: true, Required: true},
+	}},
+	{ID: "ovh", Name: "OVH", Fields: []dnsFieldSpec{
+		{Key: "endpoint", Label: "Endpoint（可选，默认 ovh-eu）", Env: "OVH_ENDPOINT", Placeholder: "ovh-eu / ovh-ca / kimsufi-eu"},
+		{Key: "app_key", Label: "Application Key", Env: "OVH_APPLICATION_KEY", Required: true},
+		{Key: "app_secret", Label: "Application Secret", Env: "OVH_APPLICATION_SECRET", Secret: true, Required: true},
+		{Key: "consumer_key", Label: "Consumer Key", Env: "OVH_CONSUMER_KEY", Secret: true, Required: true},
+	}},
+	{ID: "gandiv5", Name: "Gandi", Fields: []dnsFieldSpec{
+		{Key: "api_token", Label: "Personal Access Token", Env: "GANDIV5_PERSONAL_ACCESS_TOKEN", Secret: true, Required: true},
+	}},
+	{ID: "hetzner", Name: "Hetzner", Fields: []dnsFieldSpec{
+		{Key: "api_token", Label: "API Token", Env: "HETZNER_API_TOKEN", Secret: true, Required: true},
+	}},
+	{ID: "porkbun", Name: "Porkbun", Fields: []dnsFieldSpec{
+		{Key: "api_key", Label: "API Key", Env: "PORKBUN_API_KEY", Required: true},
+		{Key: "secret_key", Label: "Secret API Key", Env: "PORKBUN_SECRET_API_KEY", Secret: true, Required: true},
+	}},
+	{ID: "duckdns", Name: "DuckDNS（免费动态域名）", Fields: []dnsFieldSpec{
+		{Key: "token", Label: "Token", Env: "DUCKDNS_TOKEN", Secret: true, Required: true},
+	}},
+	{ID: "desec", Name: "deSEC（免费安全 DNS）", Fields: []dnsFieldSpec{
+		{Key: "token", Label: "Token", Env: "DESEC_TOKEN", Secret: true, Required: true},
+	}},
+	{ID: "acmedns", Name: "ACME-DNS（CNAME 委托中转）", Fields: []dnsFieldSpec{
+		{Key: "api_base", Label: "API 地址", Env: "ACME_DNS_API_BASE", Required: true, Placeholder: "https://auth.example.acme-dns.io"},
+		{Key: "storage_path", Label: "凭据存储文件路径", Env: "ACME_DNS_STORAGE_PATH", Required: true, Placeholder: "/opt/hanyuxin/data/acme-dns.json"},
+	}},
+}
+
+// dnsEnvMu 串行化 env 注入式签发（os.Setenv 是进程级全局，并发会串凭据）。
+var dnsEnvMu sync.Mutex
+
 func dnsProvider(cfg *dnsCfg) (challenge.Provider, func(), error) {
-	switch cfg.Provider {
-	case "aliyun":
-		if cfg.APIKey == "" || cfg.APISecret == "" {
-			return nil, nil, fmt.Errorf("阿里云 DNS 需 AccessKey ID 与 Secret")
+	id := cfg.Provider
+	if id == "aliyun" { // 旧记录兼容
+		id = "alidns"
+	}
+	var spec *dnsSpec
+	for i := range DNS_PROVIDERS {
+		if DNS_PROVIDERS[i].ID == id {
+			spec = &DNS_PROVIDERS[i]
+			break
 		}
-		os.Setenv("ALIYUN_ACCESS_KEY_ID", cfg.APIKey)
-		os.Setenv("ALIYUN_ACCESS_KEY_SECRET", cfg.APISecret)
-		p, err := alidns.NewDNSProvider()
-		return p, func() { os.Unsetenv("ALIYUN_ACCESS_KEY_ID"); os.Unsetenv("ALIYUN_ACCESS_KEY_SECRET") }, err
-	case "dnspod":
-		if cfg.APIKey == "" || cfg.APISecret == "" {
-			return nil, nil, fmt.Errorf("DNSPod 需 API Token（ID,Token）")
-		}
-		os.Setenv("DNSPOD_API_TOKEN", cfg.APIKey+","+cfg.APISecret)
-		p, err := dnspod.NewDNSProvider()
-		return p, func() { os.Unsetenv("DNSPOD_API_TOKEN") }, err
-	case "cloudflare":
-		if cfg.APIKey == "" {
-			return nil, nil, fmt.Errorf("Cloudflare 需 API Token")
-		}
-		os.Setenv("CF_DNS_API_TOKEN", cfg.APIKey)
-		p, err := cloudflare.NewDNSProvider()
-		return p, func() { os.Unsetenv("CF_DNS_API_TOKEN") }, err
-	default:
+	}
+	if spec == nil {
 		return nil, nil, fmt.Errorf("不支持的 DNS 服务商: %s", cfg.Provider)
 	}
+	vals := cfg.fieldsMap()
+
+	dnsEnvMu.Lock()
+	sets := map[string]string{}
+	var missing []string
+	for _, f := range spec.Fields {
+		v := strings.TrimSpace(vals[f.Key])
+		if f.Required && v == "" {
+			missing = append(missing, f.Label)
+			continue
+		}
+		if v != "" && f.Env != "" {
+			sets[f.Env] = v
+		}
+	}
+	if len(missing) > 0 {
+		dnsEnvMu.Unlock()
+		return nil, nil, fmt.Errorf("%s 需填写: %s", spec.Name, strings.Join(missing, "、"))
+	}
+	for k, v := range sets {
+		os.Setenv(k, v)
+	}
+	cleanup := func() {
+		for k := range sets {
+			os.Unsetenv(k)
+		}
+		dnsEnvMu.Unlock()
+	}
+	p, err := buildDNSProvider(id, cfg, vals)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return p, cleanup, nil
+}
+
+// buildDNSProvider 各服务商构造（默认读 env；特例走显式构造）。
+func buildDNSProvider(id string, cfg *dnsCfg, vals map[string]string) (challenge.Provider, error) {
+	switch id {
+	case "gcloud":
+		if sa := strings.TrimSpace(vals["sa_json"]); sa != "" {
+			return gcloud.NewDNSProviderServiceAccountKey([]byte(sa))
+		}
+		return gcloud.NewDNSProvider()
+	case "dnspod":
+		// lego dnspod env 为完整 token："id,token"
+		if idTok := vals["api_key"] + "," + vals["api_secret"]; vals["api_key"] != "" && vals["api_secret"] != "" {
+			os.Setenv("DNSPOD_API_TOKEN", idTok)
+			os.Unsetenv("DNSPOD_ID")
+			os.Unsetenv("DNSPOD_TOKEN")
+		}
+		return dnspod.NewDNSProvider()
+	case "route53":
+		return route53.NewDNSProvider()
+	case "gandiv5":
+		// 新版 lego 用 PAT env；同时兼容旧 API_KEY
+		if tok := vals["api_token"]; tok != "" {
+			os.Setenv("GANDIV5_PERSONAL_ACCESS_TOKEN", tok)
+		}
+		return gandiv5.NewDNSProvider()
+	default:
+		switch id {
+		case "alidns":
+			return alidns.NewDNSProvider()
+		case "cloudflare":
+			return cloudflare.NewDNSProvider()
+		case "tencentcloud":
+			return tencentcloud.NewDNSProvider()
+		case "huaweicloud":
+			return huaweicloud.NewDNSProvider()
+		case "baiducloud":
+			return baiducloud.NewDNSProvider()
+		case "westcn":
+			return westcn.NewDNSProvider()
+		case "azuredns":
+			return azuredns.NewDNSProvider()
+		case "godaddy":
+			return godaddy.NewDNSProvider()
+		case "namecheap":
+			return namecheap.NewDNSProvider()
+		case "ovh":
+			return ovh.NewDNSProvider()
+		case "hetzner":
+			return hetzner.NewDNSProvider()
+		case "porkbun":
+			return porkbun.NewDNSProvider()
+		case "duckdns":
+			return duckdns.NewDNSProvider()
+		case "desec":
+			return desec.NewDNSProvider()
+		case "acmedns":
+			return acmedns.NewDNSProvider()
+		}
+		return nil, fmt.Errorf("不支持的 DNS 服务商: %s", id)
+	}
+}
+
+// dnsProvidersMeta 前端动态表单数据。
+func dnsProvidersMeta(c *gin.Context) {
+	core.OK(c, DNS_PROVIDERS)
 }
 
 func validDomains(domains []string) error {
@@ -437,6 +664,7 @@ func (m *Module) issueDomains(domains []string, email string, staging bool, dns 
 		meta.DNSProvider = dns.Provider
 		meta.DNSAPIKey = dns.APIKey
 		meta.DNSAPISecret = dns.APISecret
+		meta.DNSFields = dns.Fields
 	}
 	dir, err := m.saveCert(primary, res.Certificate, res.PrivateKey, meta)
 	if err != nil {
@@ -452,9 +680,10 @@ func (m *Module) issue(c *gin.Context) {
 		Email        string   `binding:"required,email"`
 		Staging      bool     `json:"staging"`
 		Challenge    string   `json:"challenge"` // http01（默认）| dns01
-		DNSProvider  string   `json:"dns_provider"`
-		DNSAPIKey    string   `json:"dns_api_key"`
-		DNSAPISecret string   `json:"dns_api_secret"`
+		DNSProvider  string            `json:"dns_provider"`
+		DNSAPIKey    string            `json:"dns_api_key"`
+		DNSAPISecret string            `json:"dns_api_secret"`
+		DNSFields    map[string]string `json:"dns_fields"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)
@@ -476,7 +705,7 @@ func (m *Module) issue(c *gin.Context) {
 		defer close(done)
 		var dns *dnsCfg
 		if req.Challenge == `dns01` {
-			dns = &dnsCfg{Provider: req.DNSProvider, APIKey: req.DNSAPIKey, APISecret: req.DNSAPISecret}
+			dns = &dnsCfg{Provider: req.DNSProvider, APIKey: req.DNSAPIKey, APISecret: req.DNSAPISecret, Fields: req.DNSFields}
 		}
 		dir, issueErr = m.issueDomains(req.Domains, req.Email, req.Staging, dns)
 	}()
@@ -505,7 +734,7 @@ func (m *Module) checkExpiry() {
 			// 续期沿用签发时的 DNS 凭据（若签发时保存于 meta）
 			var dns *dnsCfg
 			if meta.DNSProvider != "" {
-				dns = &dnsCfg{Provider: meta.DNSProvider, APIKey: meta.DNSAPIKey, APISecret: meta.DNSAPISecret}
+				dns = &dnsCfg{Provider: meta.DNSProvider, APIKey: meta.DNSAPIKey, APISecret: meta.DNSAPISecret, Fields: meta.DNSFields}
 			}
 			if _, err := m.issueDomains(meta.Domains, meta.Email, meta.Staging, dns); err != nil {
 				slog.Warn("证书自动续期失败", "domain", info.Domain, "err", err)

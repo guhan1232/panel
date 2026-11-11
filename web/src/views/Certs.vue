@@ -2,7 +2,7 @@
   <div class="wm-page">
     <WmSectionCard title="证书列表" description="ACME 证书剩余 30 天内自动续期，到期前推送告警" flush>
       <WmToolbar>
-        <a-button type="primary" @click="issueDlg = true">Let's Encrypt 签发</a-button>
+        <a-button type="primary" @click="openIssue">Let's Encrypt 签发</a-button>
         <a-button @click="upDlg = true">上传证书</a-button>
         <a-button @click="load">刷新</a-button>
         <template #note>签发使用 HTTP-01 校验，需 80 端口可达本服务器。</template>
@@ -41,17 +41,14 @@
         </a-form-item>
         <template v-if="issue.challenge === 'dns01'">
           <a-form-item label="DNS 服务商">
-            <a-select v-model:value="issue.dns_provider" style="width: 100%">
-              <a-select-option value="aliyun">阿里云 DNS</a-select-option>
-              <a-select-option value="dnspod">腾讯云 DNSPod</a-select-option>
-              <a-select-option value="cloudflare">Cloudflare</a-select-option>
+            <a-select v-model:value="issue.dns_provider" style="width: 100%" show-search>
+              <a-select-option v-for="sp in dnsProviders" :key="sp.id" :value="sp.id">{{ sp.name }}</a-select-option>
             </a-select>
           </a-form-item>
-          <a-form-item :label="issue.dns_provider === 'cloudflare' ? 'API Token' : 'AccessKey ID'">
-            <a-input v-model:value="issue.dns_api_key" />
-          </a-form-item>
-          <a-form-item v-if="issue.dns_provider !== 'cloudflare'" :label="issue.dns_provider === 'dnspod' ? 'Token' : 'AccessKey Secret'">
-            <a-input-password v-model:value="issue.dns_api_secret" />
+          <a-form-item v-for="f in curDnsFields" :key="f.key" :label="f.required ? f.label : (f.label.includes('可选') ? f.label : f.label + '（可选）')">
+            <a-textarea v-if="f.textarea" v-model:value="issue.dns_fields[f.key]" :rows="4" class="wm-mono" :placeholder="f.placeholder" />
+            <a-input-password v-else-if="f.secret" v-model:value="issue.dns_fields[f.key]" :placeholder="f.placeholder" />
+            <a-input v-else v-model:value="issue.dns_fields[f.key]" :placeholder="f.placeholder" />
           </a-form-item>
         </template>
         <a-form-item label="测试环境"><a-switch v-model:checked="issue.staging" /><span class="hint">staging 速率限制宽松，验证流程可用后再切正式</span></a-form-item>
@@ -92,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, watch, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
 
@@ -102,7 +99,23 @@ const issueDlg = ref(false)
 const issuing = ref(false)
 const upDlg = ref(false)
 
-const issue = reactive({ domains: '', email: '', staging: true, challenge: 'http01', dns_provider: 'aliyun', dns_api_key: '', dns_api_secret: '' })
+const issue = reactive({ domains: '', email: '', staging: true, challenge: 'http01', dns_provider: 'alidns', dns_api_key: '', dns_api_secret: '', dns_fields: {} as Record<string, string> })
+const dnsProviders = ref<any[]>([])
+const curDnsFields = computed(() => dnsProviders.value.find((sp: any) => sp.id === issue.dns_provider)?.fields || [])
+
+async function loadDnsProviders() {
+  try {
+    dnsProviders.value = (await api.get('/certs/dns-providers')) as any
+  } catch {
+    dnsProviders.value = []
+  }
+}
+watch(() => issue.dns_provider, () => { issue.dns_fields = {} })
+
+function openIssue() {
+  if (!dnsProviders.value.length) loadDnsProviders()
+  issueDlg.value = true
+}
 
 const deployDlg = ref(false)
 const deployRow = ref<any>(null)
