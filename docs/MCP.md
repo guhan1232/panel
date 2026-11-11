@@ -1,8 +1,8 @@
 # 寒语馨面板 · MCP 功能文档
 
-> 适用版本：v0.38.9+
+> 适用版本：v0.39.0+
 >
-> 面板内置 MCP Server（Model Context Protocol over Streamable HTTP），AI 客户端（Trae、Claude Code、Cursor、Cherry Studio 等）可直连面板，用自然语言完成站点管理、运行时安装、节点运维等操作。
+> 面板内置 MCP Server（Model Context Protocol over Streamable HTTP），AI 客户端（Trae、Claude Code、Cursor、Cherry Studio 等）可直连面板，用自然语言完成站点管理、运行时安装、节点运维等操作。Token 支持**按模块授权**与**只读模式**（见 [API 文档 · Token 权限体系](API.md)）。
 
 ## 一、概述
 
@@ -13,8 +13,11 @@
 | 鉴权 | `Authorization: Bearer <token>`（开放 API Token，与 REST API 同一枚） |
 | 方法 | `initialize` / `notifications/initialized` / `tools/list` / `tools/call`（支持批量请求数组） |
 
-- Token 与开放 API 共用：系统设置 →「开放 API 与 MCP」→ 生成 Token
+- Token 与开放 API 共用：系统设置 →「开放 API 与 MCP」→ 生成 Token（可配置权限模式与只读）
 - 工具执行通过面板内部回环调用自身 REST API 实现，**权限与审计与会话操作完全一致**（审计日志操作者为 `api`）
+- **Token 需授权 `mcp` 模块（scope）才能调用 MCP 端点**：自定义权限未勾选「MCP 工具」时，`/api/mcp` 整体返回 403
+- Token 自定义权限下 `tools/list` 只返回已授权模块对应的工具；越权调用返回 `isError: true`（内容为 403 说明）
+- 只读 Token：工具可见但不限于查询类；写操作工具调用将被 403 拒绝
 - 未启用 Token 时端点不可用；重置 Token 后旧客户端立即失效
 
 ## 二、客户端接入
@@ -44,15 +47,17 @@
 
 ## 三、工具清单（10 个）
 
-### 1. panel_status — 面板总览
+> 自定义权限模式下，Token 仅能看到并调用已授权模块对应的工具（`panel_status`→status，站点四件套→sites，节点两件套→nodes，运行时两件套→runtimes；`api_request` 需至少授权一个模块）。
+
+### 1. panel_status — 面板总览（scope: status）
 
 无参数。返回系统信息、CPU / 内存 / 磁盘、站点数、节点数等仪表盘汇总。
 
-### 2. list_sites — 站点列表
+### 2. list_sites — 站点列表（scope: sites）
 
 无参数。返回全部站点（名称 / 类型 / 域名 / SSL / 启用状态 / 配置文件存在性）。
 
-### 3. create_site — 创建站点
+### 3. create_site — 创建站点（scope: sites）
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -64,7 +69,7 @@
 
 创建时自动 `nginx -t` 校验并重载。
 
-### 4. delete_site — 删除站点
+### 4. delete_site — 删除站点（scope: sites）
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -72,17 +77,17 @@
 
 仅移除 Nginx 配置，不删除网站文件。
 
-### 5. toggle_site — 启停站点
+### 5. toggle_site — 启停站点（scope: sites）
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | number | ✅ | 站点 ID |
 
-### 6. list_nodes — 节点列表
+### 6. list_nodes — 节点列表（scope: nodes）
 
 无参数。返回节点（名称 / 系统架构 / IP / 在线状态 / 最近心跳）。
 
-### 7. node_exec — 节点远程命令
+### 7. node_exec — 节点远程命令（scope: nodes）
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -92,11 +97,11 @@
 
 命令经面板审计记录。
 
-### 8. list_runtimes — 运行时状态
+### 8. list_runtimes — 运行时状态（scope: runtimes）
 
 无参数。返回 PHP / Node.js / Go / Python / OpenJDK 已安装版本。
 
-### 9. install_runtime — 安装运行时
+### 9. install_runtime — 安装运行时（scope: runtimes）
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -105,7 +110,7 @@
 
 PHP 经发行版仓库安装（含源配置与依赖包），耗时可达数分钟。
 
-### 10. api_request — 万能透传
+### 10. api_request — 万能透传（scope: 按目标路径判定）
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|

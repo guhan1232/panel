@@ -1,6 +1,6 @@
 # 寒语馨面板 · 开放 API 文档
 
-> 适用版本：v0.38.9+
+> 适用版本：v0.39.0+
 >
 > 开放 API 面向外部脚本与程序化调用（自动化运维、CI、监控联动等）。所有接口与面板 Web 页面使用同一套 REST 端点，凭 API Token 即可直调，无需浏览器会话与安全入口 Cookie。
 
@@ -14,11 +14,63 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET /api/mcp/token` | 查看状态与当前 Token | `{"enabled":bool,"token":"...","mcp_url":"..."}` |
-| `POST /api/mcp/token` | 生成 / 重置 Token | 返回同上 |
+| `GET /api/mcp/token` | 查看状态 / Token / 权限 | `{"enabled","token","mode","scopes","readonly","scopes_known","mcp_url"}` |
+| `POST /api/mcp/token` | 生成 / 重置 Token | 请求体可携带权限：`{"mode":"full\|custom","scopes":[...],"readonly":bool}` |
+| `PUT /api/mcp/token` | **仅更新权限**（Token 值不变，客户端无需重新配置） | 请求体同上 |
 | `DELETE /api/mcp/token` | 禁用开放 API | 所有 API/MCP 客户端立即失效 |
 
-## 二、鉴权
+> Token 管理端点**仅限面板会话调用**：Token 自身无权查看或修改自己的权限（防止越权提权）。
+
+## 二、Token 权限体系（v0.39.0+）
+
+Token 不再是单一全权凭证，支持三种粒度控制，生成与保存时均可配置：
+
+### 权限模式
+
+- **完整权限（mode=full）**：等效管理员，可调用全部模块的全部方法（默认）
+- **按模块授权（mode=custom）**：仅放行勾选模块的路径，共 19 个 scope：
+
+| scope | 覆盖路径 | scope | 覆盖路径 |
+|---|---|---|---|
+| `status` | /api/dashboard | `tasks` | /api/tasks |
+| `sites` | /api/sites | `files` | /api/files |
+| `runtimes` | /api/runtimes | `term` | /api/ws/terminal、/api/ws/ssh、/api/term、/api/terminal-logs |
+| `nodes` | /api/nodes | `proc` | /api/proc |
+| `certs` | /api/certs | `notify` | /api/notify |
+| `firewall` | /api/firewall | `alerts` | /api/alerts |
+| `dbmgr` | /api/dbmgr | `audit` | /api/audit |
+| `apps` | /api/apps | `s3` | /api/s3 |
+| `mcp` | /api/mcp | `setting` | /api/setting、/api/users |
+| | | `auth` | /api/auth/me、/api/sessions |
+
+### 只读模式
+
+勾选后**所有已授权模块的写方法（POST/PUT/DELETE）一律拒绝**（403），仅放行 GET/HEAD——适合给监控/报表类外部系统发只读凭证。
+
+### 拒绝行为
+
+- 权限不足：`HTTP 403 {"code":403,"msg":"API Token 权限不足（模块未授权或只读模式）"}`
+- Token 无效/未启用：`HTTP 401`
+- 请求路径不在任何已授权 scope 内：403
+
+### 示例
+
+```bash
+# 生成只读 Token（仅网站+总览模块）
+curl -sk -b "wm_session=<会话>" -H "Cookie: wm_entrance=<入口>" \
+  -X POST https://面板/api/mcp/token -H 'Content-Type: application/json' \
+  -d '{"mode":"custom","scopes":["sites","status"],"readonly":true}'
+
+# 之后：GET /api/sites 放行（200）；POST /api/sites 拒绝（403）
+
+# 仅调整权限（Token 不变）
+curl -sk -X PUT https://面板/api/mcp/token -H 'Content-Type: application/json' \
+  -d '{"mode":"full"}'
+```
+
+> 兼容性：v0.38.x 生成的旧 Token（纯字符串存储）自动兼容为完整权限；在设置页保存一次权限后即迁移为记录格式。
+
+## 三、鉴权
 
 所有 `/api/*` 请求（除登录外）携带以下任一请求头：
 
@@ -27,22 +79,21 @@ Authorization: Bearer <token>
 X-Api-Token: <token>
 ```
 
-- Token **等效 admin 会话**：可调用全部面板接口（含写操作与节点远程命令）
-- **豁免安全入口**：无需先访问 `/s/<入口串>` 获取入口 Cookie，直接请求 `https://面板地址:端口/api/...`
-- Token 未启用或错误时返回 404（与入口防护语义一致，不暴露端点存在性）；未登录会话返回 401
+- 有效 Token **豁免安全入口**：无需先访问 `/s/<入口串>` 获取入口 Cookie，直接请求 `https://面板地址:端口/api/...`
+- 未登录会话返回 401；权限不足返回 403
 - 凭据即用即弃：面板不记录 Token 关联的会话，泄露后立即重置即可
 
-## 三、响应约定
+## 四、响应约定
 
 ```json
 { "code": 0, "msg": "ok", "data": { } }
 ```
 
 - HTTP 状态码通常为 200；`code != 0` 表示业务错误（见 `msg`）
-- 少数鉴权错误直接返回 401 / 403 / 404
+- 鉴权类错误直接返回 401 / 403 / 404
 - 列表类接口 `data` 为数组；分页类接口见具体端点说明
 
-## 四、快速开始
+## 五、快速开始
 
 ```bash
 TOKEN=你的token
@@ -54,17 +105,17 @@ curl -sk -H "Authorization: Bearer $TOKEN" $BASE/api/dashboard/summary
 # 站点列表
 curl -sk -H "Authorization: Bearer $TOKEN" $BASE/api/sites
 
-# 创建 PHP 站点
+# 创建 PHP 站点（需 Token 有 sites 模块写权限）
 curl -sk -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -X POST $BASE/api/sites \
   -d '{"name":"myblog","type":"php","domains":"blog.example.com","root":"/www/wwwroot/myblog","php_socket":"/run/php/php8.5-fpm.sock"}'
 
-# 在节点 1 上执行命令（经审计）
+# 在节点 1 上执行命令（经审计，需 nodes 模块权限）
 curl -sk -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -X POST $BASE/api/nodes/1/exec -d '{"script":"df -h","timeout_sec":120}'
 ```
 
-## 五、常用端点速查
+## 六、常用端点速查
 
 ### 面板与设置
 
@@ -120,7 +171,7 @@ PHP 站点 `php_socket` 取值：面板已安装的 PHP 为 `/run/php/php<版本
 
 证书（`/api/certs`）、防火墙（`/api/firewall`）、数据库（`/api/dbmgr`）、应用商店（`/api/apps`）、计划任务（`/api/tasks`）、告警、通知、对象存储、审计日志、文件管理、进程管理、终端等模块端点结构与面板页面一一对应——可在浏览器开发者工具的 Network 面板观察具体参数，或直接使用 MCP 的 `api_request` 工具试调。
 
-## 六、安全注意事项
+## 七、安全注意事项
 
 - Token 等效管理员：**务必仅经 HTTPS 调用**，HTTP 明文会泄露 Token
 - 不要把 Token 写入公开仓库 / 日志 / 截图；泄露后立即在设置页重置

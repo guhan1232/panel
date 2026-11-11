@@ -143,18 +143,19 @@ func (m *Module) buildPerm(p *struct {
 	if rec.Mode != "full" && rec.Mode != "custom" {
 		return nil, fmt.Errorf("mode 仅支持 full / custom")
 	}
-	if rec.Mode == "custom" {
-		known := map[string]bool{}
-		for _, s := range auth.ScopesKnown {
-			known[s] = true
-		}
-		for _, s := range rec.Scopes {
-			if !known[s] {
-				return nil, fmt.Errorf("未知模块 scope: %s", s)
-			}
-		}
-	} else {
+	if rec.Mode == "full" {
 		rec.Scopes = nil
+		rec.ReadOnly = false // full 即全权，忽略只读开关（避免残留标志误导展示）
+		return rec, nil
+	}
+	known := map[string]bool{}
+	for _, s := range auth.ScopesKnown {
+		known[s] = true
+	}
+	for _, s := range rec.Scopes {
+		if !known[s] {
+			return nil, fmt.Errorf("未知模块 scope: %s", s)
+		}
 	}
 	return rec, nil
 }
