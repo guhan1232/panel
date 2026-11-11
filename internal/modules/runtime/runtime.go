@@ -1239,8 +1239,8 @@ func (m *Module) installPHP(version string) ([]string, error) {
 			return nil, fmt.Errorf("无法识别 Debian 发行版代号")
 		}
 		cmds = append(cmds,
-			"apt-get install -y gnupg curl ca-certificates",
-			"curl -sSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg",
+			"DEBIAN_FRONTEND=noninteractive apt-get install -y gnupg curl ca-certificates",
+			"curl -fsSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg",
 			"echo \"deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ "+codename+" main\" > /etc/apt/sources.list.d/sury-php.list",
 			"apt-get update",
 		)
@@ -1264,6 +1264,13 @@ func (m *Module) installPHP(version string) ([]string, error) {
 	installCmd := "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=1800 install -y " + strings.Join(pkgs, " ")
 	if osID != "ubuntu" && osID != "debian" {
 		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
+	}
+	// 逐条执行仓库配置命令（PPA/sury/Remi + 更新索引），失败即中止并带回显输出
+	for _, cmd := range cmds {
+		out, code, err := execx.RunShell("runtime:php", 15*time.Minute, cmd)
+		if err != nil || code != 0 {
+			return nil, fmt.Errorf("仓库配置失败(exit %d): %s\n%s", code, cmd, tailOf(out))
+		}
 	}
 	if out, code, err := execx.RunShell("runtime:php", 30*time.Minute, installCmd); err != nil {
 		return nil, fmt.Errorf("php%s-fpm 安装失败(exit %d): %s", version, code, tailOf(out))
