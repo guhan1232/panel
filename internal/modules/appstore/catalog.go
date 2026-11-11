@@ -101,6 +101,25 @@ func remoteToTemplate(def remoteApp) *Template {
 	return t
 }
 
+// DefaultAppSource 面板脚本仓库默认清单（jiaoben 分支，详见仓库内 jiaoben/README.md）。
+const DefaultAppSource = "https://cnb.cool/hanyuxin/panel/-/raw/jiaoben/catalog.json"
+
+// EnsureDefaultSource 启动时：用户未配置应用源且无缓存时，拉取默认脚本仓库清单并缓存（失败静默，用户可手动在设置里刷新）。
+func (m *Module) EnsureDefaultSource() {
+	if core.GetSetting(m.db, core.KAppSourceURL) != "" || core.GetSetting(m.db, core.KAppSourceCache) != "" {
+		return
+	}
+	defs, err := fetchCatalog(DefaultAppSource)
+	if err != nil {
+		slog.Warn("默认脚本仓库清单拉取失败（可稍后在应用源处重试）", "err", err.Error())
+		return
+	}
+	raw, _ := json.Marshal(defs)
+	_ = core.SetSetting(m.db, core.KAppSourceURL, DefaultAppSource)
+	_ = core.SetSetting(m.db, core.KAppSourceCache, string(raw))
+	slog.Info("已加载默认脚本仓库清单", "url", DefaultAppSource, "apps", len(defs))
+}
+
 // remoteCatalog 返回缓存的远程应用定义（无源或解析失败返回空）。
 func (m *Module) remoteCatalog() []remoteApp {
 	raw := core.GetSetting(m.db, core.KAppSourceCache)

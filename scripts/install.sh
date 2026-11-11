@@ -3,7 +3,7 @@
 #
 # 用法：
 #   1) 仓库直连（自动下载最新二进制，默认自签 10 年 HTTPS 证书）：
-#      curl -fsSL https://cnb.cool/hanyuxin/panel/-/git/raw/main/scripts/install.sh | bash
+#      curl -fsSL https://cnb.cool/hanyuxin/panel/-/raw/main/scripts/install.sh | bash
 #   2) 带中间 CA（叶子证书有效期跟随 CA，多久是多久）：
 #      bash install.sh --ca-cert /path/mianban.crt --ca-key /path/mianban.key
 #   3) 本地二进制（老用法保留）：
@@ -47,9 +47,9 @@ if [[ -n "$BIN_ARG" ]]; then
   cp -f "$BIN_ARG" "$INSTALL_DIR/hanyuxin"
 else
   log "从仓库获取面板二进制（$ARTIFACT）..."
-  BIN_URL="$(curl -fsSL "$REPO/-/git/raw/main/upgrade.json" 2>/dev/null | tr ',' '\n' | grep '"binary_url"' | head -1 | sed 's/.*: *"\(.*\)".*/\1/' || true)"
+  BIN_URL="$(curl -fsSL "$REPO/-/raw/main/upgrade.json" 2>/dev/null | tr ',' '\n' | grep '"binary_url"' | head -1 | sed 's/.*: *"\(.*\)".*/\1/' || true)"
   if [[ -z "$BIN_URL" ]]; then
-    BIN_URL="$REPO/-/git/raw/main/release/$ARTIFACT"
+    BIN_URL="$REPO/-/raw/main/release/$ARTIFACT"
   fi
   curl -fL --retry 3 -o "$INSTALL_DIR/hanyuxin.tmp" "$BIN_URL" || die "二进制下载失败: $BIN_URL"
   # 校验是 ELF 而非 HTML 错误页

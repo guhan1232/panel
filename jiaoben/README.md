@@ -59,10 +59,11 @@ jiaoben/
 
 1. 在 `scripts/` 新建 `脚本名.sh`（小写字母数字连字符）。
 2. 在 `catalog.json` 追加一条清单（`script` 字段指向 raw URL）。
-3. 提交到本分支（jiaoben）——面板「应用源刷新」后即可看到并安装。
+3. 提交到本分支（jiaoben）→ 合并回 main（git checkout main && git merge jiaoben && git push）→ 面板「应用源刷新」后即可看到并安装。
+   > 说明：CNB 平台 raw 文件端点仅对默认分支（main）生效，因此面板读取的是 main 上的 jiaoben/ 目录；jiaoben 分支作为脚本开发工作区。
 
 ## 面板侧行为
 
-- 应用源默认地址：`https://cnb.cool/hanyuxin/panel/-/git/raw/jiaoben/catalog.json`（可在面板「应用源」处覆盖/清除）。
+- 应用源默认地址：`https://cnb.cool/hanyuxin/panel/-/git/raw/main/jiaoben/catalog.json`（可在面板「应用源」处覆盖/清除）。
 - 安装 = 拉取脚本 → 渲染参数占位符 → 落盘 `data/appstore/scripts/<实例>.sh` → bash 执行（限时 30 分钟）→ 输出留痕。
 - 自定义脚本走「上传脚本」，同样受 30 分钟限制；两者都可卸载。

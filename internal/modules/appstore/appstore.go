@@ -880,7 +880,11 @@ func New(db *gorm.DB, dataDir string) *Module {
 }
 
 func (m *Module) Start() error {
-	return m.db.AutoMigrate(&AppInst{})
+	if err := m.db.AutoMigrate(&AppInst{}); err != nil {
+		return err
+	}
+	m.EnsureDefaultSource() // 默认脚本仓库（jiaoben 分支）清单
+	return nil
 }
 
 func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
