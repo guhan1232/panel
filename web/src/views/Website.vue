@@ -31,6 +31,18 @@
       </div>
 
       <WmTable :data="filteredSites" v-loading="loading" empty-title="该分类下还没有站点" empty-description="点击「创建站点」，按类型创建；HTML/PHP 为文件站，其余分类为反向代理到本机后端。">
+        <template #empty>
+          <div class="site-empty">
+            <div class="site-empty__icon">🗂</div>
+            <p class="site-empty__title">{{ typeFilter === 'all' ? '还没有站点' : CATE_NAME[typeFilter] + '分类下还没有站点' }}</p>
+            <p class="site-empty__desc">
+              {{ typeFilter === 'html' || typeFilter === 'php' || typeFilter === 'all' ? '创建后 Nginx 自动生成配置；HTML/PHP 为文件站。' : '创建后反向代理到本机端口，请先在「进程管理」启动对应后端服务。' }}
+            </p>
+            <a-button type="primary" @click="openCreate(typeFilter === 'all' ? undefined : typeFilter)">
+              {{ typeFilter === 'all' ? '创建站点' : '创建' + CATE_NAME[typeFilter] }}
+            </a-button>
+          </div>
+        </template>
         <WmColumn label="站点" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></WmColumn>
         <WmColumn label="类型" width="110">
           <template #default="{ row }"><WmStatusPill :label="typeLabel(row)" tone="neutral" :dot="false" outline /></template>
@@ -57,7 +69,7 @@
       </WmTable>
     </WmSectionCard>
 
-    <a-modal v-model:open="dlg" :title="form.id ? '编辑站点' : '创建站点'" width="680px">
+    <a-modal v-model:open="dlg" :title="dlgTitle" width="680px">
       <a-form :label-col="{ style: { width: '110px' } }">
         <a-form-item label="站点标识"><a-input v-model:value="form.name" placeholder="小写字母数字点短横线，如 myblog" :disabled="!!form.id" /></a-form-item>
         <a-form-item label="站点类型">
@@ -219,6 +231,11 @@ const installing = ref(false)
 const emptyForm = () => ({ id: 0, name: '', type: 'static', sub_type: '', domains: '', root: '', php_socket: '', upstream: '', extra: [] as any[], ssl_cert: '', force_https: false })
 const form = reactive(emptyForm())
 const certBase = ref('')
+const dlgTitle = computed(() => {
+  const base = form.id ? '编辑站点' : '创建站点'
+  const cate = form.type === 'proxy' && form.sub_type ? (CATE_NAME[form.sub_type] || form.sub_type) : ''
+  return cate ? base + ' · ' + cate : base
+})
 
 // PHP 版本下拉：读取面板（运行时模块）已安装的 PHP，选中即得到对应 FPM socket
 const PHP_CUSTOM = '__custom__'
@@ -271,9 +288,17 @@ async function load() {
   }
 }
 
-function openCreate() {
+const CATE_NAME: Record<string, string> = { html: 'HTML项目', php: 'PHP项目', proxy: '反向代理', java: 'Java项目', node: 'Node项目', go: 'Go项目', python: 'Python项目', dotnet: '.Net项目', other: '其他项目' }
+
+function openCreate(cate?: string) {
   Object.assign(form, emptyForm())
   form.extra = []
+  if (cate && cate !== 'all') {
+    if (cate === 'html') form.type = 'static'
+    else if (cate === 'php') form.type = 'php'
+    else if (cate === 'proxy') { form.type = 'proxy'; form.sub_type = '' }
+    else { form.type = 'proxy'; form.sub_type = cate }
+  }
   phpChoice.value = phpOptions.value[0]?.value || ''
   form.php_socket = phpChoice.value
   dlg.value = true
