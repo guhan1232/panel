@@ -48,7 +48,16 @@
         </a-form-item>
         <a-form-item label="域名"><a-input v-model:value="form.domains" placeholder="example.com www.example.com（空格分隔多个）" /></a-form-item>
         <a-form-item v-if="form.type !== 'proxy'" label="网站根目录"><a-input v-model:value="form.root" placeholder="/www/wwwroot/myblog" /></a-form-item>
-        <a-form-item v-if="form.type === 'php'" label="PHP-FPM"><a-input v-model:value="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" /></a-form-item>
+        <a-form-item v-if="form.type === 'php'" label="PHP 版本">
+          <a-select v-if="phpOptions.length" v-model:value="phpChoice" option-label-prop="label" style="width: 100%" allow-clear placeholder="选择面板已安装的 PHP 版本">
+            <a-select-option v-for="p in phpOptions" :key="p.value" :value="p.value" :label="`PHP ${p.version}`">
+              PHP {{ p.version }}<span class="wm-mono wm-text-muted" style="font-size: 12px; margin-left: 8px">{{ p.value }}</span>
+            </a-select-option>
+            <a-select-option :value="PHP_CUSTOM" label="手动输入 FPM 地址…">手动输入 FPM 地址…</a-select-option>
+          </a-select>
+          <a-input v-if="!phpOptions.length || phpChoice === PHP_CUSTOM" v-model:value="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" :class="{ 'wm-mt-2': phpOptions.length }" />
+          <WmNotice v-if="!phpOptions.length" tone="warning" class="wm-mt-2">未检测到面板安装的 PHP：请先到「软件商店」安装 PHP 后刷新，或直接填写 FPM 地址</WmNotice>
+        </a-form-item>
         <a-form-item v-if="form.type === 'proxy'" label="反代目标"><a-input v-model:value="form.upstream" placeholder="http://127.0.0.1:3000" /></a-form-item>
         <a-form-item v-if="form.type === 'proxy'" label="附加路径规则">
           <div v-for="(loc, i) in form.extra" :key="i" class="loc-row">
@@ -79,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { Delete } from '../antd-compat'
 import api from '../api'
@@ -99,6 +108,36 @@ const emptyForm = () => ({ id: 0, name: '', type: 'static', domains: '', root: '
 const form = reactive(emptyForm())
 const certBase = ref('')
 
+// PHP 版本下拉：读取面板（运行时模块）已安装的 PHP，选中即得到对应 FPM socket
+const PHP_CUSTOM = '__custom__'
+const phpRt = ref<any[]>([])
+const phpChoice = ref('')
+
+// 由 FPM systemd 单元名推导 socket：Debian/Ubuntu php8.2-fpm → /run/php/php8.2-fpm.sock；RHEL/Remi php-fpm → /run/php-fpm/www.sock
+function phpSocketOf(inst: any) {
+  if (inst.binary === 'php-fpm') return '/run/php-fpm/www.sock'
+  if (inst.binary) return `/run/php/${inst.binary}.sock`
+  return `/run/php/php${inst.version}-fpm.sock`
+}
+
+const phpOptions = computed(() => {
+  const list = phpRt.value.map((inst) => ({ value: phpSocketOf(inst), version: String(inst.version || '') }))
+  list.sort((a, b) => {
+    const pa = a.version.split('.').map(Number)
+    const pb = b.version.split('.').map(Number)
+    for (let i = 0; i < 2; i++) {
+      const d = (pb[i] || 0) - (pa[i] || 0)
+      if (d) return d
+    }
+    return 0
+  })
+  return list
+})
+
+watch(phpChoice, (v) => {
+  if (v !== PHP_CUSTOM) form.php_socket = v || ''
+})
+
 async function load() {
   loading.value = true
   try {
@@ -109,6 +148,12 @@ async function load() {
     } catch {
       certs.value = []
     }
+    try {
+      const rts = (await api.get('/runtimes')) as any
+      phpRt.value = rts.find((r: any) => r.key === 'php')?.installed || []
+    } catch {
+      phpRt.value = []
+    }
   } finally {
     loading.value = false
   }
@@ -117,6 +162,8 @@ async function load() {
 function openCreate() {
   Object.assign(form, emptyForm())
   form.extra = []
+  phpChoice.value = phpOptions.value[0]?.value || ''
+  form.php_socket = phpChoice.value
   dlg.value = true
 }
 
@@ -134,6 +181,9 @@ function openEdit(row: any) {
     ssl_cert: s.ssl_cert ? s.ssl_cert.replace(/.*certs-managed\//, '').replace(/\/fullchain\.pem$/, '') : '',
     force_https: s.force_https, extra
   })
+  // 已有 socket 匹配已安装版本则回显，否则按自定义/未填写处理（不擅自改动线上配置）
+  const known = phpOptions.value.find((p) => p.value === form.php_socket)
+  phpChoice.value = known ? known.value : form.php_socket ? PHP_CUSTOM : ''
   dlg.value = true
 }
 
