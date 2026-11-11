@@ -104,6 +104,8 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.GET("/auth/sessions", s.listSessions) // 别名：与前端 Setting.vue 一致
 	authed.DELETE("/sessions/:id", s.revokeSession)
 	authed.DELETE("/auth/sessions/:id", s.revokeSession)
+	authed.POST("/sessions/revoke-others", s.revokeOtherSessions)
+	authed.POST("/auth/sessions/revoke-others", s.revokeOtherSessions) // 别名
 }
 
 func (s *Service) login(c *gin.Context) {
@@ -395,5 +397,18 @@ func (s *Service) revokeSession(c *gin.Context) {
 		core.Err(c, 500, res.Error.Error())
 		return
 	}
+	core.OK(c, gin.H{"revoked": res.RowsAffected})
+}
+
+// revokeOtherSessions 一键退出除当前设备外的全部会话。
+func (s *Service) revokeOtherSessions(c *gin.Context) {
+	uid := c.GetUint("uid")
+	cur := c.GetString("session")
+	res := s.db.Where("user_id = ? AND token <> ? AND expires_at > ?", uid, cur, time.Now()).Delete(&core.Session{})
+	if res.Error != nil {
+		core.Err(c, 500, res.Error.Error())
+		return
+	}
+	slog.Info("一键退出其他设备", "uid", uid, "revoked", res.RowsAffected, "ip", c.ClientIP())
 	core.OK(c, gin.H{"revoked": res.RowsAffected})
 }

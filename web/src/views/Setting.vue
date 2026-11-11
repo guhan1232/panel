@@ -84,6 +84,7 @@
 
       <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
+          <a-button size="small" data-tone="danger" :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
           <a-button size="small" @click="loadSessions">刷新</a-button>
         </template>
         <WmTable :data="sessions" size="small" empty-title="没有在线会话" empty-description="">
@@ -218,6 +219,22 @@ async function loadSessions() {
     sessions.value = (await api.get('/auth/sessions')) as any
   } catch {
     sessions.value = []
+  }
+}
+
+const revokingOthers = ref(false)
+
+async function revokeOthers() {
+  try {
+    await ElMessageBox.confirm('将退出除当前设备外的全部登录会话（包括其它浏览器/终端/脚本），继续？', '退出其他设备', { type: 'warning' })
+  } catch { return }
+  revokingOthers.value = true
+  try {
+    const r: any = await api.post('/auth/sessions/revoke-others')
+    ElMessage.success('已退出 ' + (r?.revoked ?? 0) + ' 个其他会话')
+    loadSessions()
+  } finally {
+    revokingOthers.value = false
   }
 }
 

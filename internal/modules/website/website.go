@@ -184,7 +184,13 @@ func nginxStatus(c *gin.Context) {
 			confOK = true
 		}
 	}
-	core.OK(c, gin.H{"installed": installed, "version": version, "conf_dir_ok": confOK, "conf_dir": confDir})
+	running := false
+	if installed {
+		if o, _, e := execx.Run("website", 10*time.Second, "systemctl", "is-active", "nginx"); e == nil && strings.TrimSpace(o) == "active" {
+			running = true
+		}
+	}
+	core.OK(c, gin.H{"installed": installed, "version": version, "conf_dir_ok": confOK, "conf_dir": confDir, "running": running})
 }
 
 func nginxReload(c *gin.Context) {
