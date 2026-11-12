@@ -1,6 +1,6 @@
 <template>
   <div class="wm-page store-page">
-    <a-tabs v-model:activeKey="activeTab" class="store-tabs">
+    <a-tabs v-model:activeKey="activeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs" :class="{ 'store-tabs--left': wide }">
       <!-- 应用商店 -->
       <a-tab-pane key="apps" tab="应用商店">
         <WmSectionCard dense class="store-control">
@@ -149,6 +149,7 @@
       </a-tab-pane>
 
       <!-- 线上镜像 -->
+      <a-tab-pane key="grp-mirror" tab="—— 镜像 ——" disabled />
       <a-tab-pane key="remote-images" tab="线上镜像">
         <WmSectionCard title="镜像搜索与拉取" description="Docker Hub 搜索，一键拉取到本地">
           <WmToolbar>
@@ -217,6 +218,7 @@
       </a-tab-pane>
 
       <!-- 网络 -->
+      <a-tab-pane key="grp-res" tab="—— 资源 ——" disabled />
       <a-tab-pane key="networks" tab="网络">
         <WmSectionCard title="Docker 网络" description="bridge/host/none 为内置网络不可删除" flush>
           <template #actions>
@@ -245,6 +247,7 @@
       </a-tab-pane>
 
       <!-- 仓库 -->
+      <a-tab-pane key="grp-cfg" tab="—— 配置 ——" disabled />
       <a-tab-pane key="registry" tab="仓库">
         <WmSectionCard title="镜像仓库登录" description="docker login 私有仓库；凭据由本机 credential store 保存，面板不落库">
           <a-form layout="vertical" style="max-width: 460px">
@@ -359,7 +362,7 @@
 
 <script setup lang="ts">
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
@@ -381,6 +384,10 @@ const logName = ref('')
 const logContent = ref('')
 
 const activeTab = ref('apps')
+const wide = ref(typeof window !== 'undefined' && window.innerWidth > 1100)
+const onDsResize = () => { wide.value = window.innerWidth > 1100 }
+onMounted(() => window.addEventListener('resize', onDsResize))
+onUnmounted(() => window.removeEventListener('resize', onDsResize))
 const containers = ref<any>({})
 const images = ref<any>({})
 const ctLoading = ref(false)
@@ -828,6 +835,8 @@ watch(activeTab, switchTab)
 </script>
 
 <style scoped>
+.store-tabs--left :deep(.ant-tabs-left > .ant-tabs-nav) { min-width: 168px; }
+.store-tabs--left :deep(.ant-tabs-tab[aria-disabled="true"]) { color: var(--wm-text-muted, #94a3b8); font-size: 12px; cursor: default; margin: 10px 0 2px; pointer-events: none; }
 .store-tabs :deep(.ant-tabs-content-holder) {
   padding-top: 8px;
 }

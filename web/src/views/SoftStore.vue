@@ -24,7 +24,7 @@
     </WmSectionCard>
 
     <a-row :gutter="16" class="store-grid">
-      <a-col :xs="24" :xl="16">
+      <a-col :xs="24" :lg="8">
         <WmSectionCard title="可安装软件" description="原生二进制与系统包一键部署，下载源可在安装时选择">
           <template #actions><span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span></template>
           <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
@@ -50,7 +50,9 @@
           </a-row>
           <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词，或把来源筛选切回「全部」。" />
         </WmSectionCard>
+      </a-col>
 
+      <a-col :xs="24" :lg="8">
         <WmSectionCard title="运行时环境" description="编程语言多版本共存，安装后软链到 /usr/local/bin">
           <template #actions><span class="wm-text-muted">{{ filteredRuntimes.length }} 个运行时</span></template>
           <a-row :gutter="[12, 12]" v-if="filteredRuntimes.length">
@@ -77,7 +79,7 @@
         </WmSectionCard>
       </a-col>
 
-      <a-col :xs="24" :xl="8">
+      <a-col :xs="24" :lg="8">
         <WmSectionCard title="脚本应用" description="仓库托管的一键安装脚本 + 自定义脚本（上传即用，执行留痕）">
           <template #actions>
             <a-button size="small" type="primary" @click="scriptDlg = true">上传脚本</a-button>
@@ -100,7 +102,11 @@
           <p v-else class="wm-text-muted">还没有上传自定义脚本。仓库清单中的 script 类应用会出现在左侧「可安装软件」里，可直接一键安装。</p>
           <WmNotice tone="neutral" class="wm-mt-4">脚本在面板服务器上以 bash 执行（限时 30 分钟），环境变量注入 PANEL_APP_NAME；安装时可声明参数，以双花括号参数名占位符替换。</WmNotice>
         </WmSectionCard>
+      </a-col>
+    </a-row>
 
+    <a-row :gutter="16" class="store-grid">
+      <a-col :xs="24" :lg="14">
         <WmSectionCard title="已安装" :description="`${apps.length} 个实例，可查看日志或卸载`">
           <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
             <template #renderItem="{ item }">
@@ -117,7 +123,9 @@
           </a-list>
           <WmEmptyState v-else compact title="还没有安装软件" description="从左侧卡片选择软件并点击安装。" />
         </WmSectionCard>
+      </a-col>
 
+      <a-col :xs="24" :lg="10">
         <WmSectionCard title="下载源" description="安装时可为发行包选择来源">
           <a-list :data-source="sources" size="small" class="store-list">
             <template #renderItem="{ item }">
