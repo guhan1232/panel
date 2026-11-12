@@ -161,7 +161,7 @@ fun ServersScreen(onEnter: (ServerInfo) -> Unit, onAdd: () -> Unit, onScan: () -
 
 @Composable
 fun AddServerScreen(onDone: () -> Unit) {
-    var host by remember { mutableStateOf("https://") }
+    var host by remember { mutableStateOf("") }
     var entrance by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
@@ -169,7 +169,7 @@ fun AddServerScreen(onDone: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("手动添加服务器", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("面板地址形如 https://IP:端口；入口码见安装完成提示或 Web 登录页地址 /s/<入口码>", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(host, { host = it }, label = { Text("面板地址") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(host, { host = it }, label = { Text("面板地址") }, placeholder = { Text("https://IP:端口，如 https://1.2.3.4:27958") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(entrance, { entrance = it }, label = { Text("安全入口码") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(name, { name = it }, label = { Text("备注名（可选）") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         ErrorBanner(err)

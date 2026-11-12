@@ -106,7 +106,11 @@ fun RootApp() {
         null -> when {
             current != null -> MainScaffold()
             else -> ServersScreen(
-                onEnter = { Session.enter(it) },
+                onEnter = { s ->
+                    // 未登录的服务器先进登录页（预填地址与入口码），登录成功后再进入主界面
+                    if (ServerStore.token(s.host) != null) Session.enter(s)
+                    else Router.push(Router.Route.Login(s, "", onLoggedIn = { Session.enter(it) }, onClose = { Router.pop() }))
+                },
                 onAdd = { Router.push(Router.Route.AddServer {}) },
                 onScan = { Router.push(Router.Route.Scanner(onQr = { handleScan(it) }, onClose = { Router.pop() })) },
             )
