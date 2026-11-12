@@ -20,3 +20,5 @@ logs/
 panel-dev.log
 ja-dev.txt
 design-system.html
+dbg-*.txt
+dbg-*.json
