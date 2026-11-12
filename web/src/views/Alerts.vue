@@ -92,7 +92,10 @@ const nodes = ref<any[]>([])
 async function loadNodes() {
   try {
     const list: any[] = (await api.get('/nodes')) as any
-    nodes.value = list.map((x: any) => ({ id: x.node.id, name: x.node.name }))
+    // 过滤回环节点（agent 经 127.0.0.1/::1 回连 = 面板本机自身，与「本机」选项重复）
+    nodes.value = list
+      .filter((x: any) => x.node.ip !== '127.0.0.1' && x.node.ip !== '::1')
+      .map((x: any) => ({ id: x.node.id, name: x.node.name }))
   } catch {
     nodes.value = []
   }

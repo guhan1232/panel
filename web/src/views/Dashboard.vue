@@ -5,7 +5,7 @@
         <span class="node-label">监控对象</span>
         <a-select v-model:value="nodeSel" size="small" style="width: 240px" aria-label="监控对象">
           <a-select-option value="local">本机（面板所在服务器）</a-select-option>
-          <a-select-option v-for="n in nodes" :key="n.node.id" :value="String(n.node.id)">{{ `${n.node.name}${n.online ? '' : '（离线）'}` }}</a-select-option>
+          <a-select-option v-for="n in remoteNodes" :key="n.node.id" :value="String(n.node.id)">{{ `${n.node.name}${n.online ? '' : '（离线）'}` }}</a-select-option>
         </a-select>
         <template #note>本机指标每 3 秒采样；远程节点由 Agent 每 15 秒上报一次。</template>
       </WmToolbar>
@@ -103,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent } from 'echarts/components'
@@ -121,6 +121,10 @@ const procs = ref<any[]>([])
 const loaded = ref(false)
 const remote = ref(false)
 const nodes = ref<any[]>([])
+// 监控对象下拉：过滤回环节点（agent 经 127.0.0.1/::1 回连 = 面板本机自身，与「本机」重复）
+const remoteNodes = computed(() =>
+  nodes.value.filter((n) => n.node.ip !== '127.0.0.1' && n.node.ip !== '::1')
+)
 const nodeSel = ref('local')
 
 const cpuEl = ref<HTMLElement>()
