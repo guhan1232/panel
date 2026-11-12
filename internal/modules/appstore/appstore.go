@@ -590,7 +590,26 @@ volumes:
 		},
 		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
 			if distro != "apt" {
-				return nil, []string{"mariadb-server", "mariadb-client"}, nil, "mariadb", "发行版源（该镜像 dnf 仓库暂未接入）", nil
+				// dnf：distro 版走发行版源；指定版本走阿里云 MariaDB yum 镜像（目录结构与官方 yum.mariadb.org 一致）
+				if ver == "distro" {
+					return nil, []string{"mariadb-server", "mariadb-client"}, nil, "mariadb", "发行版源", nil
+				}
+				if srcID == "official" || srcID == "off" {
+					return nil, nil, nil, "", "", fmt.Errorf("MariaDB dnf 安装的 yum 镜像仅阿里云收录，请选择阿里云镜像或改用 apt 系发行版")
+				}
+				pre = []string{
+					"cat > /etc/yum.repos.d/MariaDB.repo <<MARIADB_REPO_EOF\n" +
+						"[mariadb]\n" +
+						"name = MariaDB\n" +
+						"baseurl = https://mirrors.aliyun.com/mariadb/yum/" + ver + "/centos$(rpm -E %{rhel} 2>/dev/null || echo 9)-amd64\n" +
+						"gpgkey = https://yum.mariadb.org/RPM-GPG-KEY-MariaDB\n" +
+						"gpgcheck = 1\n" +
+						"MARIADB_REPO_EOF",
+				}
+				pkgs = []string{"MariaDB-server", "MariaDB-client"}
+				unit = "mariadb"
+				note = "MariaDB " + ver + "（阿里云 yum 镜像）"
+				return pre, pkgs, post, unit, note, nil
 			}
 			repo := "https://mirrors.aliyun.com/mariadb/repo/" + ver
 			sourceNote := "阿里云镜像"
@@ -694,14 +713,27 @@ volumes:
 				unit = "postgresql@" + ver + "-main"
 				return pre, pkgs, post, unit, note, nil
 			}
-			pre = []string{
-				"dnf -qy install https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel} 2>/dev/null || echo 9)-x86_64/pgdg-redhat-repo-latest.noarch.rpm || yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm",
-				"dnf -qy module disable postgresql 2>/dev/null || true",
-			}
+            // PGDG yum 仓库：阿里云/腾讯云镜像已收录 repos/yum（含 reporpms），默认走镜像
+            var yumBase string
+            var yumNote string
+            switch srcID {
+            case "official", "off":
+            	yumBase, yumNote = "https://download.postgresql.org/pub/repos/yum", "PGDG 官方源"
+            case "", "auto", "aliyun", "tencent":
+            	yumBase, yumNote = "https://download.postgresql.org/pub/repos/yum", "PGDG 官方源"
+            	if msrc, ok := aptMirrorSource(srcID); ok && msrc.PgdgYum != "" {
+            		yumBase = msrc.PgdgYum
+            		yumNote = "PGDG → " + msrc.Name
+            	}
+            }
+            pre = []string{
+            	"dnf -qy install " + yumBase + "/reporpms/EL-$(rpm -E %{rhel} 2>/dev/null || echo 9)-x86_64/pgdg-redhat-repo-latest.noarch.rpm || yum install -y " + yumBase + "/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm",
+            	"dnf -qy module disable postgresql 2>/dev/null || true",
+            }
 			pkgs = []string{"postgresql" + ver + "-server"}
 			unit = "postgresql-" + ver
 			post = []string{fmt.Sprintf("/usr/pgsql-%s/bin/postgresql-%s-setup initdb || true", ver, ver)}
-			note = "PGDG 官方源（dnf 镜像暂未接入）"
+			note = "PostgreSQL " + ver + " dnf（" + yumNote + "）"
 			return pre, pkgs, post, unit, note, nil
 		},
 	},

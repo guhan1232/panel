@@ -167,6 +167,7 @@ type SoftwareSource struct {
 	AptUbuntu string `json:"-"`
 	AptDebian string `json:"-"`
 	PgdgApt   string `json:"-"`
+	PgdgYum   string `json:"-"`
 
 	Desc string `json:"desc"`
 }
@@ -178,10 +179,10 @@ var softwareSources = []SoftwareSource{
 	{ID: "ghproxy", Name: "GitHub 加速 gh-proxy", GitHub: "https://gh-proxy.com", Desc: "GitHub Release 下载加速"},
 	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com",
 		AptUbuntu: "http://mirrors.aliyun.com/ubuntu", AptDebian: "http://mirrors.aliyun.com/debian",
-		PgdgApt: "https://mirrors.aliyun.com/postgresql/repos/apt", Desc: "mirrors.aliyun.com"},
+		PgdgApt: "https://mirrors.aliyun.com/postgresql/repos/apt", PgdgYum: "https://mirrors.aliyun.com/postgresql/repos/yum", Desc: "mirrors.aliyun.com"},
 	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com",
 		AptUbuntu: "https://mirrors.cloud.tencent.com/ubuntu", AptDebian: "https://mirrors.cloud.tencent.com/debian",
-		PgdgApt: "https://mirrors.cloud.tencent.com/postgresql/repos/apt", Desc: "mirrors.cloud.tencent.com"},
+		PgdgApt: "https://mirrors.cloud.tencent.com/postgresql/repos/apt", PgdgYum: "https://mirrors.cloud.tencent.com/postgresql/repos/yum", Desc: "mirrors.cloud.tencent.com"},
 	{ID: "tuna", Name: "清华大学镜像站", Base: "https://mirrors.tuna.tsinghua.edu.cn",
 		AptUbuntu: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu", AptDebian: "https://mirrors.tuna.tsinghua.edu.cn/debian",
 		Desc: "mirrors.tuna.tsinghua.edu.cn"},

@@ -122,17 +122,17 @@ func parseHrefs(html string) []string {
 // ---- 语言定义 ----
 
 var nodeSources = []sourceDef{
-	{ID: "official", Name: "官方 nodejs.org", Base: "https://nodejs.org/dist"},
-	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com/nodejs-release"},
+	{ID: "aliyun", Name: "阿里云镜像站（默认）", Base: "https://mirrors.aliyun.com/nodejs-release"},
 	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com/nodejs-release"},
+	{ID: "official", Name: "官方 nodejs.org", Base: "https://nodejs.org/dist"},
 	{ID: "tuna", Name: "清华大学镜像站", Base: "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release"},
 	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn/nodejs-release"},
 }
 
 var goSources = []sourceDef{
+	{ID: "aliyun", Name: "阿里云镜像站（默认）", Base: "https://mirrors.aliyun.com/golang"},
 	{ID: "official", Name: "官方 go.dev"},
 	{ID: "goproxy", Name: "七牛 Goproxy 中国", Base: "https://goproxy.cn"},
-	{ID: "aliyun", Name: "阿里云镜像站", Base: "https://mirrors.aliyun.com/golang"},
 	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com/golang"},
 	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn/golang"},
 }
@@ -304,7 +304,10 @@ func resolveGo(version, source, goarch, vendor string) (string, error) {
 	case "goproxy":
 		// Go 1.21+ 工具链以 golang.org/toolchain 模块发布（zip 格式）
 		return "https://goproxy.cn/golang.org/toolchain/@v/v0.0.1-go" + version + ".linux-" + goarch + ".zip", nil
-	case "official", "":
+	case "", "auto":
+		// 默认走阿里云镜像（go.dev 国内直连慢，tarball 结构与官方一致）
+		return "https://mirrors.aliyun.com/golang/go" + version + ".linux-" + goarch + ".tar.gz", nil
+	case "official":
 		return "https://go.dev/dl/go" + version + ".linux-" + goarch + ".tar.gz", nil
 	default:
 		for _, s := range goSources {
@@ -1255,7 +1258,7 @@ func (m *Module) installPHP(version string) ([]string, error) {
 			el = el[:i]
 		}
 		cmds = append(cmds,
-			"dnf install -y epel-release https://rpms.remirepo.net/enterprise/remi-release-"+el+".rpm",
+			"dnf install -y epel-release https://mirrors.tuna.tsinghua.edu.cn/remi/enterprise/remi-release-"+el+".rpm",
 			"dnf module reset php -y",
 			"dnf module enable php:remi-"+version+" -y",
 		)

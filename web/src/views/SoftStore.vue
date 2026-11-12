@@ -258,6 +258,7 @@
               <a-select-option v-for="s in sources" :key="s.id"
                 :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
             </a-select>
+            <div v-if="sourceHint" class="hint">{{ sourceHint }}</div>
             <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
           </a-form-item>
           <a-form-item v-if="cur?.kind === 'package'" label="安装方式" style="margin-bottom: 0">
@@ -600,6 +601,17 @@ function sourceDisabled(id: string) {
 
 watch(instVer, () => {
   if (sourceDisabled(instSource.value)) instSource.value = 'auto'
+})
+
+const sourceHint = computed(() => {
+  const k = cur.value?.key
+  const v = instVer.value
+  if (!k || !v || v === 'distro') return ''
+  if (k === 'nginx-pkg') return 'nginx.org 官方仓库未被任何镜像站收录，指定版本仅官方源可用（apt 系直连一般可用）。'
+  if (k === 'redis-pkg') return 'packages.redis.io 官方仓库未被任何镜像站收录，指定版本仅官方源可用。'
+  if (k === 'mariadb') return 'MariaDB 指定版本走阿里云镜像（apt 默认阿里云；dnf 走阿里云 yum 镜像），官方源亦可。'
+  if (k === 'postgresql-pkg') return 'PGDG 双通道均接镜像：apt 走阿里云/腾讯云，dnf 亦走镜像，官方源可选。'
+  return ''
 })
 
 async function deploy() {
