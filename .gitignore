@@ -15,3 +15,8 @@ logs/
 .qwen/
 .claude/
 .qoder/
+
+# 开发杂项
+panel-dev.log
+ja-dev.txt
+design-system.html
