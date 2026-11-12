@@ -177,3 +177,37 @@ PHP 站点 `php_socket` 取值：面板已安装的 PHP 为 `/run/php/php<版本
 - 不要把 Token 写入公开仓库 / 日志 / 截图；泄露后立即在设置页重置
 - 开放 API 的所有写操作同样进入面板审计日志（操作者显示为 `api`）
 - 长时间操作（运行时安装、SSH 接入）注意客户端超时设置，建议 ≥ 15 分钟
+
+## 八、扫码登录与 APP 会话（v0.41.0+，docs/APP.md）
+
+移动 APP（Android）与 Web 端共用的鉴权扩展。二维码由 Web 登录页生成，内容同时承载服务器地址与入口码：
+
+```
+hanyuxin://login?v=1&host=<面板对外地址>&entrance=<入口码>&key=<key>&v2=<2fa 0/1>
+```
+
+### 扫码登录端点（前缀 /api/auth/qr）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| `POST /api/auth/qr/create` | 入口 Cookie（匿名可） | Web 登录页创建，返回 `{key, qr_text, expires_in:120}` |
+| `GET /api/auth/qr/state?key=` | 入口 Cookie（匿名可） | Web 每 2s 轮询：`{state: pending/scanned/confirmed/expired, ticket?}` |
+| `POST /api/auth/qr/confirm` | APP 会话（Bearer） | APP 扫码后标记已扫，body `{"key"}` |
+| `POST /api/auth/qr/approve` | APP 会话（Bearer） | 用户确认登录，body `{"key"}`；生成一次性票据 |
+| `POST /api/auth/qr/exchange` | 入口 Cookie（匿名可） | Web 兑换 `{"key","ticket"}` → 下发 `wm_session` Cookie |
+
+key 单次有效、120s 过期；票据 60s 一次性；confirm/approve/exchange 全部进入审计日志。
+
+### APP 会话
+
+- 登录：`POST /api/auth/login` 带 `"client":"app"`（可选 `device_name`）→ 30 天会话，响应体返回 `{"token","expires_at"}`（Web 登录行为不变）
+- 携带：`Authorization: Bearer <token>`，且与开放 API Token 一样豁免入口 Cookie
+- 续期：剩余寿命 < 15 天自动续至 30 天；会话列表（`GET /api/auth/sessions`）新增 `client`/`device_name` 字段
+- 管理：踢下线/一键退出其他设备接口不变，APP 与 Web 安全中心共用
+
+### APP 配置与自更新
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET/POST /api/setting/app-config` | 读任意会话 / 写仅 admin：`{public_url, apk_url, latest_version, release_notes}` |
+| `GET /api/app/check-update?platform=android&v=<当前版本>` | 匿名可（入口后）：`{has_update, current, latest, apk_url, notes}` |

@@ -145,7 +145,13 @@
         </template>
         <WmTable :data="sessions" size="small" empty-title="没有在线会话" empty-description="">
           <WmColumn label="IP" width="150"><template #default="{ row }"><span class="wm-mono">{{ row.ip }}</span></template></WmColumn>
-          <WmColumn label="设备" min-width="260"><template #default="{ row }"><span class="wm-text-muted wm-truncate">{{ row.ua }}</span></template></WmColumn>
+          <WmColumn label="客户端" width="150">
+            <template #default="{ row }">
+              <WmStatusPill v-if="row.client === 'app'" :label="'APP' + (row.device_name ? ' · ' + row.device_name : '')" tone="success" :dot="false" />
+              <WmStatusPill v-else label="Web" tone="info" :dot="false" />
+            </template>
+          </WmColumn>
+          <WmColumn label="设备" min-width="220"><template #default="{ row }"><span class="wm-text-muted wm-truncate">{{ row.ua }}</span></template></WmColumn>
           <WmColumn label="过期" width="170"><template #default="{ row }"><span class="wm-mono">{{ row.expires }}</span></template></WmColumn>
           <WmColumn label="操作" width="90" fixed="right">
             <template #default="{ row }">
@@ -154,6 +160,26 @@
             </template>
           </WmColumn>
         </WmTable>
+      </WmSectionCard>
+
+      <WmSectionCard title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
+        <a-form layout="vertical" style="max-width: 560px">
+          <a-form-item label="面板对外地址">
+            <a-input v-model:value="appForm.public_url" placeholder="留空按反代头/请求头自动推导，如 https://panel.hanyuxin.cn" />
+          </a-form-item>
+          <a-form-item label="APK 下载地址">
+            <a-input v-model:value="appForm.apk_url" placeholder="https://…/hanyuxin-panel.apk" />
+          </a-form-item>
+          <a-form-item label="APP 最新版本">
+            <a-input v-model:value="appForm.latest_version" placeholder="如 1.0.0（APP 启动时比对提示更新）" />
+          </a-form-item>
+          <a-form-item label="更新说明" style="margin-bottom: 0">
+            <a-textarea v-model:value="appForm.release_notes" :rows="3" placeholder="本版更新内容" />
+          </a-form-item>
+        </a-form>
+        <template #footer>
+          <a-button type="primary" size="small" :loading="appSaving" @click="saveAppConfig">保存 APP 配置</a-button>
+        </template>
       </WmSectionCard>
 
       <WmSectionCard title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
@@ -297,6 +323,32 @@ async function loadSessions() {
     sessions.value = (await api.get('/auth/sessions')) as any
   } catch {
     sessions.value = []
+  }
+}
+
+// ---- 移动 APP 配置（docs/APP.md §7 F3）----
+const appForm = reactive<any>({ public_url: '', apk_url: '', latest_version: '', release_notes: '' })
+const appSaving = ref(false)
+
+async function loadAppConfig() {
+  try {
+    Object.assign(appForm, (await api.get('/setting/app-config')) as any)
+  } catch {
+    /* 保持空值 */
+  }
+}
+
+async function saveAppConfig() {
+  if (auth.role !== 'admin') {
+    ElMessage.warning('仅管理员可修改 APP 配置')
+    return
+  }
+  appSaving.value = true
+  try {
+    await api.post('/setting/app-config', { ...appForm })
+    ElMessage.success('APP 配置已保存')
+  } finally {
+    appSaving.value = false
   }
 }
 
@@ -641,6 +693,7 @@ onMounted(async () => {
   loadSessions()
   loadTls()
   loadProxy()
+  loadAppConfig()
   if (auth.role === 'admin') loadApiToken()
   checkUpgrade().catch(() => {})
 })

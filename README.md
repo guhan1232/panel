@@ -2,7 +2,7 @@
 
 > 单二进制 Go + Vue3 的 Linux 服务器管理面板。默认 HTTPS、安全入口保护、全量写操作审计。
 
-![Version](https://img.shields.io/badge/version-0.39.8-blue) ![Go](https://img.shields.io/badge/Go-1.26-00ADD8) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-0.41.0-blue) ![Go](https://img.shields.io/badge/Go-1.26-00ADD8) ![License](https://img.shields.io/badge/license-MIT-green)
 
 仓库：https://cnb.cool/hanyuxin/panel · 脚本应用开发文档 [docs/SCRIPT-REPO.md](docs/SCRIPT-REPO.md) · 开放 API [docs/API.md](docs/API.md) · MCP [docs/MCP.md](docs/MCP.md)
 
@@ -38,6 +38,7 @@ curl -fsSL https://cnb.cool/hanyuxin/panel/-/raw/main/scripts/install.sh | bash
 | 🔔 告警策略 | CPU/内存/负载阈值规则与触发历史 |
 | 📁 文件管理 | 浏览、上传下载、编辑、压缩解压、权限属主修改 |
 | ⚙ 进程管理 | 进程与 systemd 服务实时状态与控制 |
+| 📱 移动 APP（Android） | 原生 Kotlin + Compose APP：仪表盘/网站/软件商店/文件管理随身管理；扫码登录（Web 登录页二维码双用途：添加服务器 + APP 登录 + Web 免密登录）；30 天滑动续期会话、生物识别锁、自签证书 TOFU 指纹锁定（设计文档 docs/APP.md） |
 | 🖧 节点管理 | Agent 反连接入、远程指标与命令执行 |
 | 🧱 防火墙 | 一键安装 ufw/firewalld（防自锁放行 SSH/面板端口）；宝塔式端口规则（协议/端口段/来源/策略/方向/备注）；导入导出；端口防扫描；同步重放 |
 | 🔒 SSL 证书 | 手动上传；Let's Encrypt HTTP-01/DNS-01 签发与自动续期；19 家 DNS 服务商（阿里云/腾讯云/华为云/百度云/西部数码/Cloudflare/Route53/GoogleCloud/Azure/GoDaddy/Namecheap/OVH/Gandi/Hetzner/Porkbun/DuckDNS/deSEC/ACME-DNS）；一键部署到网站 |
@@ -100,9 +101,9 @@ make release
 | web/ | Vue3 前端（go:embed 嵌入） |
 | scripts/install.sh | 一键安装脚本 |
 | scripts/uninstall.sh | 卸载脚本（可选保留数据） |
-| scripts/smoke.sh | 全功能冒烟测试（34 项核心 API 打点） |
+| scripts/smoke.sh | 全功能冒烟测试（51 项：核心 API + 扫码登录/APP 会话全流程） |
 | jiaoben/ | 脚本应用仓库（规范见 jiaoben/README.md 与 docs/SCRIPT-REPO.md） |
-| docs/ | 开发文档（API / MCP / SCRIPT-REPO） |
+| docs/ | 开发文档（API / MCP / SCRIPT-REPO / APP） |
 
 ## 脚本应用（jiaoben 分支）
 
@@ -115,7 +116,7 @@ PANEL_BASE=https://<IP>:<端口> PANEL_ENTRANCE=<安全入口> \
 PANEL_USER=<用户> PANEL_PASS=<密码> bash scripts/smoke.sh
 ```
 
-34 项核心 API 打点，判定标准：HTTP 200 且业务 `code==0`，空数据也算通过。
+51 项打点（含扫码登录与 APP 会话全流程），判定标准：HTTP 200 且业务 `code==0`，空数据也算通过。
 
 ## License
 

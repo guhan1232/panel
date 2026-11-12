@@ -50,6 +50,9 @@ func (m *Module) Register(api gin.IRouter) {
 	g.POST("/panel-restore/rollback", m.panelRestoreRollback)
 	g.GET("/upgrade/check", m.upgradeCheck)
 	g.POST("/upgrade/apply", m.upgradeApply)
+	// 移动 APP（docs/APP.md §7 F3）：对外地址 / APK 分发 / 自更新元数据
+	g.GET("/app-config", m.appConfigGet)
+	g.POST("/app-config", m.appConfigSet)
 	// HTTPS 证书（自签兜底 10 年 / 中间 CA 交叉签发跟随 CA 有效期）
 	g.GET("/tls/status", m.tlsStatus)
 	g.POST("/tls/apply", m.tlsApply)
@@ -278,6 +281,48 @@ func (m *Module) info(c *gin.Context) {
 		"os":          runtime.GOOS,
 		"arch":        runtime.GOARCH,
 	})
+}
+
+// appConfigGet 移动 APP 配置读取（登录会话即可读；APP 设置页与更新检查共用）。
+func (m *Module) appConfigGet(c *gin.Context) {
+	core.OK(c, gin.H{
+		"public_url":     core.GetSetting(m.db, core.KAppPublicURL),
+		"apk_url":        core.GetSetting(m.db, core.KAppApkURL),
+		"latest_version": core.GetSetting(m.db, core.KAppLatestVer),
+		"release_notes":  core.GetSetting(m.db, core.KAppReleaseNotes),
+	})
+}
+
+// appConfigSet 移动 APP 配置写入（仅 admin）：对外地址、APK 下载地址、最新版本、更新说明。
+func (m *Module) appConfigSet(c *gin.Context) {
+	if c.GetString("role") != "admin" {
+		core.Err(c, 403, "仅管理员可修改 APP 配置")
+		return
+	}
+	var req struct {
+		PublicURL    string `json:"public_url"`
+		ApkURL       string `json:"apk_url"`
+		LatestVer    string `json:"latest_version"`
+		ReleaseNotes string `json:"release_notes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	sets := []struct{ key, val string }{
+		{core.KAppPublicURL, strings.TrimSpace(req.PublicURL)},
+		{core.KAppApkURL, strings.TrimSpace(req.ApkURL)},
+		{core.KAppLatestVer, strings.TrimSpace(req.LatestVer)},
+		{core.KAppReleaseNotes, req.ReleaseNotes},
+	}
+	for _, s := range sets {
+		if err := core.SetSetting(m.db, s.key, s.val); err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+	}
+	slog.Info("APP 配置已更新", "ip", c.ClientIP())
+	core.OK(c, gin.H{"ok": true})
 }
 
 func (m *Module) changePassword(c *gin.Context) {

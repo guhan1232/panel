@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.40.7"
+const Version = "0.41.0"
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
@@ -25,6 +25,12 @@ const (
 	KAppSourceURL   = "appstore_source_url"
 	KAppSourceCache = "appstore_source_cache"
 	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）
+
+	// 移动 APP（docs/APP.md §7）：对外地址、APK 分发与自更新检查。
+	KAppPublicURL    = "app_public_url"    // 面板对外访问地址（扫码登录 qr_text 的 host；空 = 自动推导）
+	KAppApkURL       = "app_apk_url"       // Android APK 下载地址（APP 自更新 + 设置页下载入口）
+	KAppLatestVer    = "app_latest_version" // APP 最新版本号（与 /api/app/check-update 比对）
+	KAppReleaseNotes = "app_release_notes"  // APP 最新版更新说明
 )
 
 // GetSetting 读取一个 KV 配置（不存在返回空串）。
@@ -53,12 +59,14 @@ type User struct {
 }
 
 type Session struct {
-	Token     string    `gorm:"primaryKey;size:64" json:"token"`
-	UserID    uint      `json:"user_id"`
-	IP        string    `gorm:"size:64" json:"ip"`
-	UA        string    `gorm:"size:512" json:"ua"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
+	Token      string    `gorm:"primaryKey;size:64" json:"token"`
+	UserID     uint      `json:"user_id"`
+	IP         string    `gorm:"size:64" json:"ip"`
+	UA         string    `gorm:"size:512" json:"ua"`
+	Client     string    `gorm:"size:16;default:web" json:"client"`     // web | app（APP 会话走 Bearer，30 天滑动续期）
+	DeviceName string    `gorm:"size:128" json:"device_name"`           // APP 登录时的设备名（机型）
+	ExpiresAt  time.Time `json:"expires_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type AuditLog struct {
