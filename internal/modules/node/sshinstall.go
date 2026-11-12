@@ -140,10 +140,7 @@ func (m *Module) sshInstall(c *gin.Context) {
 	if req.Port <= 0 {
 		req.Port = 22
 	}
-	if req.Name == "" {
-		req.Name = req.Host
-	}
-	if !nodeNameRe.MatchString(req.Name) {
+	if !nodeNameRe.MatchString(req.Name) && req.Name != "" {
 		core.Err(c, 400, "节点名仅允许字母数字点短横线下划线（1-64 位）")
 		return
 	}
@@ -208,7 +205,7 @@ func (m *Module) sshInstall(c *gin.Context) {
 	}
 	defer client.Close()
 
-	// 1. 架构探测
+	// 1. 架构探测 + 主机名（默认节点名用主机名，避免 IP 出现在界面）
 	archOut, _, err := sshRun(client, 15*time.Second, "uname -m")
 	if err != nil {
 		core.Err(c, 500, "探测架构失败: "+err.Error())
@@ -225,13 +222,26 @@ func (m *Module) sshInstall(c *gin.Context) {
 		return
 	}
 
-	// 2. 准备目录
+	// 2. 默认节点名 = 目标机主机名（取不到或含非法字符时回退 host）
+	if req.Name == "" {
+		if hn, _, err := sshRun(client, 10*time.Second, "hostname -s"); err == nil {
+			hn = strings.TrimSpace(hn)
+			if nodeNameRe.MatchString(hn) {
+				req.Name = hn
+			}
+		}
+		if req.Name == "" {
+			req.Name = strings.NewReplacer(":", "-", ".", "-").Replace(req.Host)
+		}
+	}
+
+	// 3. 准备目录
 	if _, code, err := sshRun(client, 30*time.Second, "mkdir -p "+agentInstallDir); err != nil || code != 0 {
 		core.Err(c, 500, "创建目录失败: "+strings.TrimSpace(archOut))
 		return
 	}
 
-	// 3. Agent 二进制：本机同目录优先（stdin 流上传），否则目标机 curl 下载
+	// 4. Agent 二进制：本机同目录优先（stdin 流上传），否则目标机 curl 下载
 	if local := localAgentBinary(arch); local != "" {
 		slog.Info("SSH 接入：上传本机 agent", "local", local, "host", req.Host, "remote", agentInstallBin)
 		if err := sshUpload(client, 10*time.Minute, local, agentInstallBin); err != nil {
@@ -254,7 +264,7 @@ func (m *Module) sshInstall(c *gin.Context) {
 		return
 	}
 
-	// 4. 注册服务：systemd 优先，nohup 兜底
+	// 5. 注册服务：systemd 优先，nohup 兜底
 	launch := agentInstallBin + " -s " + req.Server + " -t " + core.GetSetting(m.db, core.KNodeToken) + " -name " + req.Name
 	hasSystemd := false
 	if _, _, err := sshRun(client, 15*time.Second, "command -v systemctl"); err == nil {
@@ -283,7 +293,7 @@ func (m *Module) sshInstall(c *gin.Context) {
 		}
 	}
 
-	// 5. 等待 Agent 反连注册（最多 15s）
+	// 6. 等待 Agent 反连注册（最多 15s）
 	slog.Info("SSH 接入：等待节点反连注册", "name", req.Name)
 	var node *Node
 	for i := 0; i < 15; i++ {

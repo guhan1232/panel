@@ -136,7 +136,7 @@
         </div>
         <div class="form-sec">
           <div class="form-sec__title">节点信息</div>
-          <a-form-item label="节点名"><a-input v-model:value="sshForm.name" placeholder="留空默认取主机" /></a-form-item>
+          <a-form-item label="节点名"><a-input v-model:value="sshForm.name" placeholder="留空默认取目标机主机名" /></a-form-item>
           <a-form-item label="面板地址" style="margin-bottom: 0"><a-input v-model:value="sshForm.server" placeholder="ws://IP:端口（目标机需可达）" /></a-form-item>
         </div>
       </a-form>
