@@ -3,19 +3,28 @@
     <WmSectionCard title="Agent 接入" description="通过 WebSocket 反连，被控端无需开放端口" marker>
       <WmToolbar>
         <a-input :value="agentCmd" readonly class="wm-agent-cmd" aria-label="Agent 接入命令" />
-        <a-button @click="copyCmd">复制</a-button>
-        <a-button v-if="auth.role === 'admin'" type="primary" @click="openSSH">SSH 自动安装</a-button>
-        <a-button v-if="auth.role === 'admin'" @click="regenToken" data-tone="warning">重置 Token</a-button>
-        <a-button @click="load">刷新</a-button>
+        <a-button size="small" @click="copyCmd">复制</a-button>
+        <template #end>
+          <a-dropdown v-if="auth.role === 'admin'">
+            <a-button size="small">更多<span class="wm-icon nd-dd-icon"><ArrowDown /></span></a-button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item key="regen" @click="regenToken">重置 Token</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+          <a-button v-if="auth.role === 'admin'" type="primary" size="small" @click="openSSH">SSH 自动安装</a-button>
+          <a-button size="small" @click="load">刷新</a-button>
+        </template>
       </WmToolbar>
       <WmNotice tone="neutral">在目标服务器下载对应架构的 hanyuxin-agent 并运行（需面板防火墙放行面板端口）；接入后每 15 秒上报一次指标，断线自动重连。admin 可用「SSH 自动安装」免手动部署。</WmNotice>
     </WmSectionCard>
 
     <WmSectionCard title="节点列表" description="在线状态依据最近心跳判定" flush>
-      <WmToolbar>
+      <template #actions>
+        <span class="wm-text-muted nd-stats">共 {{ nodes.length }} 个节点 · {{ nodes.filter((n) => n.online).length }} 在线</span>
         <a-button size="small" @click="load">刷新</a-button>
-        <template #note>共 {{ nodes.length }} 个节点，其中 {{ nodes.filter((n) => n.online).length }} 个在线。</template>
-      </WmToolbar>
+      </template>
       <WmTable :data="nodes" v-loading="loading" empty-title="还没有接入节点" empty-description="复制上方接入命令，在目标服务器启动 Agent 后即可在此看到节点。">
         <WmColumn label="节点" min-width="130"><template #default="{ row }"><b>{{ row.node.name }}</b></template></WmColumn>
         <WmColumn label="主机" min-width="140"><template #default="{ row }"><span class="wm-mono">{{ row.node.hostname }}</span></template></WmColumn>
@@ -26,13 +35,20 @@
         </WmColumn>
         <WmColumn label="最近心跳" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.node.last_seen) }}</span></template></WmColumn>
         <WmColumn label="Agent" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.node.version }}</span></template></WmColumn>
-        <WmColumn label="操作" width="230" fixed="right">
+        <WmColumn label="操作" width="190" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" @click="openMetrics(row)">指标</a-button>
-            <a-button size="small" data-tone="success" :disabled="!row.online || auth.role === 'viewer'" @click="openExec(row)">命令</a-button>
-            <a-button size="small" :disabled="!row.online || auth.role === 'viewer'" @click="openFiles(row)">文件</a-button>
-            <a-button size="small" :disabled="!row.online || auth.role === 'viewer'" @click="openNodeTerm(row)">终端</a-button>
-            <a-button size="small" data-tone="danger" v-if="auth.role === 'admin'" @click="del(row)">删除</a-button>
+            <a-button type="link" size="small" @click="openMetrics(row)">指标</a-button>
+            <a-dropdown>
+              <a-button type="link" size="small" :disabled="!row.online || auth.role === 'viewer'">远程<span class="wm-icon nd-dd-icon"><ArrowDown /></span></a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item key="cmd" @click="openExec(row)">命令</a-menu-item>
+                  <a-menu-item key="files" @click="openFiles(row)">文件</a-menu-item>
+                  <a-menu-item key="term" @click="openNodeTerm(row)">终端</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+            <a-button type="link" size="small" danger v-if="auth.role === 'admin'" @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
@@ -72,10 +88,10 @@
         <WmColumn label="大小" width="110"><template #default="{ row }">{{ row.is_dir ? '-' : fmtSize(row.size) }}</template></WmColumn>
         <WmColumn label="权限" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.mode }}</span></template></WmColumn>
         <WmColumn label="修改时间" width="160"><template #default="{ row }"><span class="wm-mono">{{ row.mod_time }}</span></template></WmColumn>
-        <WmColumn label="操作" width="150" fixed="right">
+        <WmColumn label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <a-button v-if="!row.is_dir" size="small" @click="downloadFile(row)">下载</a-button>
-            <a-button size="small" data-tone="danger" @click="deleteFile(row)">删除</a-button>
+            <a-button v-if="!row.is_dir" type="link" size="small" @click="downloadFile(row)">下载</a-button>
+            <a-button type="link" size="small" danger @click="deleteFile(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
@@ -96,31 +112,40 @@
       </template>
     </a-modal>
 
-    <a-modal v-model:open="sDlg" title="SSH 自动安装 Agent" width="640px">
-      <a-form :label-col="{ style: { width: '96px' } }">
-        <a-form-item label="目标主机"><a-input v-model:value="sshForm.host" placeholder="IP 或主机名" /></a-form-item>
-        <a-form-item label="SSH 端口"><a-input-number v-model:value="sshForm.port" :min="1" :max="65535" style="width: 160px" /></a-form-item>
-        <a-form-item label="用户名"><a-input v-model:value="sshForm.user" placeholder="root" /></a-form-item>
-        <a-form-item label="认证方式">
-          <a-radio-group v-model:value="sshForm.auth_type">
-            <a-radio-button value="password">密码</a-radio-button>
-            <a-radio-button value="key">私钥</a-radio-button>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item v-if="sshForm.auth_type === 'password'" label="密码"><a-input-password v-model:value="sshForm.password" placeholder="SSH 登录密码" /></a-form-item>
-        <template v-else>
-          <a-form-item label="私钥"><a-textarea v-model:value="sshForm.private_key" :rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" /></a-form-item>
-          <a-form-item label="私钥口令"><a-input-password v-model:value="sshForm.passphrase" placeholder="无口令留空" /></a-form-item>
-        </template>
-        <a-form-item label="节点名"><a-input v-model:value="sshForm.name" placeholder="留空默认取主机" /></a-form-item>
-        <a-form-item label="面板地址"><a-input v-model:value="sshForm.server" placeholder="ws://IP:端口（目标机需可达）" /></a-form-item>
+    <a-drawer v-model:open="sDlg" title="SSH 自动安装 Agent" :width="620">
+      <a-form layout="vertical" class="ssh-form">
+        <div class="form-sec">
+          <div class="form-sec__title">连接信息</div>
+          <a-form-item label="目标主机"><a-input v-model:value="sshForm.host" placeholder="IP 或主机名" /></a-form-item>
+          <a-form-item label="SSH 端口"><a-input-number v-model:value="sshForm.port" :min="1" :max="65535" style="width: 160px" /></a-form-item>
+          <a-form-item label="用户名" style="margin-bottom: 0"><a-input v-model:value="sshForm.user" placeholder="root" /></a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">认证</div>
+          <a-form-item label="认证方式">
+            <a-radio-group v-model:value="sshForm.auth_type" button-style="solid">
+              <a-radio-button value="password">密码</a-radio-button>
+              <a-radio-button value="key">私钥</a-radio-button>
+            </a-radio-group>
+          </a-form-item>
+          <a-form-item v-if="sshForm.auth_type === 'password'" label="密码" style="margin-bottom: 0"><a-input-password v-model:value="sshForm.password" placeholder="SSH 登录密码" /></a-form-item>
+          <template v-else>
+            <a-form-item label="私钥"><a-textarea v-model:value="sshForm.private_key" :rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" class="wm-mono" /></a-form-item>
+            <a-form-item label="私钥口令" style="margin-bottom: 0"><a-input-password v-model:value="sshForm.passphrase" placeholder="无口令留空" /></a-form-item>
+          </template>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">节点信息</div>
+          <a-form-item label="节点名"><a-input v-model:value="sshForm.name" placeholder="留空默认取主机" /></a-form-item>
+          <a-form-item label="面板地址" style="margin-bottom: 0"><a-input v-model:value="sshForm.server" placeholder="ws://IP:端口（目标机需可达）" /></a-form-item>
+        </div>
       </a-form>
       <WmNotice tone="neutral">流程：探测架构 → 推送 Agent（面板同目录优先，缺失时目标机从仓库下载）→ 注册 systemd 服务 → 自动上线。SSH 凭据仅本次使用，不保存。</WmNotice>
       <template #footer>
         <a-button @click="sDlg = false">取消</a-button>
         <a-button type="primary" :loading="sRunning" @click="runSSHInstall">安装并接入</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
   </div>
 </template>
 
@@ -133,6 +158,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtTime, chartPalette } from '../utils'
 import { useAuth } from '../stores/auth'
@@ -469,3 +495,13 @@ function closeNodeTerm() {
   ntTerm = null
 }
 </script>
+
+<style scoped>
+.nd-stats { font-size: 12px; }
+.nd-dd-icon { margin-left: 4px; font-size: 10px; }
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+</style>

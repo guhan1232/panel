@@ -2,23 +2,22 @@
   <div class="wm-page">
     <WmSectionCard title="审计记录" description="写操作留痕：操作人、中文操作说明、脱敏请求体、来源与状态；终端命令逐条记录" flush>
       <WmToolbar>
-        <a-tabs v-model:activeKey="tab" style="width: 100%">
-          <a-tab-pane tab="操作日志" key="ops" />
-          <a-tab-pane tab="终端命令" key="tty" />
-        </a-tabs>
-        <div v-if="tab === 'ops'" class="toolbar">
-          <a-select v-model:value="q.method" placeholder="请求方法" allow-clear style="width: 130px">
+        <a-segmented v-model:value="tab" :options="[{ value: 'ops', label: '操作日志' }, { value: 'tty', label: '终端命令' }]" size="small" />
+        <template v-if="tab === 'ops'">
+          <a-select v-model:value="q.method" placeholder="请求方法" allow-clear size="small" style="width: 120px">
             <a-select-option v-for="m in ['POST', 'PUT', 'DELETE']" :key="m" :value="m">{{ m }}</a-select-option>
           </a-select>
-          <a-input v-model:value="q.q" placeholder="路径关键字" style="width: 220px" allow-clear />
-          <a-input v-model:value="q.username" placeholder="操作人" style="width: 140px" allow-clear />
-          <a-button type="primary" @click="load(1)">查询</a-button>
-        </div>
-        <div v-else class="toolbar">
-          <a-input v-model:value="tq.user" placeholder="操作人" style="width: 140px" allow-clear />
-          <a-input v-model:value="tq.q" placeholder="命令关键字" style="width: 220px" allow-clear />
-          <a-button type="primary" @click="loadT(1)">查询</a-button>
-        </div>
+          <a-input v-model:value="q.q" placeholder="路径关键字" size="small" style="width: 200px" allow-clear />
+          <a-input v-model:value="q.username" placeholder="操作人" size="small" style="width: 130px" allow-clear />
+        </template>
+        <template v-else>
+          <a-input v-model:value="tq.user" placeholder="操作人" size="small" style="width: 130px" allow-clear />
+          <a-input v-model:value="tq.q" placeholder="命令关键字" size="small" style="width: 200px" allow-clear />
+        </template>
+        <template #end>
+          <a-button v-if="tab === 'ops'" type="primary" size="small" @click="load(1)">查询</a-button>
+          <a-button v-else type="primary" size="small" @click="loadT(1)">查询</a-button>
+        </template>
       </WmToolbar>
 
       <!-- 操作日志 -->
@@ -39,7 +38,7 @@
           <WmColumn prop="path" label="路径" min-width="200"><template #default="{ row }"><span class="wm-mono">{{ row.path }}</span></template></WmColumn>
           <WmColumn label="请求体" width="90">
             <template #default="{ row }">
-              <a-button v-if="row.body" size="small" link type="primary" @click="viewBody(row)">查看</a-button>
+              <a-button v-if="row.body" type="link" size="small" @click="viewBody(row)">查看</a-button>
               <span v-else class="wm-text-muted">—</span>
             </template>
           </WmColumn>

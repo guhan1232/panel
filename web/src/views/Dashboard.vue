@@ -3,7 +3,7 @@
     <WmSectionCard dense>
       <WmToolbar>
         <span class="node-label">监控对象</span>
-        <a-select v-model:value="nodeSel" style="width: 250px" aria-label="监控对象">
+        <a-select v-model:value="nodeSel" size="small" style="width: 240px" aria-label="监控对象">
           <a-select-option value="local">本机（面板所在服务器）</a-select-option>
           <a-select-option v-for="n in nodes" :key="n.node.id" :value="String(n.node.id)">{{ `${n.node.name}${n.online ? '' : '（离线）'}` }}</a-select-option>
         </a-select>

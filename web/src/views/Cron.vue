@@ -1,13 +1,26 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="任务列表" description="任务定义持久化于面板数据库，重启后自动恢复调度" flush>
+      <template #actions>
+        <span class="wm-text-muted cron-stats">{{ tasks.length }} 条 · {{ enabledCount }} 启用</span>
+      </template>
       <WmToolbar>
-        <a-button type="primary" @click="openCreate">新建任务</a-button>
-        <a-button @click="load">刷新</a-button>
+        <template #end>
+          <a-button type="primary" size="small" @click="openCreate">新建任务</a-button>
+          <a-button size="small" @click="load">刷新</a-button>
+        </template>
         <template #note>内置调度引擎运行，任务不写入系统 crontab。</template>
       </WmToolbar>
 
       <WmTable :data="tasks" v-loading="loading" empty-title="还没有计划任务" empty-description="新建一条任务，按 cron 表达式或预设周期自动执行。">
+        <template #empty>
+          <div class="cron-empty">
+            <div class="cron-empty__icon"><span class="wm-icon"><Timer /></span></div>
+            <p class="cron-empty__title">还没有计划任务</p>
+            <p class="cron-empty__desc">新建一条任务，按 cron 表达式或预设周期自动执行；支持 Shell、备份、日志切割等类型。</p>
+            <a-button type="primary" @click="openCreate">新建任务</a-button>
+          </div>
+        </template>
         <WmColumn prop="id" label="ID" width="60"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></WmColumn>
         <WmColumn prop="name" label="任务名称" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></WmColumn>
         <WmColumn label="类型" width="120">
@@ -26,74 +39,86 @@
         <WmColumn label="启用" width="80">
           <template #default="{ row }"><a-switch :checked="row.enabled" @change="toggle(row)" /></template>
         </WmColumn>
-        <WmColumn label="操作" width="270" fixed="right">
+        <WmColumn label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" data-tone="success" @click="runNow(row)">执行</a-button>
-            <a-button size="small" @click="openLogs(row)">日志</a-button>
-            <a-button size="small" @click="openEdit(row)">编辑</a-button>
-            <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
+            <a-button type="link" size="small" @click="runNow(row)">执行</a-button>
+            <a-button type="link" size="small" @click="openLogs(row)">日志</a-button>
+            <a-button type="link" size="small" @click="openEdit(row)">编辑</a-button>
+            <a-button type="link" size="small" danger @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <a-modal v-model:open="dlg" :title="form.id ? '编辑任务' : '新建任务'" width="660px">
+    <a-drawer v-model:open="dlg" :title="form.id ? '编辑任务' : '新建任务'" :width="620">
       <WmNotice tone="neutral" class="wm-mb-4">周期支持 5 段 cron、带秒 6 段与 @daily 等描述符；同一任务默认防重叠执行。</WmNotice>
-      <a-form :label-col="{ style: { width: '100px' } }">
-        <a-form-item label="任务名称"><a-input v-model:value="form.name" placeholder="如：每日备份数据库" /></a-form-item>
-        <a-form-item label="任务类型">
-          <a-select v-model:value="form.type" style="width: 100%">
-            <a-select-option v-for="(v, k) in typeMap" :key="k" :value="k">{{ v }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="执行周期">
-          <a-input v-model:value="form.spec" placeholder="分 时 日 月 周，如 */5 * * * *；支持 @daily 等" />
-          <div class="wm-tag-row">
-            <a-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</a-tag>
-          </div>
-        </a-form-item>
-        <a-form-item v-if="form.type === 'shell'" label="执行位置">
-          <a-select v-model:value="form.node_id" style="width: 100%">
-            <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
-            <a-select-option v-for="nd in nodes" :key="nd.id" :value="nd.id">{{ nd.name }}（远程）</a-select-option>
-          </a-select>
-          <span class="hint">远程执行经 Agent 通道下发；离线节点任务会执行失败。</span>
-        </a-form-item>
-        <a-form-item v-if="form.type === 'shell'" label="脚本内容">
-          <a-textarea v-model:value="form.command"  :rows="8" placeholder="bash 命令，如：&#10;tar -czf /tmp/backup.tar.gz /data" />
-        </a-form-item>
-        <template v-if="form.type === 'backup_dir'">
-          <a-form-item label="备份目录"><a-input v-model:value="form.source" placeholder="/data/www" /></a-form-item>
-          <a-form-item label="保留份数"><a-input-number v-model:value="form.keep" :min="0" /><span class="hint">超出自动清理，0=永久保留</span></a-form-item>
-        </template>
-        <a-form-item v-if="form.type === 'visit_url'" label="访问 URL">
-          <a-input v-model:value="form.url" placeholder="https://example.com/health（非 2xx/3xx 视为失败）" />
-        </a-form-item>
-        <template v-if="form.type === 'backup_db'">
-          <a-form-item label="数据库类型">
-            <a-radio-group v-model:value="form.db_engine">
-              <a-radio-button value="mysql">MySQL</a-radio-button>
-              <a-radio-button value="pg">PostgreSQL</a-radio-button>
-            </a-radio-group>
+      <a-form layout="vertical">
+        <div class="form-sec">
+          <div class="form-sec__title">基本信息</div>
+          <a-form-item label="任务名称"><a-input v-model:value="form.name" placeholder="如：每日备份数据库" /></a-form-item>
+          <a-form-item label="任务类型">
+            <a-select v-model:value="form.type" style="width: 100%">
+              <a-select-option v-for="(v, k) in typeMap" :key="k" :value="k">{{ v }}</a-select-option>
+            </a-select>
           </a-form-item>
-          <a-form-item label="数据库名"><a-input v-model:value="form.db_name" placeholder="mydb" /></a-form-item>
-          <a-form-item label="保留份数"><a-input-number v-model:value="form.keep" :min="0" /><span class="hint">连接凭据使用「数据库」页面保存的配置</span></a-form-item>
-        </template>
-        <template v-if="form.type === 'log_rotate'">
-          <a-form-item label="日志匹配"><a-input v-model:value="form.pattern" placeholder="/var/log/nginx/*.log（不含空格）" /></a-form-item>
-          <a-form-item label="切割阈值(MB)"><a-input-number v-model:value="form.size_mb" :min="1" /></a-form-item>
-          <a-form-item label="保留天数"><a-input-number v-model:value="form.keep_days" :min="1" /></a-form-item>
-        </template>
-        <WmNotice v-if="form.type === 'sys_update'" tone="warning" title="请在低峰期执行" class="wm-mb-4">将执行 apt-get upgrade / dnf upgrade 全量系统更新。</WmNotice>
-        <a-form-item label="超时(秒)"><a-input-number v-model:value="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></a-form-item>
-        <a-form-item label="允许并发"><a-switch v-model:checked="form.concurrent" /><span class="hint">关闭时上一次未结束则跳过本次</span></a-form-item>
-        <a-form-item label="失败告警"><a-input-number v-model:value="form.notify_fail" :min="0" /><span class="hint">连续失败 N 次后告警，0=不告警</span></a-form-item>
+          <a-form-item label="执行周期" style="margin-bottom: 0">
+            <a-input v-model:value="form.spec" placeholder="分 时 日 月 周，如 */5 * * * *；支持 @daily 等" />
+            <div class="wm-tag-row">
+              <a-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</a-tag>
+            </div>
+          </a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">任务配置</div>
+          <a-form-item v-if="form.type === 'shell'" label="执行位置">
+            <a-select v-model:value="form.node_id" style="width: 100%">
+              <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
+              <a-select-option v-for="nd in nodes" :key="nd.id" :value="nd.id">{{ nd.name }}（远程）</a-select-option>
+            </a-select>
+            <div class="hint">远程执行经 Agent 通道下发；离线节点任务会执行失败。</div>
+          </a-form-item>
+          <a-form-item v-if="form.type === 'shell'" label="脚本内容">
+            <a-textarea v-model:value="form.command"  :rows="8" placeholder="bash 命令，如：&#10;tar -czf /tmp/backup.tar.gz /data" />
+          </a-form-item>
+          <template v-if="form.type === 'backup_dir'">
+            <a-form-item label="备份目录"><a-input v-model:value="form.source" placeholder="/data/www" /></a-form-item>
+            <a-form-item label="保留份数"><a-input-number v-model:value="form.keep" :min="0" /><span class="hint">超出自动清理，0=永久保留</span></a-form-item>
+          </template>
+          <a-form-item v-if="form.type === 'visit_url'" label="访问 URL">
+            <a-input v-model:value="form.url" placeholder="https://example.com/health（非 2xx/3xx 视为失败）" />
+          </a-form-item>
+          <template v-if="form.type === 'backup_db'">
+            <a-form-item label="数据库类型">
+              <a-radio-group v-model:value="form.db_engine" option-type="button" button-style="solid">
+                <a-radio-button value="mysql">MySQL</a-radio-button>
+                <a-radio-button value="pg">PostgreSQL</a-radio-button>
+              </a-radio-group>
+            </a-form-item>
+            <a-form-item label="数据库名"><a-input v-model:value="form.db_name" placeholder="mydb" /></a-form-item>
+            <a-form-item label="保留份数"><a-input-number v-model:value="form.keep" :min="0" /><span class="hint">连接凭据使用「数据库」页面保存的配置</span></a-form-item>
+          </template>
+          <template v-if="form.type === 'log_rotate'">
+            <a-form-item label="日志匹配"><a-input v-model:value="form.pattern" placeholder="/var/log/nginx/*.log（不含空格）" /></a-form-item>
+            <a-form-item label="切割阈值(MB)"><a-input-number v-model:value="form.size_mb" :min="1" /></a-form-item>
+            <a-form-item label="保留天数"><a-input-number v-model:value="form.keep_days" :min="1" /></a-form-item>
+          </template>
+          <WmNotice v-if="form.type === 'sys_update'" tone="warning" title="请在低峰期执行">将执行 apt-get upgrade / dnf upgrade 全量系统更新。</WmNotice>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">执行策略</div>
+          <a-form-item label="超时(秒)"><a-input-number v-model:value="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></a-form-item>
+          <a-form-item label="允许并发">
+            <div><a-switch v-model:checked="form.concurrent" /></div>
+            <div class="hint">关闭时上一次未结束则跳过本次</div>
+          </a-form-item>
+          <a-form-item label="失败告警" style="margin-bottom: 0"><a-input-number v-model:value="form.notify_fail" :min="0" /><span class="hint">连续失败 N 次后告警，0=不告警</span></a-form-item>
+        </div>
       </a-form>
       <template #footer>
         <a-button @click="dlg = false">取消</a-button>
         <a-button type="primary" :loading="saving" @click="save">保存</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
 
     <a-drawer v-model:open="logsDlg" width="62%" :title="`执行日志 - ${logsTask?.name || ''}`">
       <WmNotice tone="neutral" class="wm-mb-4">每次执行记录状态、耗时、退出码与输出；历史保留 90 天后自动清理。</WmNotice>
@@ -123,8 +148,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from '../antd-compat'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox, Timer } from '../antd-compat'
 import api from '../api'
 import { fmtTime, fmtCost } from '../utils'
 
@@ -152,6 +177,7 @@ const tasks = ref<any[]>([])
 const loading = ref(false)
 const dlg = ref(false)
 const saving = ref(false)
+const enabledCount = computed(() => tasks.value.filter((t: any) => t.enabled).length)
 
 const emptyForm = () => ({ id: 0, name: '', type: 'shell', spec: '*/5 * * * *', command: '', source: '', keep: 1, url: '', db_engine: 'mysql', db_name: '', pattern: '', size_mb: 50, keep_days: 30, timeout_sec: 0, concurrent: false, notify_fail: 0, node_id: 0 })
 const form = reactive(emptyForm())
@@ -291,3 +317,25 @@ async function stopRun() {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.cron-stats { font-size: 12px; }
+
+/* 空态 */
+.cron-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 48px 20px 52px;
+}
+.cron-empty__icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--wm-surface-3); color: var(--wm-ink-3);
+  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
+}
+.cron-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
+.cron-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+</style>

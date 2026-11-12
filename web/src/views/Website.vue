@@ -1,48 +1,44 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="站点列表" description="Nginx 配置在写入前执行 nginx -t 校验，失败自动回滚" flush>
-      <WmToolbar>
+      <template #actions>
         <WmStatusPill :label="nginxLabel" :tone="nginx.installed ? (nginx.running ? 'success' : 'warning') : 'danger'" :pulse="nginx.running" />
         <span v-if="nginx.installed && nginx.version" class="wm-mono wm-text-muted">{{ nginx.version }}</span>
-        <template v-if="nginx.installed">
-          <a-button v-if="!nginx.running" size="small" data-tone="success" :loading="acting === 'start'" @click="nginxDo('start')">启动</a-button>
+        <span class="wm-text-muted site-stats">{{ totalStats.total }} 站点 · {{ totalStats.enabled }} 启用 · {{ totalStats.https }} HTTPS</span>
+      </template>
+
+      <WmToolbar>
+        <a-segmented v-model:value="seg" :options="segOptions" size="small" />
+        <a-select v-model:value="subFilter" class="sub-filter" size="small" allow-clear placeholder="后端项目类型">
+          <a-select-option v-for="t in backendTypes" :key="t.id" :value="t.id">{{ t.name }}项目（{{ catCounts[t.id] || 0 }}）</a-select-option>
+        </a-select>
+        <template #end>
+          <a-button v-if="!nginx.installed" size="small" data-tone="warning" :loading="installing" @click="installNginx">安装 Nginx</a-button>
           <template v-else>
             <a-button size="small" :loading="acting === 'reload'" @click="nginxDo('reload')">重载</a-button>
-            <a-button size="small" :loading="acting === 'restart'" @click="nginxDo('restart')">重启</a-button>
-            <a-button size="small" data-tone="danger" :loading="acting === 'stop'" @click="nginxDo('stop')">停止</a-button>
+            <a-dropdown>
+              <a-button size="small">Nginx<span class="wm-icon site-dd-icon"><ArrowDown /></span></a-button>
+              <template #overlay>
+                <a-menu @click="onNginxMenu">
+                  <a-menu-item v-if="!nginx.running" key="start">启动 Nginx</a-menu-item>
+                  <a-menu-item v-if="nginx.running" key="restart">重启 Nginx</a-menu-item>
+                  <a-menu-item v-if="nginx.running" key="stop">停止 Nginx</a-menu-item>
+                  <a-menu-divider />
+                  <a-menu-item key="configs">配置文件</a-menu-item>
+                  <a-menu-item key="import">同步系统站点</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
           </template>
+          <a-button type="primary" size="small" @click="openCreate()">创建站点</a-button>
+          <a-button size="small" @click="load">刷新</a-button>
         </template>
-        <a-button v-if="!nginx.installed" size="small" data-tone="warning" :loading="installing" @click="installNginx">安装 Nginx</a-button>
-        <a-button size="small" @click="openConfigs">配置文件</a-button>
-        <a-button size="small" @click="importScan">同步系统站点</a-button>
-        <a-button type="primary" size="small" @click="openCreate()">创建站点</a-button>
-        <a-button size="small" @click="load">刷新</a-button>
       </WmToolbar>
-
-      <!-- 类型分类（胶囊分段器，带计数） -->
-      <div class="tabs-row">
-        <div class="type-tabs">
-          <div
-            v-for="cat in categories"
-            :key="cat.id"
-            class="tab-pill"
-            :class="{ active: typeFilter === cat.id }"
-            @click="typeFilter = cat.id"
-          >
-            {{ cat.name }}<span class="tab-cnt">{{ catCounts[cat.id] || 0 }}</span>
-          </div>
-        </div>
-        <div class="mini-stats">
-          <span class="mini-stat"><b>{{ totalStats.total }}</b>站点</span>
-          <span class="mini-stat"><b>{{ totalStats.enabled }}</b>启用</span>
-          <span class="mini-stat"><b>{{ totalStats.https }}</b>HTTPS</span>
-        </div>
-      </div>
 
       <WmTable :data="filteredSites" v-loading="loading" empty-title="该分类下还没有站点" empty-description="点击「创建站点」，按类型创建；HTML/PHP 为文件站，其余分类为反向代理到本机后端。">
         <template #empty>
           <div class="site-empty">
-            <div class="site-empty__icon">🗂</div>
+            <div class="site-empty__icon"><span class="wm-icon"><Box /></span></div>
             <p class="site-empty__title">{{ typeFilter === 'all' ? '还没有站点' : CATE_NAME[typeFilter] + '分类下还没有站点' }}</p>
             <p class="site-empty__desc">
               {{ typeFilter === 'html' || typeFilter === 'php' || typeFilter === 'all' ? '创建后 Nginx 自动生成配置；HTML/PHP 为文件站。' : '创建后反向代理到本机端口，请先在「进程管理」启动对应后端服务。' }}
@@ -66,74 +62,90 @@
         <WmColumn label="启用" width="80">
           <template #default="{ row }"><a-switch :checked="row.enabled && row.conf_exists" @change="toggle(row)" /></template>
         </WmColumn>
-        <WmColumn label="操作" width="290" fixed="right">
+        <WmColumn label="操作" width="230" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" @click="openSiteBackup(row)">备份</a-button>
-            <a-button size="small" @click="viewLog(row, 'access')">访问日志</a-button>
-            <a-button size="small" @click="viewLog(row, 'error')">错误日志</a-button>
-            <a-button size="small" @click="openEdit(row)">编辑</a-button>
-            <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
+            <a-button type="link" size="small" @click="openEdit(row)">编辑</a-button>
+            <a-dropdown>
+              <a-button type="link" size="small">日志<span class="wm-icon site-dd-icon"><ArrowDown /></span></a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item key="access" @click="viewLog(row, 'access')">访问日志</a-menu-item>
+                  <a-menu-item key="error" @click="viewLog(row, 'error')">错误日志</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+            <a-button type="link" size="small" @click="openSiteBackup(row)">备份</a-button>
+            <a-button type="link" size="small" danger @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <a-modal v-model:open="dlg" :title="dlgTitle" width="680px">
-      <a-form :label-col="{ style: { width: '110px' } }">
-        <a-form-item label="站点标识"><a-input v-model:value="form.name" placeholder="小写字母数字点短横线，如 myblog" :disabled="!!form.id" /></a-form-item>
-        <a-form-item label="站点类型">
-          <a-radio-group v-model:value="form.type">
-            <a-radio-button value="static">静态站</a-radio-button>
-            <a-radio-button value="php">PHP 站</a-radio-button>
-            <a-radio-button value="proxy">反向代理</a-radio-button>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item label="域名"><a-input v-model:value="form.domains" placeholder="example.com www.example.com（空格分隔多个）" /></a-form-item>
-        <a-form-item v-if="form.type !== 'proxy'" label="网站根目录"><a-input v-model:value="form.root" placeholder="/www/wwwroot/myblog" /></a-form-item>
-        <a-form-item v-if="form.type === 'php'" label="PHP 版本">
-          <a-select v-if="phpOptions.length" v-model:value="phpChoice" option-label-prop="label" style="width: 100%" allow-clear placeholder="选择面板已安装的 PHP 版本">
-            <a-select-option v-for="p in phpOptions" :key="p.value" :value="p.value" :label="`PHP ${p.version}`">
-              PHP {{ p.version }}<span class="wm-mono wm-text-muted" style="font-size: 12px; margin-left: 8px">{{ p.value }}</span>
-            </a-select-option>
-            <a-select-option :value="PHP_CUSTOM" label="手动输入 FPM 地址…">手动输入 FPM 地址…</a-select-option>
-          </a-select>
-          <a-input v-if="!phpOptions.length || phpChoice === PHP_CUSTOM" v-model:value="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" :class="{ 'wm-mt-2': phpOptions.length }" />
-          <WmNotice v-if="!phpOptions.length" tone="warning" class="wm-mt-2">未检测到面板安装的 PHP：请先到「软件商店」安装 PHP 后刷新，或直接填写 FPM 地址</WmNotice>
-        </a-form-item>
-        <a-form-item v-if="form.type === 'proxy'" label="项目分类">
-          <a-select v-model:value="form.sub_type" style="width: 100%">
-            <a-select-option value="">无（纯反代）</a-select-option>
-            <a-select-option value="java">Java 项目</a-select-option>
-            <a-select-option value="node">Node 项目</a-select-option>
-            <a-select-option value="go">Go 项目</a-select-option>
-            <a-select-option value="python">Python 项目</a-select-option>
-            <a-select-option value="dotnet">.Net 项目</a-select-option>
-            <a-select-option value="other">其他项目</a-select-option>
-          </a-select>
-          <div class="hint">分类仅用于列表 Tab 区分展示；Java/Node/Go/Python/.Net 项目 = 反向代理到本机端口，请先在「进程管理」启动后端服务。</div>
-        </a-form-item>
-        <a-form-item v-if="form.type === 'proxy'" label="反代目标"><a-input v-model:value="form.upstream" placeholder="http://127.0.0.1:3000" /></a-form-item>
-        <a-form-item v-if="form.type === 'proxy'" label="附加路径规则">
-          <div v-for="(loc, i) in form.extra" :key="i" class="loc-row">
-            <a-input v-model:value="loc.prefix" placeholder="/api" style="width: 160px" />
-            <a-input v-model:value="loc.target" placeholder="http://127.0.0.1:8000" style="width: 300px" />
-            <a-button size="small" shape="circle" data-tone="danger" @click="form.extra.splice(i, 1)"><span class="wm-icon"><Delete /></span></a-button>
-          </div>
-          <a-button size="small" @click="form.extra.push({ prefix: '', target: '' })">添加规则</a-button>
-        </a-form-item>
-        <a-form-item label="SSL 证书">
-          <a-select v-model:value="form.ssl_cert" placeholder="选择已托管证书或留空" style="width: 100%" allow-clear>
-            <a-select-option v-for="ct in certs" :key="ct.domain" :value="ct.domain">{{ `${ct.domain}（至 ${ct.not_after?.slice(0, 10)}）` }}</a-select-option>
-          </a-select>
-          <WmNotice v-if="form.ssl_cert" tone="neutral" class="wm-mt-2">将使用 <span class="wm-mono">{{ certBase }}</span> 路径下 fullchain.pem / privkey.pem</WmNotice>
-        </a-form-item>
-        <a-form-item v-if="form.ssl_cert" label="强制 HTTPS"><a-switch v-model:checked="form.force_https" /></a-form-item>
+    <a-drawer v-model:open="dlg" :title="dlgTitle" :width="620">
+      <a-form layout="vertical" class="site-form">
+        <div class="form-sec">
+          <div class="form-sec__title">基本信息</div>
+          <a-form-item label="站点标识"><a-input v-model:value="form.name" placeholder="小写字母数字点短横线，如 myblog" :disabled="!!form.id" /></a-form-item>
+          <a-form-item label="域名" style="margin-bottom: 0"><a-input v-model:value="form.domains" placeholder="example.com www.example.com（空格分隔多个）" /></a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">类型与目标</div>
+          <a-form-item label="站点类型">
+            <a-radio-group v-model:value="form.type" option-type="button" button-style="solid">
+              <a-radio-button value="static">静态站</a-radio-button>
+              <a-radio-button value="php">PHP 站</a-radio-button>
+              <a-radio-button value="proxy">反向代理</a-radio-button>
+            </a-radio-group>
+          </a-form-item>
+          <a-form-item v-if="form.type !== 'proxy'" label="网站根目录"><a-input v-model:value="form.root" placeholder="/www/wwwroot/myblog" /></a-form-item>
+          <a-form-item v-if="form.type === 'php'" label="PHP 版本">
+            <a-select v-if="phpOptions.length" v-model:value="phpChoice" option-label-prop="label" style="width: 100%" allow-clear placeholder="选择面板已安装的 PHP 版本">
+              <a-select-option v-for="p in phpOptions" :key="p.value" :value="p.value" :label="`PHP ${p.version}`">
+                PHP {{ p.version }}<span class="wm-mono wm-text-muted" style="font-size: 12px; margin-left: 8px">{{ p.value }}</span>
+              </a-select-option>
+              <a-select-option :value="PHP_CUSTOM" label="手动输入 FPM 地址…">手动输入 FPM 地址…</a-select-option>
+            </a-select>
+            <a-input v-if="!phpOptions.length || phpChoice === PHP_CUSTOM" v-model:value="form.php_socket" placeholder="/run/php/php8.2-fpm.sock 或 127.0.0.1:9000" :class="{ 'wm-mt-2': phpOptions.length }" />
+            <WmNotice v-if="!phpOptions.length" tone="warning" class="wm-mt-2">未检测到面板安装的 PHP：请先到「软件商店」安装 PHP 后刷新，或直接填写 FPM 地址</WmNotice>
+          </a-form-item>
+          <a-form-item v-if="form.type === 'proxy'" label="项目分类">
+            <a-select v-model:value="form.sub_type" style="width: 100%">
+              <a-select-option value="">无（纯反代）</a-select-option>
+              <a-select-option value="java">Java 项目</a-select-option>
+              <a-select-option value="node">Node 项目</a-select-option>
+              <a-select-option value="go">Go 项目</a-select-option>
+              <a-select-option value="python">Python 项目</a-select-option>
+              <a-select-option value="dotnet">.Net 项目</a-select-option>
+              <a-select-option value="other">其他项目</a-select-option>
+            </a-select>
+            <div class="hint">分类仅用于列表筛选展示；请先确保对应后端服务已在「进程管理」中启动。</div>
+          </a-form-item>
+          <a-form-item v-if="form.type === 'proxy'" label="反代目标"><a-input v-model:value="form.upstream" placeholder="http://127.0.0.1:3000" /></a-form-item>
+          <a-form-item v-if="form.type === 'proxy'" label="附加路径规则" style="margin-bottom: 0">
+            <div v-for="(loc, i) in form.extra" :key="i" class="loc-row">
+              <a-input v-model:value="loc.prefix" placeholder="/api" style="width: 160px" />
+              <a-input v-model:value="loc.target" placeholder="http://127.0.0.1:8000" style="width: 300px" />
+              <a-button size="small" shape="circle" data-tone="danger" @click="form.extra.splice(i, 1)"><span class="wm-icon"><Delete /></span></a-button>
+            </div>
+            <a-button size="small" @click="form.extra.push({ prefix: '', target: '' })">添加规则</a-button>
+          </a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">HTTPS</div>
+          <a-form-item label="SSL 证书">
+            <a-select v-model:value="form.ssl_cert" placeholder="选择已托管证书或留空" style="width: 100%" allow-clear>
+              <a-select-option v-for="ct in certs" :key="ct.domain" :value="ct.domain">{{ `${ct.domain}（至 ${ct.not_after?.slice(0, 10)}）` }}</a-select-option>
+            </a-select>
+            <WmNotice v-if="form.ssl_cert" tone="neutral" class="wm-mt-2">将使用 <span class="wm-mono">{{ certBase }}</span> 路径下 fullchain.pem / privkey.pem</WmNotice>
+          </a-form-item>
+          <a-form-item v-if="form.ssl_cert" label="强制 HTTPS" style="margin-bottom: 0"><a-switch v-model:checked="form.force_https" /></a-form-item>
+        </div>
       </a-form>
       <template #footer>
         <a-button @click="dlg = false">取消</a-button>
         <a-button type="primary" :loading="saving" @click="save">保存（nginx -t 校验）</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
 
     <a-modal v-model:open="logDlg" :title="`日志 - ${logSite} (${logType})`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logSite} / ${logType}.log`" empty-text="（日志为空）" />
@@ -159,10 +171,13 @@
         </WmColumn>
       </WmTable>
       <p class="hint" style="margin-top:8px">恢复前当前数据自动留存为 *.pre-restore-*.tar.gz 安全备份；也支持「上传恢复」导入外部 tar.gz。</p>
-      <WmToolbar>
-        <input type="file" accept=".tar.gz,.tgz" @change="e => uploadBakFile = e.target?.files?.[0] || null" />
-        <a-button size="small" :disabled="!uploadBakFile" @click="uploadRestore">上传恢复</a-button>
-      </WmToolbar>
+      <div class="bak-upload">
+        <a-upload accept=".tar.gz,.tgz" :show-upload-list="false" :before-upload="pickBakFile">
+          <a-button size="small">选择备份包…</a-button>
+        </a-upload>
+        <span v-if="uploadBakFile" class="wm-mono wm-text-muted bak-upload__name">{{ (uploadBakFile as any).name }}</span>
+        <a-button size="small" type="primary" :disabled="!uploadBakFile" @click="uploadRestore">上传恢复</a-button>
+      </div>
     </a-modal>
     <!-- NGINX 配置文件 -->
     <a-modal v-model:open="confDlg" title="Nginx 配置文件（conf.d / sites-enabled）" width="760px" :footer="null">
@@ -190,7 +205,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
-import { Delete } from '../antd-compat'
+import { Delete, ArrowDown, Box } from '../antd-compat'
 import api from '../api'
 
 // 类型显示：subtype 优先（Java/Node/...），否则按 type
@@ -202,7 +217,11 @@ const typeLabel = (row: any) => {
 
 const nginx = ref<any>({})
 const sites = ref<any[]>([])
-const typeFilter = ref('all')
+// 筛选：seg = 主分类分段器；subFilter = 后端项目子类（选中时优先）
+const seg = ref('all')
+const subFilter = ref('')
+const typeFilter = computed(() => subFilter.value || seg.value)
+watch(seg, () => { subFilter.value = '' })
 
 // 分类归一：proxy → proxy；static → html；php → php；proxy+sub_type → java/node/go/python/dotnet/other
 function siteCategory(row: any): string {
@@ -219,18 +238,20 @@ const filteredSites = computed(() => {
   return sites.value.filter((r: any) => siteCategory(r) === typeFilter.value)
 })
 
-// 分类清单与计数（Tab 胶囊渲染）
-const categories = [
-  { id: 'all', name: '全部' },
-  { id: 'html', name: 'HTML项目' },
-  { id: 'php', name: 'PHP项目' },
-  { id: 'proxy', name: '反向代理' },
-  { id: 'java', name: 'Java项目' },
-  { id: 'node', name: 'Node项目' },
-  { id: 'go', name: 'Go项目' },
-  { id: 'python', name: 'Python项目' },
-  { id: 'dotnet', name: '.Net项目' },
-  { id: 'other', name: '其他项目' }
+// 分段器与后端子类选项（带计数）
+const segOptions = computed(() => [
+  { value: 'all', label: `全部 ${catCounts.value.all || 0}` },
+  { value: 'html', label: `HTML ${catCounts.value.html || 0}` },
+  { value: 'php', label: `PHP ${catCounts.value.php || 0}` },
+  { value: 'proxy', label: `反代 ${catCounts.value.proxy || 0}` }
+])
+const backendTypes = [
+  { id: 'java', name: 'Java' },
+  { id: 'node', name: 'Node' },
+  { id: 'go', name: 'Go' },
+  { id: 'python', name: 'Python' },
+  { id: 'dotnet', name: '.Net' },
+  { id: 'other', name: '其他' }
 ]
 
 const catCounts = computed(() => {
@@ -410,6 +431,13 @@ async function reloadNginx() {
   ElMessage.success('已重载')
 }
 
+// Nginx 下拉菜单分发
+function onNginxMenu({ key }: any) {
+  if (key === 'configs') openConfigs()
+  else if (key === 'import') importScan()
+  else nginxDo(key)
+}
+
 const acting = ref('')
 const nginxLabel = computed(() => {
   if (!nginx.value.installed) return 'Nginx 未安装'
@@ -521,6 +549,12 @@ const bakLoading = ref(false)
 const bakCreating = ref(false)
 const uploadBakFile = ref<File | null>(null)
 
+// a-upload 手动模式：拦截文件，不走自动上传
+function pickBakFile(f: File) {
+  uploadBakFile.value = f
+  return false
+}
+
 function fmtSize(n: number) {
   if (n < 1024) return n + ' B'
   if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'
@@ -596,79 +630,29 @@ async function uploadRestore() {
 </script>
 
 <style scoped>
-/* 类型分类胶囊分段器 */
-.tabs-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 10px 0 6px;
+.site-stats { font-size: 12px; }
+.sub-filter { width: 168px; }
+.site-dd-icon { margin-left: 4px; font-size: 10px; }
+
+/* 空态 */
+.site-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 48px 20px 52px;
 }
-.type-tabs {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--wm-bg, #f2f4f7);
-  border-radius: 12px;
-  flex-wrap: wrap;
+.site-empty__icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--wm-surface-3); color: var(--wm-ink-3);
+  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
 }
-.tab-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 9px;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--wm-text-2, #5c6b80);
-  background: transparent;
-  border: 1px solid transparent;
-  transition: all 0.15s ease;
-  user-select: none;
-  white-space: nowrap;
-}
-.tab-pill:hover {
-  color: var(--wm-primary, #3a7afe);
-}
-.tab-pill.active {
-  background: var(--wm-primary, #3a7afe);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(58, 122, 254, 0.35);
-}
-.tab-cnt {
-  font-size: 11px;
-  line-height: 1;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.07);
-}
-.tab-pill.active .tab-cnt {
-  background: rgba(255, 255, 255, 0.28);
-  color: #fff;
-}
-.mini-stats {
-  display: inline-flex;
-  gap: 14px;
-}
-.mini-stat {
-  font-size: 12px;
-  color: var(--wm-text-2, #8492a6);
-}
-.mini-stat b {
-  font-size: 16px;
-  color: var(--wm-text-1, #2a3550);
-  margin-right: 4px;
-}
-.loc-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.hint {
-  color: var(--wm-text-2, #8492a6);
-  font-size: 12px;
-  line-height: 1.6;
-  margin-top: 4px;
-}
+.site-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
+.site-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+
+/* 备份上传 */
+.bak-upload { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.bak-upload__name { font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

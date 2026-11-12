@@ -2,8 +2,8 @@
   <div class="wm-page">
     <WmSectionCard title="告警规则" description="阈值规则每 30 秒评估一次，触发后按冷却时间去重" flush>
       <WmToolbar>
-        <a-button type="primary" @click="openCreate">新建告警规则</a-button>
-        <a-button @click="load">刷新</a-button>
+        <a-button type="primary" size="small" @click="openCreate">新建告警规则</a-button>
+        <a-button size="small" @click="load">刷新</a-button>
         <template #note>触发后经「通知与存储」中配置的渠道推送。</template>
       </WmToolbar>
       <WmTable :data="rules" v-loading="loading" empty-title="还没有告警规则" empty-description="设置 CPU、内存、磁盘或负载阈值，异常时通过通知渠道推送。">
@@ -16,10 +16,10 @@
         <WmColumn label="启用" width="80">
           <template #default="{ row }"><a-switch :checked="row.enabled" @change="toggle(row)" /></template>
         </WmColumn>
-        <WmColumn label="操作" width="150" fixed="right">
+        <WmColumn label="操作" width="110" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" @click="openEdit(row)">编辑</a-button>
-            <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
+            <a-button type="link" size="small" @click="openEdit(row)">编辑</a-button>
+            <a-button type="link" size="small" danger @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
@@ -38,36 +38,42 @@
       </div>
     </WmSectionCard>
 
-    <a-modal v-model:open="dlg" :title="form.id ? '编辑规则' : '新建规则'" width="540px">
-      <a-form :label-col="{ style: { width: '110px' } }">
-        <a-form-item label="规则名称"><a-input v-model:value="form.name" placeholder="如 CPU 过载" /></a-form-item>
-        <a-form-item label="监控对象">
-          <a-select v-model:value="form.node_id" style="width: 100%">
-            <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
-            <a-select-option v-for="nd in nodes" :key="nd.id" :value="nd.id">{{ nd.name }}（远程）</a-select-option>
-          </a-select>
-          <span class="hint">远程节点取最新上报指标判定；磁盘指标暂不支持远程节点。</span>
-        </a-form-item>
-        <a-form-item label="监控指标">
-          <a-select v-model:value="form.metric" style="width: 100%">
-            <a-select-option v-for="(v, k) in metricMap" :key="k" :value="k">{{ v }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="触发条件">
-          <a-select v-model:value="form.op" style="width: 90px">
-            <a-select-option value=">">大于 ></a-select-option>
-            <a-select-option value="<">小于 <</a-select-option>
-          </a-select>
-          <a-input-number v-model:value="form.threshold" :precision="1" :step="5" style="margin-left: 8px; width: 140px" />
-        </a-form-item>
-        <a-form-item label="持续(分钟)"><a-input-number v-model:value="form.duration_min" :min="0" /><span class="hint">0 = 立即触发</span></a-form-item>
-        <a-form-item label="冷却(分钟)"><a-input-number v-model:value="form.cooldown_min" :min="5" :step="5" /></a-form-item>
+    <a-drawer v-model:open="dlg" :title="form.id ? '编辑规则' : '新建规则'" :width="620">
+      <a-form layout="vertical" class="alert-form">
+        <div class="form-sec">
+          <div class="form-sec__title">基本信息</div>
+          <a-form-item label="规则名称"><a-input v-model:value="form.name" placeholder="如 CPU 过载" /></a-form-item>
+          <a-form-item label="监控对象">
+            <a-select v-model:value="form.node_id" style="width: 100%">
+              <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
+              <a-select-option v-for="nd in nodes" :key="nd.id" :value="nd.id">{{ nd.name }}（远程）</a-select-option>
+            </a-select>
+            <div class="hint">远程节点取最新上报指标判定；磁盘指标暂不支持远程节点。</div>
+          </a-form-item>
+          <a-form-item label="监控指标" style="margin-bottom: 0">
+            <a-select v-model:value="form.metric" style="width: 100%">
+              <a-select-option v-for="(v, k) in metricMap" :key="k" :value="k">{{ v }}</a-select-option>
+            </a-select>
+          </a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">触发与冷却</div>
+          <a-form-item label="触发条件">
+            <a-select v-model:value="form.op" style="width: 110px">
+              <a-select-option value=">">大于 ></a-select-option>
+              <a-select-option value="<">小于 <</a-select-option>
+            </a-select>
+            <a-input-number v-model:value="form.threshold" :precision="1" :step="5" style="margin-left: 8px; width: 160px" />
+          </a-form-item>
+          <a-form-item label="持续(分钟)"><a-input-number v-model:value="form.duration_min" :min="0" /><span class="hint" style="margin-left: 8px">0 = 立即触发</span></a-form-item>
+          <a-form-item label="冷却(分钟)" style="margin-bottom: 0"><a-input-number v-model:value="form.cooldown_min" :min="5" :step="5" /></a-form-item>
+        </div>
       </a-form>
       <template #footer>
         <a-button @click="dlg = false">取消</a-button>
         <a-button type="primary" @click="save">保存</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
   </div>
 </template>
 
@@ -159,3 +165,10 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+</style>

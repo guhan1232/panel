@@ -2,8 +2,8 @@
   <div class="wm-page">
     <WmSectionCard title="用户列表" description="三角色 RBAC：admin 全部权限 · operator 可操作全部功能 · viewer 只读且禁用终端" flush>
       <WmToolbar>
-        <a-button type="primary" @click="openCreate">新建用户</a-button>
-        <a-button @click="load">刷新</a-button>
+        <a-button type="primary" size="small" @click="openCreate">新建用户</a-button>
+        <a-button size="small" @click="load">刷新</a-button>
         <template #note>不能修改自身角色、禁用或删除自身，以保护最后一个可用管理员。</template>
       </WmToolbar>
       <WmTable :data="users" v-loading="loading" empty-title="暂无用户">
@@ -16,17 +16,17 @@
           <template #default="{ row }"><WmStatusPill :label="row.disabled ? '已禁用' : '正常'" :tone="row.disabled ? 'danger' : 'success'" /></template>
         </WmColumn>
         <WmColumn label="创建时间" width="175"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.created_at) }}</span></template></WmColumn>
-        <WmColumn label="操作" width="230" fixed="right">
+        <WmColumn label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" @click="openEdit(row)">编辑</a-button>
-            <a-button size="small" data-tone="danger" :disabled="row.username === auth.username" @click="del(row)">删除</a-button>
+            <a-button type="link" size="small" @click="openEdit(row)">编辑</a-button>
+            <a-button type="link" size="small" danger :disabled="row.username === auth.username" @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
     </WmSectionCard>
 
     <a-modal v-model:open="dlg" :title="form.id ? `编辑 - ${form.username}` : '新建用户'" width="480px">
-      <a-form :label-col="{ style: { width: '100px' } }">
+      <a-form layout="vertical">
         <a-form-item label="用户名">
           <a-input v-model:value="form.username" :disabled="!!form.id" placeholder="2-32 位字母/数字/下划线" />
         </a-form-item>

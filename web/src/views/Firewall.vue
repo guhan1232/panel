@@ -1,10 +1,30 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="防火墙状态" description="统一抽象 ufw 与 firewalld，规则由面板托管（导入/导出/同步）" marker>
+      <template #actions>
+        <span v-if="fw.tool !== 'none'" class="wm-text-muted fw-stats">{{ rules.length }} 条规则 · 防扫描{{ fw.anti_scan ? '已开启' : '已关闭' }}</span>
+      </template>
       <WmToolbar>
         <WmStatusPill :label="toolLabel" :tone="fw.tool === 'none' ? 'danger' : fw.enabled ? 'success' : 'warning'" :pulse="fw.enabled" />
         <a-switch v-if="fw.tool !== 'none'" v-model:checked="fw.enabled" @change="switchFw" />
-        <a-button size="small" @click="load">刷 新</a-button>
+        <template #end>
+          <template v-if="fw.tool !== 'none'">
+            <a-dropdown>
+              <a-button size="small">更多<span class="wm-icon fw-dd-icon"><ArrowDown /></span></a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item key="import" @click="importDlg = true">导入规则</a-menu-item>
+                  <a-menu-item key="export" @click="exportRules">导出规则</a-menu-item>
+                  <a-menu-item key="sync" :disabled="syncing" @click="syncRules">同步规则</a-menu-item>
+                  <a-menu-divider />
+                  <a-menu-item key="antiscan" @click="toggleAntiScan">{{ fw.anti_scan ? '关闭端口防扫描' : '开启端口防扫描' }}</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+            <a-button type="primary" size="small" @click="openAdd">添加端口规则</a-button>
+          </template>
+          <a-button size="small" @click="load">刷新</a-button>
+        </template>
         <template #note>{{ fw.tool === 'ufw' ? 'ufw（Debian/Ubuntu）' : fw.tool === 'firewalld' ? 'firewalld（RHEL）' : fw.message || '' }}</template>
       </WmToolbar>
 
@@ -17,57 +37,56 @@
         </div>
       </WmNotice>
 
-      <!-- 规则管理（宝塔式） -->
+      <!-- 规则管理 -->
       <template v-else>
         <WmNotice tone="warning" class="wm-mb-4">移除 SSH 或面板端口的放行规则可能导致失去远程访问，请谨慎操作。</WmNotice>
-        <WmToolbar class="rule-actions">
-          <a-button type="primary" class="btn-add" @click="openAdd">添加端口规则</a-button>
-          <a-button @click="importDlg = true">导入规则</a-button>
-          <a-button @click="exportRules">导出规则</a-button>
-          <a-button :data-tone="fw.anti_scan ? 'danger' : 'default'" @click="toggleAntiScan">
-            {{ fw.anti_scan ? '关闭端口防扫描' : '端口防扫描' }}
-          </a-button>
-          <a-button :loading="syncing" @click="syncRules">同步规则</a-button>
-        </WmToolbar>
 
         <WmTable :data="rules" v-loading="loading" size="small" empty-title="暂无端口规则" empty-description="点击「添加端口规则」创建第一条规则。">
+          <template #empty>
+            <div class="fw-empty">
+              <div class="fw-empty__icon"><span class="wm-icon"><Lock /></span></div>
+              <p class="fw-empty__title">暂无端口规则</p>
+              <p class="fw-empty__desc">点击「添加端口规则」创建第一条规则；启用前会自动放行 SSH 与面板端口，防止锁死远程访问。</p>
+              <a-button type="primary" @click="openAdd">添加端口规则</a-button>
+            </div>
+          </template>
           <WmColumn label="协议" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.protocol.toUpperCase() }}</span></template></WmColumn>
           <WmColumn label="端口" min-width="150"><template #default="{ row }"><b class="wm-mono">{{ row.ports }}</b></template></WmColumn>
           <WmColumn label="来源" min-width="150"><template #default="{ row }"><span class="wm-mono">{{ row.source || '所有IP' }}</span></template></WmColumn>
           <WmColumn label="策略" width="100"><template #default="{ row }"><WmStatusPill :label="row.action === 'accept' ? '放行' : '阻止'" :tone="row.action === 'accept' ? 'success' : 'danger'" :dot="false" /></template></WmColumn>
           <WmColumn label="方向" width="90"><template #default="{ row }">{{ row.direction === 'out' ? '出站' : '入站' }}</template></WmColumn>
           <WmColumn label="备注" min-width="180"><template #default="{ row }"><span class="wm-text-muted">{{ row.remark || '-' }}<a-tag v-if="row.auto" style="margin-left:6px" size="small">系统</a-tag></span></template></WmColumn>
-          <WmColumn label="操作" width="90" fixed="right">
-            <template #default="{ row }"><a-button size="small" data-tone="danger" @click="delRule(row)">删除</a-button></template>
+          <WmColumn label="操作" width="72" fixed="right">
+            <template #default="{ row }"><a-button type="link" size="small" danger @click="delRule(row)">删除</a-button></template>
           </WmColumn>
         </WmTable>
       </template>
     </WmSectionCard>
 
-    <!-- 添加端口规则（宝塔式六字段） -->
-    <a-modal v-model:open="addDlg" title="添加端口规则" width="520px" ok-text="确定" cancel-text="取消" :ok-button-props="{ style: { background: '#00b96b', borderColor: '#00b96b' } }" @ok="submitAdd">
-      <a-form :label-col="{ style: { width: '70px' } }">
+    <!-- 添加端口规则 -->
+    <a-drawer v-model:open="addDlg" title="添加端口规则" :width="620">
+      <a-form layout="vertical">
         <a-form-item label="协议">
-          <a-select v-model:value="form.protocol">
-            <a-select-option value="tcp">TCP</a-select-option>
-            <a-select-option value="udp">UDP</a-select-option>
-          </a-select>
+          <a-radio-group v-model:value="form.protocol" option-type="button" button-style="solid">
+            <a-radio-button value="tcp">TCP</a-radio-button>
+            <a-radio-button value="udp">UDP</a-radio-button>
+          </a-radio-group>
         </a-form-item>
         <a-form-item label="端口" required>
-          <a-input v-model:value="form.ports" placeholder="请输入端口" />
+          <a-input v-model:value="form.ports" placeholder="请输入端口，如 80 或 80,88,90-99" />
         </a-form-item>
         <a-form-item label="来源">
           <a-select v-model:value="form.sourceMode">
             <a-select-option value="all">所有IP</a-select-option>
             <a-select-option value="custom">指定IP/网段</a-select-option>
           </a-select>
-          <a-input v-if="form.sourceMode === 'custom'" v-model:value="form.source" placeholder="如 10.0.0.1 或 192.168.1.0/24" style="margin-top:8px" />
+          <a-input v-if="form.sourceMode === 'custom'" v-model:value="form.source" placeholder="如 10.0.0.1 或 192.168.1.0/24" class="wm-mt-2" />
         </a-form-item>
         <a-form-item label="策略">
-          <a-select v-model:value="form.action">
-            <a-select-option value="accept">放行</a-select-option>
-            <a-select-option value="deny">阻止</a-select-option>
-          </a-select>
+          <a-radio-group v-model:value="form.action" option-type="button" button-style="solid">
+            <a-radio-button value="accept">放行</a-radio-button>
+            <a-radio-button value="deny">阻止</a-radio-button>
+          </a-radio-group>
         </a-form-item>
         <a-form-item label="方向">
           <a-select v-model:value="form.direction">
@@ -75,15 +94,19 @@
             <a-select-option value="out">出站</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="备注"><a-input v-model:value="form.remark" placeholder="请填写备注，可为空" /></a-form-item>
+        <a-form-item label="备注" style="margin-bottom: 0"><a-input v-model:value="form.remark" placeholder="请填写备注，可为空" /></a-form-item>
       </a-form>
       <ul class="rule-hints">
         <li>支持添加多个端口，如：<code>80,88</code></li>
         <li>支持添加多个端口范围，如：<code>80,88,90-99,110-120</code></li>
         <li>默认配置下防火墙无法管理 Docker 容器端口</li>
-        <li>此操作将重载防火墙，未持久化的 iptables 规则会清空，请先备份保存！</li>
+        <li>此操作将重载防火墙，未持久化的 iptables 规则会清空，请先备份保存</li>
       </ul>
-    </a-modal>
+      <template #footer>
+        <a-button @click="addDlg = false">取消</a-button>
+        <a-button type="primary" @click="submitAdd">确定</a-button>
+      </template>
+    </a-drawer>
 
     <!-- 导入规则 -->
     <a-modal v-model:open="importDlg" title="导入规则（JSON）" width="640px" ok-text="导入" cancel-text="取消" @ok="doImport">
@@ -95,7 +118,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ElMessage, ElMessageBox, ArrowDown, Lock } from '../antd-compat'
 import api from '../api'
 
 const fw = ref<any>({ tool: 'none', enabled: false, anti_scan: false, ports: [], message: '' })
@@ -229,20 +252,35 @@ onMounted(load)
 </script>
 
 <style scoped>
-.rule-actions :deep(button:first-child) {
-  background: #00b96b;
-  border-color: #00b96b;
+.fw-stats { font-size: 12px; }
+.fw-dd-icon { margin-left: 4px; font-size: 10px; }
+
+/* 空态 */
+.fw-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 48px 20px 52px;
 }
+.fw-empty__icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--wm-surface-3); color: var(--wm-ink-3);
+  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
+}
+.fw-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
+.fw-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
+
+/* 规则表单提示 */
 .rule-hints {
-  margin: 12px 0 0;
-  padding-left: 20px;
-  color: var(--wm-text-2, #8492a6);
+  margin: 16px 0 0;
+  padding-left: 18px;
+  color: var(--wm-ink-3);
   font-size: 12px;
   line-height: 1.9;
 }
 .rule-hints code {
-  background: rgba(0, 0, 0, 0.05);
-  padding: 1px 5px;
-  border-radius: 4px;
+  background: var(--wm-surface-3);
+  color: var(--wm-ink-2);
+  padding: 1px 6px;
+  border-radius: var(--wm-r-sm);
+  font-family: var(--wm-font-mono);
 }
 </style>

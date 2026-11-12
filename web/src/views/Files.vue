@@ -1,30 +1,42 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="文件浏览" :description="path" flush>
+      <template #actions>
+        <span class="wm-text-muted files-stats">共 {{ items.length }} 项</span>
+      </template>
       <WmToolbar>
-        <a-input v-model:value="pathInput" class="wm-path-input" placeholder="输入绝对路径" @keyup.enter="go" />
-        <a-button @click="go">跳转</a-button>
-        <a-button @click="goUp">上级</a-button>
-        <a-button @click="load">刷新</a-button>
-        <span class="wm-toolbar__sep" />
-        <a-button type="primary" @click="mkdir">新建目录</a-button>
-        <a-upload :custom-request="doUpload" :show-upload-list="false">
-          <a-button data-tone="success">上传文件</a-button>
-        </a-upload>
-        <a-dropdown :disabled="!selection.length" trigger="['click']">
-          <a-button :disabled="!selection.length">压缩选中</a-button>
-          <template #overlay>
-            <a-menu @click="({ key }: any) => compress(String(key))">
-              <a-menu-item key="zip">压缩为 .zip</a-menu-item>
-              <a-menu-item key="targz">压缩为 .tar.gz</a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
-        <a-button data-tone="danger" :disabled="!selection.length" @click="delSelected">删除选中</a-button>
-        <template #note v-if="selection.length">已选中 {{ selection.length }} 项，可使用批量操作。</template>
+        <a-input v-model:value="pathInput" class="wm-path-input" size="small" placeholder="输入绝对路径" @keyup.enter="go" />
+        <a-button size="small" @click="go">跳转</a-button>
+        <a-button size="small" @click="goUp">上级</a-button>
+        <template #end>
+          <a-upload :custom-request="doUpload" :show-upload-list="false">
+            <a-button size="small">上传文件</a-button>
+          </a-upload>
+          <a-dropdown :disabled="!selection.length">
+            <a-button size="small" :disabled="!selection.length">批量操作<span class="wm-icon files-dd-icon"><ArrowDown /></span></a-button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item key="zip" @click="compress('zip')">压缩为 .zip</a-menu-item>
+                <a-menu-item key="targz" @click="compress('targz')">压缩为 .tar.gz</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="del" danger @click="delSelected">删除选中</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+          <a-button type="primary" size="small" @click="mkdir">新建目录</a-button>
+          <a-button size="small" @click="load">刷新</a-button>
+        </template>
+        <template #note v-if="selection.length">已选中 {{ selection.length }} 项，可批量压缩或删除。</template>
       </WmToolbar>
 
       <WmTable :data="items" v-loading="loading" size="small" @selection-change="(v: any) => (selection = v)" empty-title="此目录为空" empty-description="可上传文件、新建目录，或在上方输入路径跳转。">
+        <template #empty>
+          <WmEmptyState compact title="此目录为空" description="可上传文件、新建目录，或在上方输入绝对路径跳转。">
+            <template #action>
+              <a-button type="primary" size="small" @click="mkdir">新建目录</a-button>
+            </template>
+          </WmEmptyState>
+        </template>
         <WmColumn type="selection" width="42" />
         <WmColumn label="名称" min-width="300">
           <template #default="{ row }">
@@ -36,21 +48,28 @@
         <WmColumn prop="mode" label="权限" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.mode }}</span></template></WmColumn>
         <WmColumn prop="owner" label="属主" width="110" />
         <WmColumn label="修改时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.mtime) }}</span></template></WmColumn>
-        <WmColumn label="操作" width="300" fixed="right">
+        <WmColumn label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <a-button v-if="row.is_dir" size="small" @click="enter(row)">打开</a-button>
-            <a-button v-if="!row.is_dir && row.size <= 2 * 1024 * 1024" size="small" @click="edit(row)">编辑</a-button>
-            <a-button v-if="!row.is_dir" size="small" @click="download(row)">下载</a-button>
-            <a-button v-if="isArchive(row.name)" size="small" data-tone="success" @click="decompress(row)">解压</a-button>
-            <a-button size="small" @click="rename(row)">重命名</a-button>
-            <a-button size="small" data-tone="danger" @click="delOne(row)">删除</a-button>
+            <a-button v-if="row.is_dir" type="link" size="small" @click="enter(row)">打开</a-button>
+            <a-button v-if="!row.is_dir && row.size <= 2 * 1024 * 1024" type="link" size="small" @click="edit(row)">编辑</a-button>
+            <a-button v-if="!row.is_dir" type="link" size="small" @click="download(row)">下载</a-button>
+            <a-dropdown>
+              <a-button type="link" size="small">更多<span class="wm-icon files-dd-icon"><ArrowDown /></span></a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item v-if="isArchive(row.name)" key="unzip" @click="decompress(row)">解压</a-menu-item>
+                  <a-menu-item key="rename" @click="rename(row)">重命名</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+            <a-button type="link" size="small" danger @click="delOne(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <a-modal v-model:open="editDlg" :title="`编辑 - ${editPath}`" width="760px">
-      <a-textarea v-model:value="editContent"  :rows="18" />
+    <a-modal v-model:open="editDlg" :title="`编辑 - ${editPath}`" width="820px">
+      <a-textarea v-model:value="editContent" :rows="18" class="wm-mono" style="font-size: 12px" />
       <template #footer>
         <a-button @click="editDlg = false">取消</a-button>
         <a-button type="primary" @click="saveEdit">保存</a-button>
@@ -62,7 +81,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
-import { Folder } from '../antd-compat'
+import { Folder, ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtTime } from '../utils'
 
@@ -227,3 +246,8 @@ async function doUpload(opt: any) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.files-stats { font-size: 12px; }
+.files-dd-icon { margin-left: 4px; font-size: 10px; }
+</style>

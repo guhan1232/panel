@@ -1,13 +1,26 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="证书列表" description="ACME 证书剩余 30 天内自动续期，到期前推送告警" flush>
+      <template #actions>
+        <span class="wm-text-muted cert-stats">{{ certs.length }} 张证书 · {{ expiringCount }} 张即将到期</span>
+      </template>
       <WmToolbar>
-        <a-button type="primary" @click="openIssue">Let's Encrypt 签发</a-button>
-        <a-button @click="upDlg = true">上传证书</a-button>
-        <a-button @click="load">刷新</a-button>
+        <template #end>
+          <a-button size="small" @click="upDlg = true">上传证书</a-button>
+          <a-button type="primary" size="small" @click="openIssue">申请证书</a-button>
+          <a-button size="small" @click="load">刷新</a-button>
+        </template>
         <template #note>签发使用 HTTP-01 校验，需 80 端口可达本服务器。</template>
       </WmToolbar>
       <WmTable :data="certs" v-loading="loading" empty-title="还没有托管证书" empty-description="上传已有证书，或通过 Let's Encrypt 自动签发。">
+        <template #empty>
+          <div class="cert-empty">
+            <div class="cert-empty__icon"><span class="wm-icon"><Stamp /></span></div>
+            <p class="cert-empty__title">还没有托管证书</p>
+            <p class="cert-empty__desc">上传已有证书，或通过 Let's Encrypt 自动签发；ACME 证书剩余 30 天内自动续期。</p>
+            <a-button type="primary" @click="openIssue">申请证书</a-button>
+          </div>
+        </template>
         <WmColumn prop="domain" label="主域名" min-width="170"><template #default="{ row }"><b class="wm-mono">{{ row.domain }}</b></template></WmColumn>
         <WmColumn label="包含域名" min-width="250"><template #default="{ row }"><span class="wm-mono">{{ (row.domains || []).join(', ') }}</span></template></WmColumn>
         <WmColumn label="到期时间" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.not_after?.slice(0, 10) }}</span></template></WmColumn>
@@ -19,45 +32,54 @@
         <WmColumn label="来源" width="100">
           <template #default="{ row }"><WmStatusPill :label="row.source" :tone="row.source === 'acme' ? 'info' : 'neutral'" :dot="false" mono /></template>
         </WmColumn>
-        <WmColumn label="操作" width="160">
+        <WmColumn label="操作" width="130" fixed="right">
           <template #default="{ row }">
-            <a-button size="small" @click="openDeploy(row)">部署到网站</a-button>
-            <a-button size="small" data-tone="danger" @click="del(row)">删除</a-button>
+            <a-button type="link" size="small" @click="openDeploy(row)">部署</a-button>
+            <a-button type="link" size="small" danger @click="del(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
     </WmSectionCard>
 
-    <a-modal v-model:open="issueDlg" title="Let's Encrypt 签发" width="560px">
-      <a-form :label-col="{ style: { width: '110px' } }">
-        <a-form-item label="域名列表"><a-input v-model:value="issue.domains" placeholder="example.com, www.example.com" /></a-form-item>
-        <a-form-item label="邮箱"><a-input v-model:value="issue.email" placeholder="用于 Let's Encrypt 账户注册" /></a-form-item>
-        <a-form-item label="校验方式">
-          <a-radio-group v-model:value="issue.challenge">
-            <a-radio-button value="http01">HTTP-01</a-radio-button>
-            <a-radio-button value="dns01">DNS-01</a-radio-button>
-          </a-radio-group>
-          <span class="hint">泛域名（*.example.com）必须用 DNS-01</span>
-        </a-form-item>
-        <template v-if="issue.challenge === 'dns01'">
-          <a-form-item label="DNS 服务商">
-            <a-select v-model:value="issue.dns_provider" style="width: 100%" show-search>
-              <a-select-option v-for="sp in dnsProviders" :key="sp.id" :value="sp.id">{{ sp.name }}</a-select-option>
-            </a-select>
+    <a-drawer v-model:open="issueDlg" title="Let's Encrypt 签发" :width="620">
+      <a-form layout="vertical">
+        <div class="form-sec">
+          <div class="form-sec__title">基本信息</div>
+          <a-form-item label="域名列表"><a-input v-model:value="issue.domains" placeholder="example.com, www.example.com" /></a-form-item>
+          <a-form-item label="邮箱" style="margin-bottom: 0"><a-input v-model:value="issue.email" placeholder="用于 Let's Encrypt 账户注册" /></a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">校验方式</div>
+          <a-form-item label="挑战类型">
+            <a-radio-group v-model:value="issue.challenge" option-type="button" button-style="solid">
+              <a-radio-button value="http01">HTTP-01</a-radio-button>
+              <a-radio-button value="dns01">DNS-01</a-radio-button>
+            </a-radio-group>
+            <div class="hint">泛域名（*.example.com）必须使用 DNS-01</div>
           </a-form-item>
-          <a-form-item v-for="f in curDnsFields" :key="f.key" :label="f.required ? f.label : (f.label.includes('可选') ? f.label : f.label + '（可选）')">
-            <a-textarea v-if="f.textarea" v-model:value="issue.dns_fields[f.key]" :rows="4" class="wm-mono" :placeholder="f.placeholder" />
-            <a-input-password v-else-if="f.secret" v-model:value="issue.dns_fields[f.key]" :placeholder="f.placeholder" />
-            <a-input v-else v-model:value="issue.dns_fields[f.key]" :placeholder="f.placeholder" />
+          <template v-if="issue.challenge === 'dns01'">
+            <a-form-item label="DNS 服务商">
+              <a-select v-model:value="issue.dns_provider" style="width: 100%" show-search>
+                <a-select-option v-for="sp in dnsProviders" :key="sp.id" :value="sp.id">{{ sp.name }}</a-select-option>
+              </a-select>
+            </a-form-item>
+            <a-form-item v-for="f in curDnsFields" :key="f.key" :label="f.required ? f.label : (f.label.includes('可选') ? f.label : f.label + '（可选）')">
+              <a-textarea v-if="f.textarea" v-model:value="issue.dns_fields[f.key]" :rows="4" class="wm-mono" :placeholder="f.placeholder" />
+              <a-input-password v-else-if="f.secret" v-model:value="issue.dns_fields[f.key]" :placeholder="f.placeholder" />
+              <a-input v-else v-model:value="issue.dns_fields[f.key]" :placeholder="f.placeholder" />
+            </a-form-item>
+          </template>
+          <a-form-item label="测试环境" style="margin-bottom: 0">
+            <div><a-switch v-model:checked="issue.staging" /></div>
+            <div class="hint">staging 速率限制宽松，验证流程可用后再切正式</div>
           </a-form-item>
-        </template>
-        <a-form-item label="测试环境"><a-switch v-model:checked="issue.staging" /><span class="hint">staging 速率限制宽松，验证流程可用后再切正式</span></a-form-item>
+        </div>
       </a-form>
       <template #footer>
         <a-button @click="issueDlg = false">取消</a-button>
         <a-button type="primary" :loading="issuing" @click="doIssue">开始签发（最长 3 分钟）</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
 
     <a-modal v-model:open="deployDlg" :title="`部署 ${deployRow?.domain || ''} 到网站`" width="520px">
       <a-form :label-col="{ style: { width: '110px' } }">
@@ -90,7 +112,7 @@
 
 <script setup lang="ts">
 import { computed, watch, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ElMessage, ElMessageBox, Stamp } from '../antd-compat'
 import api from '../api'
 
 const certs = ref<any[]>([])
@@ -98,6 +120,7 @@ const loading = ref(false)
 const issueDlg = ref(false)
 const issuing = ref(false)
 const upDlg = ref(false)
+const expiringCount = computed(() => certs.value.filter((c: any) => (c.days_left ?? 999) < 30).length)
 
 const issue = reactive({ domains: '', email: '', staging: true, challenge: 'http01', dns_provider: 'alidns', dns_api_key: '', dns_api_secret: '', dns_fields: {} as Record<string, string> })
 const dnsProviders = ref<any[]>([])
@@ -199,3 +222,25 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.cert-stats { font-size: 12px; }
+
+/* 空态 */
+.cert-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 48px 20px 52px;
+}
+.cert-empty__icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--wm-surface-3); color: var(--wm-ink-3);
+  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
+}
+.cert-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
+.cert-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+</style>

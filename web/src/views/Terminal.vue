@@ -3,8 +3,8 @@
     <!-- 主机收藏栏 -->
     <WmSectionCard title="SSH 主机" description="云端收藏的主机凭据（AES 加密存储），点击即开新标签连接；支持上/下移排序" marker dense>
       <template #actions>
-        <a-button size="small" type="primary" @click="openQuick">快速连接</a-button>
-        <a-button size="small" @click="openAddHost">新增主机</a-button>
+        <a-button size="small" @click="openQuick">快速连接</a-button>
+        <a-button size="small" type="primary" @click="openAddHost">新增主机</a-button>
       </template>
       <div class="host-list">
         <!-- 本机：面板所在服务器，本地 Shell 无需凭据 -->
@@ -24,7 +24,7 @@
             <a-button size="small" type="text" :disabled="i === 0" @click.stop="moveHost(i, -1)" title="上移">↑</a-button>
             <a-button size="small" type="text" :disabled="i === hosts.length - 1" @click.stop="moveHost(i, 1)" title="下移">↓</a-button>
             <a-button size="small" type="text" @click.stop="openEditHost(h)">编辑</a-button>
-            <a-button size="small" type="text" data-tone="danger" @click.stop="removeHost(h)">删除</a-button>
+            <a-button size="small" type="text" danger @click.stop="removeHost(h)">删除</a-button>
           </div>
         </div>
         <WmEmptyState v-if="!hosts.length" title="还没有收藏主机" description="点击「新增主机」收藏常用 SSH；「快速连接」可不保存临时使用；本机 Shell 始终可用" />
@@ -66,45 +66,55 @@
       <!-- 移动端/触屏快捷键条 -->
       <div class="keybar">
         <button v-for="k in keyItems" :key="k.label" class="key-btn" :title="k.title" @click="k.run">{{ k.label }}</button>
-        <button class="key-btn key-btn--add" @click="openKeysModal" title="自定义快捷键条">⚙</button>
+        <button class="key-btn key-btn--add" @click="openKeysModal" title="自定义快捷键条"><span class="wm-icon"><Setting /></span></button>
       </div>
       <p class="term-tip">
         选中自动复制 · 右键复制/粘贴 · Ctrl+Shift+C/V 复制粘贴 · Ctrl+Shift+F 全屏 · Ctrl+Shift+K 清屏 · 空闲 10 分钟提醒、15 分钟自动断开
       </p>
     </WmSectionCard>
 
-    <!-- 快速连接 / 主机编辑 弹窗 -->
-    <a-modal v-model:open="dlgOpen" :title="dlgTitle" @ok="dlgOk" :ok-button-props="{ 'data-testid': 'dlg-ok' }" ok-text="连接" cancel-text="取消">
+    <!-- 快速连接 / 主机编辑 抽屉 -->
+    <a-drawer v-model:open="dlgOpen" :title="dlgTitle" :width="620">
       <a-form layout="vertical">
-        <a-form-item label="类型">
-          <a-radio-group v-model:value="dlg.mode" :disabled="dlg.mode === 'edit'">
-            <a-radio value="quick">临时连接（不保存）</a-radio>
-            <a-radio value="new">保存为收藏</a-radio>
-            <a-radio v-if="dlg.mode === 'edit'" value="edit">编辑收藏</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item v-if="dlg.mode !== 'quick'" label="备注名"><a-input v-model:value="dlg.name" placeholder="如：生产 Web" /></a-form-item>
-        <a-form-item label="主机"><a-input v-model:value="dlg.host" placeholder="IP 或域名" /></a-form-item>
-        <a-form-item label="端口"><a-input-number v-model:value="dlg.port" :min="1" :max="65535" style="width: 140px" /></a-form-item>
-        <a-form-item label="用户名"><a-input v-model:value="dlg.username" placeholder="root" /></a-form-item>
-        <a-form-item label="认证方式">
-          <a-radio-group v-model:value="dlg.authType">
-            <a-radio value="password">密码</a-radio>
-            <a-radio value="key">私钥</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item v-if="dlg.authType === 'password'" label="密码">
-          <a-input-password v-model:value="dlg.password" :placeholder="dlg.mode === 'edit' ? '留空表示不修改' : ''" />
-        </a-form-item>
-        <template v-else>
-          <a-form-item label="私钥（PEM）">
-            <a-textarea v-model:value="dlg.privateKey" :rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
+        <div class="form-sec">
+          <div class="form-sec__title">连接信息</div>
+          <a-form-item label="类型">
+            <a-radio-group v-model:value="dlg.mode" :disabled="dlg.mode === 'edit'">
+              <a-radio value="quick">临时连接（不保存）</a-radio>
+              <a-radio value="new">保存为收藏</a-radio>
+              <a-radio v-if="dlg.mode === 'edit'" value="edit">编辑收藏</a-radio>
+            </a-radio-group>
           </a-form-item>
-          <a-form-item label="私钥口令（可选）"><a-input-password v-model:value="dlg.passphrase" /></a-form-item>
-        </template>
-        <WmNotice v-if="dlg.mode === 'quick'" tone="warning" class="wm-mt-4">临时连接的凭据只在本次会话内存中使用，不落库、不保存。</WmNotice>
+          <a-form-item v-if="dlg.mode !== 'quick'" label="备注名"><a-input v-model:value="dlg.name" placeholder="如：生产 Web" /></a-form-item>
+          <a-form-item label="主机"><a-input v-model:value="dlg.host" placeholder="IP 或域名" /></a-form-item>
+          <a-form-item label="端口"><a-input-number v-model:value="dlg.port" :min="1" :max="65535" style="width: 140px" /></a-form-item>
+          <a-form-item label="用户名" style="margin-bottom: 0"><a-input v-model:value="dlg.username" placeholder="root" /></a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">认证</div>
+          <a-form-item label="认证方式">
+            <a-radio-group v-model:value="dlg.authType">
+              <a-radio value="password">密码</a-radio>
+              <a-radio value="key">私钥</a-radio>
+            </a-radio-group>
+          </a-form-item>
+          <a-form-item v-if="dlg.authType === 'password'" label="密码" style="margin-bottom: 0">
+            <a-input-password v-model:value="dlg.password" :placeholder="dlg.mode === 'edit' ? '留空表示不修改' : ''" />
+          </a-form-item>
+          <template v-else>
+            <a-form-item label="私钥（PEM）">
+              <a-textarea v-model:value="dlg.privateKey" :rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
+            </a-form-item>
+            <a-form-item label="私钥口令（可选）" style="margin-bottom: 0"><a-input-password v-model:value="dlg.passphrase" /></a-form-item>
+          </template>
+          <WmNotice v-if="dlg.mode === 'quick'" tone="warning" class="wm-mt-4">临时连接的凭据只在本次会话内存中使用，不落库、不保存。</WmNotice>
+        </div>
       </a-form>
-    </a-modal>
+      <template #footer>
+        <a-button @click="dlgOpen = false">取消</a-button>
+        <a-button type="primary" data-testid="dlg-ok" @click="dlgOk">{{ dlg.mode === 'quick' ? '连接' : '保存' }}</a-button>
+      </template>
+    </a-drawer>
 
     <!-- 自定义快捷键条 -->
     <a-modal v-model:open="keysOpen" title="自定义快捷键条" ok-text="保存" cancel-text="取消" @ok="saveKeys">
@@ -116,7 +126,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ElMessage, ElMessageBox, Setting } from '../antd-compat'
 import api from '../api'
 import { TermTab, THEMES, type HostInfo, type TabMsg } from './term-session'
 
@@ -431,18 +441,22 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
 }
-.host-item--local {
-  border-left: 3px solid var(--wm-primary, #3a7afe);
-}
 .host-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 8px 12px;
-  border: 1px solid var(--wm-border, #e5e8ef);
-  border-radius: 8px;
-  background: var(--wm-card, #fff);
+  border: 1px solid var(--wm-line);
+  border-radius: var(--wm-r-lg);
+  background: var(--wm-surface);
+  transition: border-color var(--wm-dur-fast) var(--wm-ease);
+}
+.host-item:hover {
+  border-color: var(--wm-line-strong);
+}
+.host-item--local {
+  border-left: 3px solid var(--wm-primary);
 }
 .host-main {
   display: flex;
@@ -452,7 +466,7 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .host-main:hover .host-name {
-  color: var(--wm-primary, #3a7afe);
+  color: var(--wm-primary);
 }
 .host-name {
   font-weight: 600;
@@ -461,7 +475,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 .host-meta {
-  color: var(--wm-text-muted, #8a94a6);
+  color: var(--wm-ink-3);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -477,8 +491,8 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: nowrap;
   overflow-x: auto;
-  padding: 4px 2px;
-  border-bottom: 1px solid var(--wm-border, #e5e8ef);
+  padding: 4px 2px 0;
+  border-bottom: 1px solid var(--wm-line);
   margin-bottom: 8px;
 }
 .tab {
@@ -486,16 +500,22 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--wm-r-md) var(--wm-r-md) 0 0;
   cursor: pointer;
   font-size: 13px;
+  color: var(--wm-ink-2);
   white-space: nowrap;
   border: 1px solid transparent;
+  border-bottom: 0;
   user-select: none;
 }
+.tab:hover {
+  background: var(--wm-surface-3);
+}
 .tab.active {
-  background: var(--wm-card, #fff);
-  border-color: var(--wm-border, #e5e8ef);
+  background: var(--wm-surface);
+  border-color: var(--wm-line);
+  color: var(--wm-ink);
   font-weight: 600;
 }
 .tab-dot {
@@ -511,19 +531,19 @@ onBeforeUnmount(() => {
   background: var(--wm-success);
 }
 .s-closed {
-  background: #bfbfbf;
+  background: var(--wm-ink-3);
 }
 .tab-close {
   opacity: 0.55;
   padding: 0 2px;
-  border-radius: 3px;
+  border-radius: var(--wm-r-sm);
 }
 .tab-close:hover {
   opacity: 1;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--wm-surface-3);
 }
 .tabbar-empty {
-  color: var(--wm-text-muted, #8a94a6);
+  color: var(--wm-ink-3);
   font-size: 13px;
   padding: 6px;
 }
@@ -531,14 +551,14 @@ onBeforeUnmount(() => {
 .term-area {
   position: relative;
   min-height: 300px;
-  border-radius: 8px;
+  border-radius: var(--wm-r-lg);
   overflow: hidden;
 }
 .term-pane {
   width: 100%;
   height: 100%;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--wm-r-lg);
   background: #14181f;
 }
 .term-empty {
@@ -549,14 +569,14 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 8px;
-  background: var(--wm-card, #f5f6f8);
-  color: var(--wm-text-muted, #8a94a6);
+  border-radius: var(--wm-r-lg);
+  background: var(--wm-surface-2);
+  color: var(--wm-ink-3);
 }
 .term-tip {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--wm-text-muted, #8a94a6);
+  color: var(--wm-ink-3);
 }
 /* 快捷键条（移动端友好：大按钮、横向滚动） */
 .keybar {
@@ -571,18 +591,27 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   min-width: 52px;
   padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--wm-border, #e5e8ef);
-  background: var(--wm-card, #fff);
-  font-family: ui-monospace, monospace;
+  border-radius: var(--wm-r-md);
+  border: 1px solid var(--wm-line);
+  background: var(--wm-surface);
+  color: var(--wm-ink-2);
+  font-family: var(--wm-font-mono);
   font-size: 13px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .key-btn:active {
-  background: var(--wm-primary, #3a7afe);
-  color: #fff;
+  background: var(--wm-primary);
+  color: var(--wm-primary-contrast);
 }
 .key-btn--add {
   min-width: 40px;
 }
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
 </style>

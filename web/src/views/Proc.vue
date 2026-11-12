@@ -4,23 +4,25 @@
       <a-tabs v-model:activeKey="tab">
         <a-tab-pane tab="进程" key="procs">
           <WmToolbar>
-            <a-radio-group v-model:value="sortBy" size="small" @change="loadProcs">
-              <a-radio-button value="cpu">按 CPU 排序</a-radio-button>
-              <a-radio-button value="mem">按内存排序</a-radio-button>
-            </a-radio-group>
-            <a-switch v-model:checked="auto" />
-            <a-button size="small" @click="loadProcs">刷新</a-button>
-            <template #note>共 {{ procs.length }} 个进程</template>
+            <a-segmented v-model:value="sortBy" :options="[{ value: 'cpu', label: '按 CPU' }, { value: 'mem', label: '按内存' }]" size="small" @change="loadProcs" />
+            <span class="proc-auto">
+              <a-switch v-model:checked="auto" size="small" />
+              <span class="wm-text-muted">自动刷新</span>
+            </span>
+            <template #end>
+              <a-button size="small" @click="loadProcs">刷新</a-button>
+            </template>
+            <template #note>共 {{ procs.length }} 个进程 · 开启自动刷新后每 5 秒采样</template>
           </WmToolbar>
           <WmTable :data="procs" v-loading="pLoading" size="small" max-height="620" empty-title="暂无进程数据">
             <WmColumn prop="pid" label="PID" width="100"><template #default="{ row }"><span class="wm-mono">{{ row.pid }}</span></template></WmColumn>
             <WmColumn prop="name" label="进程名" min-width="220" />
             <WmColumn label="CPU%" width="120"><template #default="{ row }"><span class="wm-mono" :class="{ hot: row.cpu > 60 }">{{ row.cpu.toFixed(1) }}</span></template></WmColumn>
             <WmColumn label="内存%" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.mem_pct.toFixed(1) }}</span></template></WmColumn>
-            <WmColumn label="操作" width="180">
+            <WmColumn label="操作" width="110">
               <template #default="{ row }">
-                <a-button size="small" data-tone="warning" @click="kill(row, false)">结束</a-button>
-                <a-button size="small" data-tone="danger" @click="kill(row, true)">强杀</a-button>
+                <a-button type="link" size="small" @click="kill(row, false)">结束</a-button>
+                <a-button type="link" size="small" danger @click="kill(row, true)">强杀</a-button>
               </template>
             </WmColumn>
           </WmTable>
@@ -28,7 +30,9 @@
 
         <a-tab-pane tab="systemd 服务" key="services">
           <WmToolbar>
-            <a-button size="small" @click="loadSvcs">刷新</a-button>
+            <template #end>
+              <a-button size="small" @click="loadSvcs">刷新</a-button>
+            </template>
             <template #note>共 {{ svcs.length }} 个服务单元</template>
           </WmToolbar>
           <WmTable :data="svcs" v-loading="sLoading" size="small" max-height="620" empty-title="暂无服务数据">
@@ -39,13 +43,20 @@
             <WmColumn prop="sub" label="子状态" width="110" />
             <WmColumn prop="enabled" label="自启" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.enabled }}</span></template></WmColumn>
             <WmColumn prop="description" label="描述" min-width="230" />
-            <WmColumn label="操作" width="300">
+            <WmColumn label="操作" width="190">
               <template #default="{ row }">
-                <a-button size="small" :disabled="row.active === 'active'" @click="svcAction(row, 'start')">启动</a-button>
-                <a-button size="small" :disabled="row.active !== 'active'" @click="svcAction(row, 'stop')">停止</a-button>
-                <a-button size="small" @click="svcAction(row, 'restart')">重启</a-button>
-                <a-button size="small" @click="svcAction(row, 'enable')">自启</a-button>
-                <a-button size="small" @click="svcAction(row, 'disable')">禁自启</a-button>
+                <a-button type="link" size="small" :disabled="row.active === 'active'" @click="svcAction(row, 'start')">启动</a-button>
+                <a-button type="link" size="small" :disabled="row.active !== 'active'" @click="svcAction(row, 'stop')">停止</a-button>
+                <a-dropdown>
+                  <a-button type="link" size="small">更多<span class="wm-icon proc-dd-icon"><ArrowDown /></span></a-button>
+                  <template #overlay>
+                    <a-menu>
+                      <a-menu-item key="restart" @click="svcAction(row, 'restart')">重启</a-menu-item>
+                      <a-menu-item key="enable" @click="svcAction(row, 'enable')">设为自启</a-menu-item>
+                      <a-menu-item key="disable" @click="svcAction(row, 'disable')">禁用自启</a-menu-item>
+                    </a-menu>
+                  </template>
+                </a-dropdown>
               </template>
             </WmColumn>
           </WmTable>
@@ -58,6 +69,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ArrowDown } from '../antd-compat'
 import api from '../api'
 
 const tab = ref('procs')
@@ -124,3 +136,8 @@ onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
 })
 </script>
+
+<style scoped>
+.proc-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.proc-dd-icon { margin-left: 4px; font-size: 10px; }
+</style>

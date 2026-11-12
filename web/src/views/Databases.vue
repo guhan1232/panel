@@ -21,27 +21,38 @@
             <a-button type="primary" @click="testConn('mysql')">测试连接</a-button>
           </a-form>
           <WmToolbar class="wm-mt-4">
-            <a-button size="small" type="primary" @click="createDb('mysql')">创建数据库</a-button>
             <a-button size="small" @click="createUser('mysql')">创建用户</a-button>
             <a-button size="small" @click="grant('mysql')">授权用户到库</a-button>
-            <a-button size="small" @click="loadData">刷新</a-button>
-            <a-button size="small" data-tone="danger" :loading="installingDb === 'uninstall'" @click="uninstallDb('mysql')">卸载 MySQL 服务</a-button>
+            <template #end>
+              <a-dropdown>
+                <a-button size="small">更多<span class="wm-icon db-dd-icon"><ArrowDown /></span></a-button>
+                <template #overlay>
+                  <a-menu>
+                    <a-menu-item key="uninstall" :disabled="installingDb === 'uninstall'" @click="uninstallDb('mysql')">卸载 MySQL 服务</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+              <a-button size="small" type="primary" @click="createDb('mysql')">创建数据库</a-button>
+              <a-button size="small" @click="loadData">刷新</a-button>
+            </template>
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
+              <template #actions><span class="wm-text-muted db-count">{{ mysqlData.dbs.length }} 个库</span></template>
               <WmTable :data="mysqlData.dbs" size="small" max-height="360" empty-title="暂无数据库">
                 <WmColumn label="库名" prop="name" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row.name }}</span></template></WmColumn>
-                <WmColumn label="操作" width="90">
-                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropDb('mysql', row.name)">删除</a-button></template>
+                <WmColumn label="操作" width="72">
+                  <template #default="{ row }"><a-button type="link" size="small" danger @click="dropDb('mysql', row.name)">删除</a-button></template>
                 </WmColumn>
               </WmTable>
             </WmSectionCard>
             <WmSectionCard title="用户" dense quiet>
+              <template #actions><span class="wm-text-muted db-count">{{ mysqlData.users.length }} 个用户</span></template>
               <WmTable :data="mysqlData.users" size="small" max-height="360" empty-title="暂无用户">
                 <WmColumn label="用户" prop="user" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.user }}</span></template></WmColumn>
                 <WmColumn label="主机" prop="host" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.host }}</span></template></WmColumn>
-                <WmColumn label="操作" width="90">
-                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropUser('mysql', row)">删除</a-button></template>
+                <WmColumn label="操作" width="72">
+                  <template #default="{ row }"><a-button type="link" size="small" danger @click="dropUser('mysql', row)">删除</a-button></template>
                 </WmColumn>
               </WmTable>
             </WmSectionCard>
@@ -63,26 +74,37 @@
             <a-button type="primary" @click="testConn('pg')">测试连接</a-button>
           </a-form>
           <WmToolbar class="wm-mt-4">
-            <a-button size="small" type="primary" @click="createDb('pg')">创建数据库</a-button>
             <a-button size="small" @click="createUser('pg')">创建用户</a-button>
             <a-button size="small" @click="grant('pg')">授权用户到库</a-button>
-            <a-button size="small" @click="loadData">刷新</a-button>
-            <a-button size="small" data-tone="danger" :loading="installingDb === 'uninstall'" @click="uninstallDb('postgresql')">卸载 PostgreSQL</a-button>
+            <template #end>
+              <a-dropdown>
+                <a-button size="small">更多<span class="wm-icon db-dd-icon"><ArrowDown /></span></a-button>
+                <template #overlay>
+                  <a-menu>
+                    <a-menu-item key="uninstall" :disabled="installingDb === 'uninstall'" @click="uninstallDb('postgresql')">卸载 PostgreSQL</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+              <a-button size="small" type="primary" @click="createDb('pg')">创建数据库</a-button>
+              <a-button size="small" @click="loadData">刷新</a-button>
+            </template>
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
+              <template #actions><span class="wm-text-muted db-count">{{ pgData.dbs.length }} 个库</span></template>
               <WmTable :data="pgData.dbs" size="small" max-height="360" empty-title="暂无数据库">
                 <WmColumn label="库名" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
-                <WmColumn label="操作" width="90">
-                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropDb('pg', row)">删除</a-button></template>
+                <WmColumn label="操作" width="72">
+                  <template #default="{ row }"><a-button type="link" size="small" danger @click="dropDb('pg', row)">删除</a-button></template>
                 </WmColumn>
               </WmTable>
             </WmSectionCard>
             <WmSectionCard title="角色" dense quiet>
+              <template #actions><span class="wm-text-muted db-count">{{ pgData.users.length }} 个角色</span></template>
               <WmTable :data="pgData.users" size="small" max-height="360" empty-title="暂无角色">
                 <WmColumn label="角色" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
-                <WmColumn label="操作" width="90">
-                  <template #default="{ row }"><a-button size="small" data-tone="danger" @click="dropUser('pg', row)">删除</a-button></template>
+                <WmColumn label="操作" width="72">
+                  <template #default="{ row }"><a-button type="link" size="small" danger @click="dropUser('pg', row)">删除</a-button></template>
                 </WmColumn>
               </WmTable>
             </WmSectionCard>
@@ -92,7 +114,7 @@
 
         <a-tab-pane tab="备份管理" key="backup">
           <WmToolbar>
-            <a-select v-model:value="backupDb" placeholder="选择要备份的数据库" style="width: 220px">
+            <a-select v-model:value="backupDb" size="small" placeholder="选择要备份的数据库" style="width: 220px">
               <a-select-opt-group v-if="mysqlData.dbs.length" label="MySQL">
                 <a-select-option v-for="d in mysqlData.dbs" :key="'m' + d.name" :value="'mysql:' + d.name">{{ d.name }}（MySQL）</a-select-option>
               </a-select-opt-group>
@@ -100,17 +122,19 @@
                 <a-select-option v-for="d in pgData.dbs" :key="'p' + d.name" :value="'pg:' + d.name">{{ d.name }}（PG）</a-select-option>
               </a-select-opt-group>
             </a-select>
-            <a-button type="primary" :loading="backupRunning" @click="runBackup">立即备份</a-button>
-            <a-button @click="loadBackups">刷新列表</a-button>
+            <template #end>
+              <a-button size="small" type="primary" :loading="backupRunning" @click="runBackup">立即备份</a-button>
+              <a-button size="small" @click="loadBackups">刷新列表</a-button>
+            </template>
           </WmToolbar>
           <WmTable :data="backupFiles" v-loading="bkLoading" size="small" max-height="360" empty-title="暂无备份" empty-description="选择数据库后点击「立即备份」，dump 为 gzip 压缩 SQL。">
             <WmColumn label="文件" min-width="300"><template #default="{ row }"><span class="wm-mono">{{ row.file }}</span></template></WmColumn>
             <WmColumn label="大小" width="110"><template #default="{ row }">{{ fmtSize(row.size) }}</template></WmColumn>
             <WmColumn label="时间" width="170"><template #default="{ row }">{{ row.time }}</template></WmColumn>
-            <WmColumn label="操作" width="150" fixed="right">
+            <WmColumn label="操作" width="120" fixed="right">
               <template #default="{ row }">
-                <a-button size="small" @click="downloadBackup(row)">下载</a-button>
-                <a-button size="small" data-tone="danger" @click="deleteBackup(row)">删除</a-button>
+                <a-button type="link" size="small" @click="downloadBackup(row)">下载</a-button>
+                <a-button type="link" size="small" danger @click="deleteBackup(row)">删除</a-button>
               </template>
             </WmColumn>
           </WmTable>
@@ -123,7 +147,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ElMessage, ElMessageBox, ArrowDown } from '../antd-compat'
 import api from '../api'
 
 const engine = ref('mysql')
@@ -371,3 +395,8 @@ onMounted(async () => {
   loadData()
 })
 </script>
+
+<style scoped>
+.db-count { font-size: 12px; }
+.db-dd-icon { margin-left: 4px; font-size: 10px; }
+</style>

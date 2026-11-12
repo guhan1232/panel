@@ -13,11 +13,11 @@
           <a-input v-model:value="keyword" placeholder="搜索软件或运行时" allow-clear style="width: 220px">
             <template #prefix><SearchOutlined /></template>
           </a-input>
-          <a-radio-group v-model:value="sourceFilter" size="small">
-            <a-radio-button value="all">全部</a-radio-button>
-            <a-radio-button value="builtin">内置</a-radio-button>
-            <a-radio-button value="remote">镜像源</a-radio-button>
-          </a-radio-group>
+          <a-segmented v-model:value="sourceFilter" size="small" :options="[
+            { value: 'all', label: `全部 ${templates.length}` },
+            { value: 'builtin', label: `内置 ${builtinCount}` },
+            { value: 'remote', label: `镜像源 ${remoteCount}` }
+          ]" />
           <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
         </div>
       </div>
@@ -92,7 +92,7 @@
                 <template #actions>
                   <a-button type="link" size="small" @click="runScript(item.name)">运行</a-button>
                   <a-button type="link" size="small" @click="viewScriptLog(item.name)">日志</a-button>
-                  <a-button type="link" size="small" data-tone="danger" @click="delScript(item.name)">删除</a-button>
+                  <a-button type="link" size="small" danger @click="delScript(item.name)">删除</a-button>
                 </template>
               </a-list-item>
             </template>
@@ -140,16 +140,21 @@
         </WmColumn>
         <WmColumn label="状态" min-width="200"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></WmColumn>
         <WmColumn label="安装时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></WmColumn>
-        <WmColumn label="操作" width="310" fixed="right">
+        <WmColumn label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <template v-if="!row.app.tool">
-              <a-button size="small" data-tone="success" @click="act(row, 'start')">启动</a-button>
-              <a-button size="small" data-tone="warning" @click="act(row, 'stop')">停止</a-button>
-              <a-button size="small" @click="act(row, 'restart')">重启</a-button>
-            </template>
-            <a-button size="small" @click="openUpgrade(row)">升级</a-button>
-            <a-button size="small" @click="viewLogs(row)">日志</a-button>
-            <a-button size="small" data-tone="danger" @click="uninstall(row)">卸载</a-button>
+            <a-dropdown v-if="!row.app.tool">
+              <a-button type="link" size="small">操作<span class="wm-icon ss-dd-icon"><ArrowDown /></span></a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item key="start" @click="act(row, 'start')">启动</a-menu-item>
+                  <a-menu-item key="stop" @click="act(row, 'stop')">停止</a-menu-item>
+                  <a-menu-item key="restart" @click="act(row, 'restart')">重启</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+            <a-button type="link" size="small" @click="openUpgrade(row)">升级</a-button>
+            <a-button type="link" size="small" @click="viewLogs(row)">日志</a-button>
+            <a-button type="link" size="small" danger @click="uninstall(row)">卸载</a-button>
           </template>
         </WmColumn>
       </WmTable>
@@ -215,48 +220,57 @@
         <WmColumn label="默认" width="70"><template #default="{ row }"><a-tag v-if="row.is_default" size="small" data-tone="success">默认</a-tag><span v-else>-</span></template></WmColumn>
         <WmColumn label="软件路径" min-width="220"><template #default="{ row }"><span class="mono">{{ row.dir }}</span></template></WmColumn>
         <WmColumn label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></WmColumn>
-        <WmColumn label="操作" width="180">
+        <WmColumn label="操作" width="150">
           <template #default="{ row }">
-            <a-button size="small" :disabled="row.is_default || rtLang?.key === 'php'" @click="setDefault(row)">设为默认</a-button>
-            <a-button size="small" data-tone="danger" @click="rmRuntime(row)">卸载</a-button>
+            <a-button type="link" size="small" :disabled="row.is_default || rtLang?.key === 'php'" @click="setDefault(row)">设为默认</a-button>
+            <a-button type="link" size="small" danger @click="rmRuntime(row)">卸载</a-button>
           </template>
         </WmColumn>
       </WmTable>
     </a-drawer>
 
-    <a-modal v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" width="560px">
-      <a-form :label-col="{ style: { width: '110px' } }">
-        <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
-        <a-form-item v-if="cur?.versions?.length" label="版本">
-          <a-select v-model:value="instVer" style="width: 100%">
-            <a-select-option v-for="v in cur.versions" :key="v.version" :value="v.version">
-              {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
-            </a-select-option>
-          </a-select>
-          <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
-        </a-form-item>
-        <a-form-item label="下载源">
-          <a-select v-model:value="instSource" style="width: 100%">
-            <a-select-option v-for="s in sources" :key="s.id"
-              :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
-          </a-select>
-          <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
-        </a-form-item>
-        <a-form-item v-if="cur?.kind === 'package'" label="安装方式">
-          <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
-        </a-form-item>
-        <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
-          <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
-        </a-form-item>
+    <a-drawer v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" :width="620">
+      <a-form layout="vertical" class="inst-form">
+        <div class="form-sec">
+          <div class="form-sec__title">基本信息</div>
+          <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
+          <a-form-item v-if="cur?.versions?.length" label="版本" style="margin-bottom: 0">
+            <a-select v-model:value="instVer" style="width: 100%">
+              <a-select-option v-for="v in cur.versions" :key="v.version" :value="v.version">
+                {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
+              </a-select-option>
+            </a-select>
+            <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
+          </a-form-item>
+        </div>
+        <div class="form-sec">
+          <div class="form-sec__title">下载与安装</div>
+          <a-form-item label="下载源" :style="cur?.kind === 'package' ? '' : 'margin-bottom: 0'">
+            <a-select v-model:value="instSource" style="width: 100%">
+              <a-select-option v-for="s in sources" :key="s.id"
+                :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
+            </a-select>
+            <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
+          </a-form-item>
+          <a-form-item v-if="cur?.kind === 'package'" label="安装方式" style="margin-bottom: 0">
+            <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
+          </a-form-item>
+        </div>
+        <div v-if="(cur?.params || []).length" class="form-sec">
+          <div class="form-sec__title">参数</div>
+          <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label" style="margin-bottom: 16px">
+            <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
+          </a-form-item>
+        </div>
       </a-form>
       <template #footer>
         <a-button @click="dlg = false">取消</a-button>
         <a-button type="primary" :loading="deploying" @click="deploy">安装（下载发行包可能较慢）</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
 
     <a-modal v-model:open="upDlg" :title="`升级 ${upRow?.name || ''}`" width="560px">
-      <a-form :label-col="{ style: { width: '110px' } }">
+      <a-form layout="vertical">
         <a-form-item label="当前版本"><span class="wm-mono">{{ upRow?.app?.version || '未记录' }}</span></a-form-item>
         <a-form-item label="目标版本">
           <a-select v-model:value="upVer" style="width: 100%">
@@ -299,6 +313,7 @@
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
 
@@ -743,25 +758,18 @@ async function savePecl(val: string) {
 </script>
 
 <style scoped>
-.wm-tpl-card__pills {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.mono {
-  font-family: Consolas, Monaco, monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-</style>
+.ss-dd-icon { margin-left: 4px; font-size: 10px; }
 
-<style scoped>
 .rt-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 8px;
 }
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
 </style>
 

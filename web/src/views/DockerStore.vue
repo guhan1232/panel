@@ -14,11 +14,11 @@
               <a-input v-model:value="keyword" placeholder="搜索容器模板" allow-clear style="width: 200px">
                 <template #prefix><SearchOutlined /></template>
               </a-input>
-              <a-radio-group v-model:value="sourceFilter" size="small">
-                <a-radio-button value="all">全部</a-radio-button>
-                <a-radio-button value="builtin">内置</a-radio-button>
-                <a-radio-button value="remote">镜像源</a-radio-button>
-              </a-radio-group>
+              <a-segmented v-model:value="sourceFilter" size="small" :options="[
+                { value: 'all', label: `全部 ${templates.length}` },
+                { value: 'builtin', label: `内置 ${builtinCount}` },
+                { value: 'remote', label: `镜像源 ${remoteCount}` }
+              ]" />
               <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
             </div>
           </div>
@@ -27,9 +27,9 @@
           <a-col :xs="24" :xl="16">
             <WmSectionCard title="容器模板" description="Docker Compose 编排，部署时可为镜像选择加速源">
               <template #actions>
+                <span class="wm-text-muted ds-stats">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span>
                 <a-button v-if="!docker.installed" size="small" data-tone="warning" :loading="installing" @click="installDocker">一键安装 Docker</a-button>
-                <a-button size="small" :disabled="!docker.installed || !docker.compose" @click="openCustom">部署自定义 Compose</a-button>
-                <span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span>
+                <a-button type="primary" size="small" :disabled="!docker.installed || !docker.compose" @click="openCustom">部署自定义 Compose</a-button>
               </template>
               <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
                 <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8">
@@ -135,13 +135,13 @@
             <WmColumn label="镜像" min-width="200"><template #default="{ row }"><span class="wm-mono">{{ row.Image }}</span></template></WmColumn>
             <WmColumn label="状态" width="130"><template #default="{ row }"><WmStatusPill :label="stateLabel(row.State)" :tone="row.State === 'running' ? 'success' : row.State === 'exited' ? 'danger' : 'warning'" :dot="row.State === 'running'" /></template></WmColumn>
             <WmColumn label="端口" min-width="180"><template #default="{ row }"><span class="wm-mono wm-truncate">{{ row.Ports || '-' }}</span></template></WmColumn>
-            <WmColumn label="操作" width="280" fixed="right">
+            <WmColumn label="操作" width="200" fixed="right">
               <template #default="{ row }">
-                <a-button v-if="row.State !== 'running'" size="small" data-tone="success" @click="ctAct(row, 'start')">启动</a-button>
-                <a-button v-else size="small" data-tone="warning" @click="ctAct(row, 'stop')">停止</a-button>
-                <a-button size="small" @click="ctAct(row, 'restart')">重启</a-button>
-                <a-button size="small" @click="ctLogs(row)">日志</a-button>
-                <a-button size="small" data-tone="danger" @click="ctRemove(row)">删除</a-button>
+                <a-button v-if="row.State !== 'running'" type="link" size="small" @click="ctAct(row, 'start')">启动</a-button>
+                <a-button v-else type="link" size="small" @click="ctAct(row, 'stop')">停止</a-button>
+                <a-button type="link" size="small" @click="ctAct(row, 'restart')">重启</a-button>
+                <a-button type="link" size="small" @click="ctLogs(row)">日志</a-button>
+                <a-button type="link" size="small" danger @click="ctRemove(row)">删除</a-button>
               </template>
             </WmColumn>
           </WmTable>
@@ -195,14 +195,21 @@
             <WmColumn label="应用" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></WmColumn>
             <WmColumn label="状态" min-width="220"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></WmColumn>
             <WmColumn label="部署时间" width="160"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></WmColumn>
-            <WmColumn label="操作" width="330" fixed="right">
+            <WmColumn label="操作" width="210" fixed="right">
               <template #default="{ row }">
-                <a-button size="small" data-tone="success" @click="act(row, 'start')">启动</a-button>
-                <a-button size="small" data-tone="warning" @click="act(row, 'stop')">停止</a-button>
-                <a-button size="small" @click="act(row, 'restart')">重启</a-button>
-                <a-button size="small" @click="viewLogs(row)">日志</a-button>
-                <a-button size="small" @click="editCompose(row)">编排</a-button>
-                <a-button size="small" data-tone="danger" @click="uninstall(row)">卸载</a-button>
+                <a-dropdown>
+                  <a-button type="link" size="small">操作<span class="wm-icon ds-dd-icon"><ArrowDown /></span></a-button>
+                  <template #overlay>
+                    <a-menu>
+                      <a-menu-item key="start" @click="act(row, 'start')">启动</a-menu-item>
+                      <a-menu-item key="stop" @click="act(row, 'stop')">停止</a-menu-item>
+                      <a-menu-item key="restart" @click="act(row, 'restart')">重启</a-menu-item>
+                    </a-menu>
+                  </template>
+                </a-dropdown>
+                <a-button type="link" size="small" @click="editCompose(row)">编排</a-button>
+                <a-button type="link" size="small" @click="viewLogs(row)">日志</a-button>
+                <a-button type="link" size="small" danger @click="uninstall(row)">卸载</a-button>
               </template>
             </WmColumn>
           </WmTable>
@@ -220,7 +227,7 @@
             <WmColumn label="名称" min-width="180"><template #default="{ row }"><b class="wm-mono">{{ row.Name }}</b></template></WmColumn>
             <WmColumn label="驱动" width="120"><template #default="{ row }">{{ row.Driver }}</template></WmColumn>
             <WmColumn label="范围" width="110"><template #default="{ row }">{{ row.Scope }}</template></WmColumn>
-            <WmColumn label="操作" width="100"><template #default="{ row }"><a-button v-if="!['bridge','host','none'].includes(row.Name)" size="small" data-tone="danger" @click="delNetwork(row.Name)">删除</a-button></template></WmColumn>
+            <WmColumn label="操作" width="80"><template #default="{ row }"><a-button v-if="!['bridge','host','none'].includes(row.Name)" type="link" size="small" danger @click="delNetwork(row.Name)">删除</a-button></template></WmColumn>
           </WmTable>
         </WmSectionCard>
       </a-tab-pane>
@@ -232,7 +239,7 @@
           <WmTable :data="volRows" v-loading="volLoading" empty-title="没有存储卷" empty-description="">
             <WmColumn label="名称" min-width="240"><template #default="{ row }"><b class="wm-mono">{{ row.Name }}</b></template></WmColumn>
             <WmColumn label="驱动" width="110"><template #default="{ row }">{{ row.Driver }}</template></WmColumn>
-            <WmColumn label="操作" width="100"><template #default="{ row }"><a-button size="small" data-tone="danger" @click="delVolume(row.Name)">删除</a-button></template></WmColumn>
+            <WmColumn label="操作" width="80"><template #default="{ row }"><a-button type="link" size="small" danger @click="delVolume(row.Name)">删除</a-button></template></WmColumn>
           </WmTable>
         </WmSectionCard>
       </a-tab-pane>
@@ -243,17 +250,19 @@
           <a-form layout="vertical" style="max-width: 460px">
             <a-form-item label="仓库地址"><a-input v-model:value="regForm.registry" placeholder="如 registry.cn-hangzhou.aliyuncs.com" /></a-form-item>
             <a-form-item label="用户名"><a-input v-model:value="regForm.username" /></a-form-item>
-            <a-form-item label="密码"><a-input-password v-model:value="regForm.password" /></a-form-item>
-            <a-button type="primary" :loading="regLogining" @click="doLogin">登录仓库</a-button>
+            <a-form-item label="密码" style="margin-bottom: 0"><a-input-password v-model:value="regForm.password" /></a-form-item>
           </a-form>
           <WmNotice tone="neutral" class="wm-mt-4">登录成功后即可从该仓库拉取私有镜像（配合「线上镜像」页直接输入完整镜像地址拉取）。</WmNotice>
+          <template #footer>
+            <a-button type="primary" :loading="regLogining" @click="doLogin">登录仓库</a-button>
+          </template>
         </WmSectionCard>
       </a-tab-pane>
 
       <!-- 设置 -->
       <a-tab-pane key="settings" tab="设置">
         <WmSectionCard title="镜像源配置（daemon.json）" description="加速镜像源与私有仓库白名单">
-          <a-form :label-col="{ style: { width: '130px' } }">
+          <a-form layout="vertical">
             <a-form-item label="加速镜像源">
               <a-textarea v-model:value="mirrorForm.registry_mirrors" :rows="5" placeholder="每行一个，如 https://docker.m.daocloud.io" />
               <div class="presets">
@@ -269,31 +278,39 @@
                 <WmStatusPill v-for="m in mirrorInfo.live_mirrors" :key="m" :label="m" tone="success" :dot="false" mono />
               </div>
             </a-form-item>
-            <a-form-item label="配置文件"><span class="hint wm-mono">{{ mirrorInfo.path }}</span><span class="hint">其余配置项保持不变，修改前自动备份</span></a-form-item>
-            <a-button type="primary" :loading="mirrorSaving" @click="saveMirrors">保存并重启 Docker</a-button>
+            <a-form-item label="配置文件" style="margin-bottom: 0"><span class="hint wm-mono">{{ mirrorInfo.path }}</span><span class="hint"> 其余配置项保持不变，修改前自动备份</span></a-form-item>
           </a-form>
+          <template #footer>
+            <a-button type="primary" :loading="mirrorSaving" @click="saveMirrors">保存并重启 Docker</a-button>
+          </template>
         </WmSectionCard>
       </a-tab-pane>
     </a-tabs>
 
-    <a-modal v-model:open="dlg" :title="`部署 ${cur?.name || ''}`" width="560px">
-      <a-form :label-col="{ style: { width: '130px' } }">
-        <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 my-redis" /></a-form-item>
-        <a-form-item label="镜像源">
-          <a-select v-model:value="instMirror" style="width: 100%">
-            <a-select-option v-for="m in dockerMirrors" :key="m.id" :value="m.id">{{ m.name }}</a-select-option>
-          </a-select>
-          <div class="hint">部署时将 YAML 中的镜像改写为所选代理仓库拉取；也可在「设置」里设置全局 daemon.json 加速</div>
-        </a-form-item>
-        <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label">
-          <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
-        </a-form-item>
+    <a-drawer v-model:open="dlg" :title="`部署 ${cur?.name || ''}`" :width="620">
+      <a-form layout="vertical" class="inst-form">
+        <div class="form-sec">
+          <div class="form-sec__title">基本信息</div>
+          <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 my-redis" /></a-form-item>
+          <a-form-item label="镜像源" style="margin-bottom: 0">
+            <a-select v-model:value="instMirror" style="width: 100%">
+              <a-select-option v-for="m in dockerMirrors" :key="m.id" :value="m.id">{{ m.name }}</a-select-option>
+            </a-select>
+            <div class="hint">部署时将 YAML 中的镜像改写为所选代理仓库拉取；也可在「设置」里设置全局 daemon.json 加速</div>
+          </a-form-item>
+        </div>
+        <div v-if="(cur?.params || []).length" class="form-sec">
+          <div class="form-sec__title">参数</div>
+          <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label" style="margin-bottom: 16px">
+            <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
+          </a-form-item>
+        </div>
       </a-form>
       <template #footer>
         <a-button @click="dlg = false">取消</a-button>
         <a-button type="primary" :loading="deploying" @click="deploy">部署（拉取镜像可能较慢）</a-button>
       </template>
-    </a-modal>
+    </a-drawer>
 
     <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="820px">
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
@@ -309,10 +326,10 @@
     </a-modal>
 
     <a-modal v-model:open="customDlg" title="部署自定义 Compose 应用" width="860px">
-      <a-form :label-col="{ style: { width: '110px' } }">
+      <a-form layout="vertical">
         <a-form-item label="实例名称"><a-input v-model:value="customName" placeholder="如 my-stack" /></a-form-item>
         <a-form-item label="Compose YAML">
-          <a-textarea v-model:value="customContent" :rows="16" style="font-family: Consolas, Monaco, monospace; font-size: 12px" placeholder='services:
+          <a-textarea v-model:value="customContent" :rows="16" class="wm-mono" style="font-size: 12px" placeholder='services:
   web:
     image: nginx:alpine
     ports:
@@ -344,6 +361,7 @@
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
+import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
 
@@ -816,24 +834,10 @@ watch(activeTab, switchTab)
 .store-control {
   margin-bottom: 12px;
 }
-.store-control__row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.store-control__stats {
-  display: flex;
-  gap: 24px;
-}
-.store-stat span {
-  display: block;
-  font-size: 12px;
-  color: var(--wm-text-2, #8492a6);
-}
-.store-stat b {
-  font-size: 18px;
-}
+.ds-stats { font-size: 12px; }
+.ds-dd-icon { margin-left: 4px; font-size: 10px; }
+
+/* Docker 总览统计块（页面私有，token 化） */
 .ov-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -841,106 +845,23 @@ watch(activeTab, switchTab)
 }
 .ov-stat {
   padding: 12px 14px;
-  border: 1px solid var(--wm-border, #e5e8ef);
-  border-radius: 8px;
-  background: var(--wm-card, #fff);
+  border: 1px solid var(--wm-line);
+  border-radius: var(--wm-r-md);
+  background: var(--wm-surface-2);
 }
 .ov-stat span {
   display: block;
   font-size: 12px;
-  color: var(--wm-text-2, #8492a6);
+  color: var(--wm-ink-3);
 }
 .ov-stat b {
   font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
-.store-card {
-  border: 1px solid var(--wm-border, #e5e8ef);
-  border-radius: 10px;
-  padding: 14px;
-  background: var(--wm-card, #fff);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: 100%;
-}
-.store-card__head {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.store-card__avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  color: #fff;
-  background: #3a7afe;
-}
-.store-card__avatar--docker {
-  background: #0b57d0;
-}
-.store-card__title {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  min-width: 0;
-}
-.store-card__ver {
-  font-size: 12px;
-  color: var(--wm-text-2, #8492a6);
-}
-.store-card__desc {
-  font-size: 12px;
-  color: var(--wm-text-2, #8492a6);
-  margin: 0;
-  flex: 1;
-}
-.store-card__tags {
-  display: flex;
-  gap: 6px;
-}
-.store-card__foot {
-  display: flex;
-  justify-content: flex-end;
-}
-.store-env > div {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 0;
-}
-.store-list__item {
-  padding: 6px 0;
-}
-.store-list__meta {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.mono {
-  font-family: Consolas, Monaco, monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.hint {
-  color: var(--wm-text-2, #8492a6);
-  font-size: 12px;
-  line-height: 1.7;
-  margin-top: 4px;
-}
-.presets {
-  margin-top: 8px;
-  line-height: 2;
-}
-.preset-tag {
-  cursor: pointer;
-  margin-right: 6px;
-}
-.live-mirrors {
-  line-height: 1.8;
-}
+
+/* 抽屉表单分区 */
+.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
+.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
 </style>

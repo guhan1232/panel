@@ -28,16 +28,16 @@
             <WmStatusPill :label="tls.has_ca ? '已保存（可复用续签）' : '未上传'" :tone="tls.has_ca ? 'success' : 'default'" :dot="false" />
           </a-descriptions-item>
         </a-descriptions>
-        <div class="wm-mt-4">
-          <a-space wrap>
-            <a-button type="primary" :loading="tlsBusy === 'ca'" @click="openCaDlg">用中间 CA 签发（推荐 · 跟随 CA 有效期）</a-button>
-            <a-button :loading="tlsBusy === 'acme'" @click="openAcmeDlg">Let's Encrypt 免费签发（公共 CA · 域名）</a-button>
-            <a-button :loading="tlsBusy === 'self'" @click="applyTls('self')">纯自签兜底（10 年 · 无 CA 时）</a-button>
-          </a-space>
-          <a-form-item label="访问 IP/域名（写入证书 SAN，逗号分隔）" style="margin-top:12px"><a-input v-model:value="extraIps" placeholder="如 203.0.113.10, panel.example.com" /></a-form-item>
-<p class="wm-text-muted" style="margin-top:8px">CA 上传一次后保存于服务器（data/certs/ca），续签无需重复上传。云服务器 NAT 下公网 IP 不在网卡上，请在上方显式填写访问 IP 以保证证书 SAN 匹配。应用后面板自动重启为 HTTPS。</p>
-          <WmNotice tone="info" class="wm-mt-4">仓库一键安装脚本 scripts/install.sh 同样支持：--ca-cert/--ca-key 用中间 CA 签发（有效期跟随 CA）；不给 CA 自动自签 10 年。</WmNotice>
-        </div>
+        <a-form layout="vertical" style="max-width: 560px" class="wm-mt-4">
+          <a-form-item label="访问 IP/域名（写入证书 SAN，逗号分隔）" style="margin-bottom: 0"><a-input v-model:value="extraIps" placeholder="如 203.0.113.10, panel.example.com" /></a-form-item>
+        </a-form>
+        <p class="wm-text-muted" style="margin-top:8px">CA 上传一次后保存于服务器（data/certs/ca），续签无需重复上传。云服务器 NAT 下公网 IP 不在网卡上，请在上方显式填写访问 IP 以保证证书 SAN 匹配。应用后面板自动重启为 HTTPS。</p>
+        <WmNotice tone="info" class="wm-mt-4">仓库一键安装脚本 scripts/install.sh 同样支持：--ca-cert/--ca-key 用中间 CA 签发（有效期跟随 CA）；不给 CA 自动自签 10 年。</WmNotice>
+        <template #footer>
+          <a-button type="primary" :loading="tlsBusy === 'ca'" @click="openCaDlg">用中间 CA 签发（推荐 · 跟随 CA 有效期）</a-button>
+          <a-button :loading="tlsBusy === 'acme'" @click="openAcmeDlg">Let's Encrypt 免费签发</a-button>
+          <a-button :loading="tlsBusy === 'self'" @click="applyTls('self')">纯自签兜底（10 年）</a-button>
+        </template>
       </WmSectionCard>
 
       <WmSectionCard title="域名反代访问（可选）" description="安装 NGINX 后可用自有域名反代面板并挂证书，域名 HTTPS 访问" marker>
@@ -59,10 +59,8 @@
             </a-space>
           </a-descriptions-item>
         </a-descriptions>
-        <div class="wm-mt-4">
-          <a-space wrap>
-            <a-button v-if="!nginx.installed" size="small" type="primary" :loading="nginxInstalling" @click="installNginx">一键安装 NGINX</a-button>
-          </a-space>
+        <div v-if="!nginx.installed" class="wm-mt-4">
+          <a-button size="small" type="primary" :loading="nginxInstalling" @click="installNginx">一键安装 NGINX</a-button>
         </div>
         <a-form layout="vertical" style="max-width: 560px" class="wm-mt-4">
           <a-form-item label="反代域名（需先把域名 A 记录解析到服务器公网 IP）">
@@ -76,15 +74,15 @@
             </a-select>
             <div class="hint">证书在「SSL 证书」页上传；面板自用证书即当前 HTTPS 所用的 CA 签发证书（SAN 为 IP，浏览器对域名会提示不匹配，可上传域名证书消除）。</div>
           </a-form-item>
-          <a-form-item>
+          <a-form-item style="margin-bottom: 0">
             <a-checkbox v-model:checked="proxyForm.forceHttps">HTTP 自动跳转 HTTPS</a-checkbox>
           </a-form-item>
-          <a-space wrap>
-            <a-button type="primary" :loading="proxySaving" :disabled="!nginx.installed || !proxyForm.domain" @click="applyProxy">启用反代</a-button>
-            <a-button v-if="proxySite" data-tone="danger" @click="removeProxy">移除反代</a-button>
-          </a-space>
         </a-form>
         <WmNotice tone="neutral" class="wm-mt-4">反代由 NGINX 承载：域名 → NGINX(80/443) → 面板端口。反代配置含 WebSocket 支持（终端/实时数据可用）。启用后可用 https://域名/s/安全入口 访问面板。</WmNotice>
+        <template #footer>
+          <a-button type="primary" :loading="proxySaving" :disabled="!nginx.installed || !proxyForm.domain" @click="applyProxy">启用反代</a-button>
+          <a-button v-if="proxySite" danger @click="removeProxy">移除反代</a-button>
+        </template>
       </WmSectionCard>
 
       <WmSectionCard title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板" marker>
@@ -126,18 +124,18 @@
                   </a-checkbox-group>
                 </a-form-item>
               </template>
-              <a-form-item>
+              <a-form-item style="margin-bottom: 0">
                 <a-checkbox v-model:checked="permForm.readonly">只读模式（仅允许查询类请求，所有写操作将被拒绝）</a-checkbox>
               </a-form-item>
-              <a-space>
-                <a-button size="small" type="primary" :loading="permSaving" @click="savePerm">保存权限</a-button>
-                <span class="wm-text-muted">保存立即生效，Token 值不变，客户端无需重新配置</span>
-              </a-space>
             </a-form>
           </div>
         </template>
         <WmCodeBlock v-if="apiToken.enabled && tokenRevealed" :content="mcpCfg" label="MCP 客户端配置（Trae / Claude Code / Cursor 通用）" class="wm-mt-4" />
         <WmNotice tone="warning" class="wm-mt-4">Token 等效管理员权限：仅经 HTTPS 调用，泄露后立即重置。REST 示例：curl -H "Authorization: Bearer &lt;token&gt;" {{ panelOrigin }}/api/sites</WmNotice>
+        <template v-if="apiToken.enabled" #footer>
+          <span class="wm-text-muted st-foot-note">保存立即生效，Token 值不变，客户端无需重新配置</span>
+          <a-button size="small" type="primary" :loading="permSaving" @click="savePerm">保存权限</a-button>
+        </template>
       </WmSectionCard>
 
       <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
@@ -149,9 +147,9 @@
           <WmColumn label="IP" width="150"><template #default="{ row }"><span class="wm-mono">{{ row.ip }}</span></template></WmColumn>
           <WmColumn label="设备" min-width="260"><template #default="{ row }"><span class="wm-text-muted wm-truncate">{{ row.ua }}</span></template></WmColumn>
           <WmColumn label="过期" width="170"><template #default="{ row }"><span class="wm-mono">{{ row.expires }}</span></template></WmColumn>
-          <WmColumn label="操作" width="110" fixed="right">
+          <WmColumn label="操作" width="90" fixed="right">
             <template #default="{ row }">
-              <a-button v-if="!row.current" size="small" data-tone="danger" @click="revoke(row)">踢出</a-button>
+              <a-button v-if="!row.current" type="link" size="small" danger @click="revoke(row)">踢出</a-button>
               <WmStatusPill v-else label="本设备" tone="info" :dot="false" />
             </template>
           </WmColumn>
@@ -191,14 +189,14 @@
       </WmSectionCard>
 
       <WmSectionCard title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
-        <template #actions>
-          <a-button size="small" type="primary" :loading="savingName" @click="saveUsername">保存用户名</a-button>
-        </template>
-        <a-form layout="inline">
+        <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="当前用户名"><span class="wm-mono"><b>{{ auth.username }}</b></span></a-form-item>
-          <a-form-item label="新用户名"><a-input v-model:value="newUsername" placeholder="3-64 位，字母/数字/_/-" style="width: 220px" /></a-form-item>
+          <a-form-item label="新用户名" style="margin-bottom: 0"><a-input v-model:value="newUsername" placeholder="3-64 位，字母/数字/_/-" /></a-form-item>
         </a-form>
         <WmNotice tone="neutral" class="wm-mt-4">修改后需用新用户名重新登录；SSH 首次输出的初始凭据文件将在你首次修改密码后自动删除。</WmNotice>
+        <template #footer>
+          <a-button type="primary" :loading="savingName" @click="saveUsername">保存用户名</a-button>
+        </template>
       </WmSectionCard>
 
       <WmSectionCard title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
@@ -211,12 +209,14 @@
       </WmSectionCard>
 
       <WmSectionCard title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效" marker dense>
-        <a-form :label-col="{ style: { width: '100px' } }" style="max-width: 440px">
+        <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="原密码"><a-input-password v-model:value="form.old" /></a-form-item>
           <a-form-item label="新密码"><a-input-password v-model:value="form.n1" placeholder="至少 8 位" /></a-form-item>
-          <a-form-item label="确认密码"><a-input-password v-model:value="form.n2" /></a-form-item>
-          <a-button type="primary" :loading="saving" @click="submit">修改密码</a-button>
+          <a-form-item label="确认密码" style="margin-bottom: 0"><a-input-password v-model:value="form.n2" /></a-form-item>
         </a-form>
+        <template #footer>
+          <a-button type="primary" :loading="saving" @click="submit">修改密码</a-button>
+        </template>
       </WmSectionCard>
     </div>
 
@@ -747,3 +747,8 @@ async function clearApiToken() {
   }
 }
 </script>
+
+<style scoped>
+/* 卡片 footer 内的说明文字靠左，按钮保持靠右 */
+.st-foot-note { margin-right: auto; font-size: 12px; align-self: center; }
+</style>
