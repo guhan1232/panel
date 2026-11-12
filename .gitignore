@@ -7,7 +7,7 @@ web/node_modules/
 
 # 运行时生成（含入口串/初始密码/数据库，禁止入库）
 config.yaml
-data/
+/data/
 logs/
 .workbuddy/
 
