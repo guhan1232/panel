@@ -1249,13 +1249,15 @@ func supportedPkgSources() []string {
 
 // aptMirrorInstallShell 构造 apt 镜像定向安装命令：临时 sources.list 指向镜像站，
 // 仅本次安装生效（-o Dir::Etc 覆盖），完成后删除，不改动系统全局源。
+// Ubuntu 与 Debian 的仓库基址与安全源布局不同，按 /etc/os-release 区分；
+// 镜像未收录 Debian 源时回退官方 Debian 源（安装仍可成功）。
 func aptMirrorInstallShell(msrc SoftwareSource, pkgs []string) string {
-	m := msrc.AptUbuntu
 	return "systemctl stop unattended-upgrades || true; " +
 		"os=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); " +
 		"comps=\"main universe restricted multiverse\"; [ \"$os\" = debian ] && comps=\"main contrib non-free non-free-firmware\"; " +
-		"if [ \"$os\" = debian ]; then sec=\"" + m + "-security $cn-security\"; else sec=\"" + m + " $cn-security\"; fi; " +
-		"{ echo \"deb " + m + " $cn $comps\"; echo \"deb " + m + " $cn-updates $comps\"; echo \"deb $sec $comps\"; } > /etc/apt/sources.list.d/hanyuxin-mirror.list; " +
+		"if [ \"$os\" = debian ]; then m=\"" + msrc.AptDebian + "\"; [ -z \"$m\" ] && m=\"http://deb.debian.org/debian\"; sec=\"$m-security $cn-security\"; " +
+		"else m=\"" + msrc.AptUbuntu + "\"; [ -z \"$m\" ] && m=\"http://archive.ubuntu.com/ubuntu\"; sec=\"$m $cn-security\"; fi; " +
+		"{ echo \"deb $m $cn $comps\"; echo \"deb $m $cn-updates $comps\"; echo \"deb $sec $comps\"; } > /etc/apt/sources.list.d/hanyuxin-mirror.list; " +
 		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/hanyuxin-mirror.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -o DPkg::Lock::Timeout=600 update && " +
 		"DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=sources.list.d/hanyuxin-mirror.list -o Dir::Etc::sourceparts=- -o DPkg::Lock::Timeout=600 install -y " +
 		strings.Join(pkgs, " ") + "; rc=$?; rm -f /etc/apt/sources.list.d/hanyuxin-mirror.list; " +
