@@ -73,6 +73,11 @@ func (m *Module) Register(api gin.IRouter) {
 	g.GET("/nginx/status", nginxStatus)
 	g.POST("/nginx/reload", nginxReload)
 	g.POST("/nginx/install", nginxInstall)
+	g.POST("/nginx/action", nginxAction)
+	g.GET("/nginx/configs", m.nginxConfigList)
+	g.GET("/nginx/config", nginxConfigRead)
+	g.POST("/nginx/config/save", nginxConfigSave)
+	g.POST("/import", m.nginxImportScan)
 }
 
 func (m *Module) Start() error {

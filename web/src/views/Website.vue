@@ -2,11 +2,20 @@
   <div class="wm-page">
     <WmSectionCard title="站点列表" description="Nginx 配置在写入前执行 nginx -t 校验，失败自动回滚" flush>
       <WmToolbar>
-        <WmStatusPill :label="nginx.installed ? 'Nginx 已安装' : 'Nginx 未安装'" :tone="nginx.installed ? 'success' : 'danger'" :pulse="!nginx.installed" />
+        <WmStatusPill :label="nginxLabel" :tone="nginx.installed ? (nginx.running ? 'success' : 'warning') : 'danger'" :pulse="nginx.running" />
         <span v-if="nginx.installed && nginx.version" class="wm-mono wm-text-muted">{{ nginx.version }}</span>
+        <template v-if="nginx.installed">
+          <a-button v-if="!nginx.running" size="small" data-tone="success" :loading="acting === 'start'" @click="nginxDo('start')">启动</a-button>
+          <template v-else>
+            <a-button size="small" :loading="acting === 'reload'" @click="nginxDo('reload')">重载</a-button>
+            <a-button size="small" :loading="acting === 'restart'" @click="nginxDo('restart')">重启</a-button>
+            <a-button size="small" data-tone="danger" :loading="acting === 'stop'" @click="nginxDo('stop')">停止</a-button>
+          </template>
+        </template>
         <a-button v-if="!nginx.installed" size="small" data-tone="warning" :loading="installing" @click="installNginx">安装 Nginx</a-button>
-        <a-button size="small" @click="reloadNginx">重载 Nginx</a-button>
-        <a-button type="primary" size="small" @click="openCreate">创建站点</a-button>
+        <a-button size="small" @click="openConfigs">配置文件</a-button>
+        <a-button size="small" @click="importScan">同步系统站点</a-button>
+        <a-button type="primary" size="small" @click="openCreate()">创建站点</a-button>
         <a-button size="small" @click="load">刷新</a-button>
       </WmToolbar>
 
@@ -155,6 +164,26 @@
         <a-button size="small" :disabled="!uploadBakFile" @click="uploadRestore">上传恢复</a-button>
       </WmToolbar>
     </a-modal>
+    <!-- NGINX 配置文件 -->
+    <a-modal v-model:open="confDlg" title="Nginx 配置文件（conf.d / sites-enabled）" width="760px" :footer="null">
+      <WmTable :data="confList" size="small" empty-title="没有配置文件">
+        <WmColumn label="文件" min-width="220"><template #default="{ row }"><span class="wm-mono">{{ row.file }}</span></template></WmColumn>
+        <WmColumn label="目录" min-width="200"><template #default="{ row }"><span class="wm-mono wm-text-muted">{{ row.dir }}</span></template></WmColumn>
+        <WmColumn label="面板托管" width="100"><template #default="{ row }"><WmStatusPill :label="row.managed ? '是' : '否'" :tone="row.managed ? 'success' : 'default'" :dot="false" /></template></WmColumn>
+        <WmColumn label="操作" width="90" fixed="right"><template #default="{ row }"><a-button size="small" @click="editConf(row)">编辑</a-button></template></WmColumn>
+      </WmTable>
+      <p class="hint" style="margin-top:8px">编辑保存前自动执行 nginx -t 校验，失败自动回滚原文件。</p>
+    </a-modal>
+
+    <!-- 配置编辑器 -->
+    <a-modal v-model:open="confEditDlg" :title="'编辑 - ' + (confEditFile.file || '')" width="860px">
+      <a-textarea v-model:value="confContent" :rows="22" class="wm-mono" style="font-size:12px" />
+      <template #footer>
+        <a-button @click="confEditDlg = false">取消</a-button>
+        <a-button type="primary" :loading="confSaving" @click="saveConf">保存（nginx -t 校验并重载）</a-button>
+      </template>
+    </a-modal>
+
   </div>
 </template>
 
@@ -379,6 +408,88 @@ async function viewLog(row: any, type: string) {
 async function reloadNginx() {
   await api.post('/sites/nginx/reload')
   ElMessage.success('已重载')
+}
+
+const acting = ref('')
+const nginxLabel = computed(() => {
+  if (!nginx.value.installed) return 'Nginx 未安装'
+  return nginx.value.running ? 'Nginx 运行中' : 'Nginx 已停止'
+})
+
+async function nginxDo(action: string) {
+  if (action === 'stop') {
+    try {
+      await ElMessageBox.confirm('停止 Nginx 后所有网站将无法访问，继续？', '停止确认', { type: 'error' })
+    } catch { return }
+  }
+  acting.value = action
+  try {
+    await api.post('/sites/nginx/action', { action }, { timeout: 120000 })
+    ElMessage.success(action === 'start' ? '已启动' : action === 'stop' ? '已停止' : action === 'restart' ? '已重启' : '已重载')
+    load()
+  } finally {
+    acting.value = ''
+  }
+}
+
+// ---- 配置文件管理 ----
+const confDlg = ref(false)
+const confList = ref<any[]>([])
+const confEditDlg = ref(false)
+const confEditFile = ref<any>({})
+const confContent = ref('')
+const confSaving = ref(false)
+
+async function openConfigs() {
+  confDlg.value = true
+  await loadConfigs()
+}
+
+async function loadConfigs() {
+  try {
+    confList.value = (await api.get('/sites/nginx/configs')) as any
+  } catch {
+    confList.value = []
+  }
+}
+
+async function editConf(row: any) {
+  const d: any = await api.get('/sites/nginx/config', { params: { file: row.file, dir: row.dir } })
+  confEditFile.value = row
+  confContent.value = d.content
+  confEditDlg.value = true
+}
+
+async function saveConf() {
+  confSaving.value = true
+  try {
+    const r: any = await api.post('/sites/nginx/config/save', {
+      file: confEditFile.value.file, dir: confEditFile.value.dir,
+      content: confContent.value, reload: true
+    }, { timeout: 120000 })
+    ElMessage.success('已保存并重载')
+    confEditDlg.value = false
+    loadConfigs()
+  } finally {
+    confSaving.value = false
+  }
+}
+
+// ---- 同步系统站点 ----
+const importing = ref(false)
+
+async function importScan() {
+  try {
+    await ElMessageBox.confirm('扫描系统 Nginx 配置目录（conf.d / sites-enabled），把已有站点导入面板管理（面板自建配置跳过）。继续？', '同步系统站点', { type: 'warning' })
+  } catch { return }
+  importing.value = true
+  try {
+    const r: any = await api.post('/sites/import', {}, { timeout: 120000 })
+    ElMessage.success(`导入 ${r?.imported ?? 0} 个站点，已存在 ${r?.exists ?? 0} 个`)
+    load()
+  } finally {
+    importing.value = false
+  }
 }
 
 async function installNginx() {
