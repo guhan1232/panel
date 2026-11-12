@@ -705,7 +705,20 @@ async function uninstall(row: any) {
   } catch {
     removeData = false
   }
-  await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData })
+  // 面板依赖保护：nginx 等被面板反代/网站占用的系统包需二次确认强卸
+  let force = false
+  try {
+    await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData, force })
+  } catch (e: any) {
+    if (!e?.msg?.includes('面板正在使用')) throw e
+    try {
+      await ElMessageBox.confirm(e.msg, '面板依赖警告', { type: 'error', confirmButtonText: '仍要强制卸载', cancelButtonText: '取消' })
+    } catch {
+      return
+    }
+    force = true
+    await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData, force })
+  }
   ElMessage.success('已卸载')
   load()
 }

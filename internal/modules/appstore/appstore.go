@@ -1746,6 +1746,14 @@ func (m *Module) upgrade(c *gin.Context) {
 	core.OK(c, gin.H{"ok": true, "version": req.Version})
 }
 
+func baseNames(files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, filepath.Base(f))
+	}
+	return out
+}
+
 func (m *Module) uninstall(c *gin.Context) {
 	r, ok := m.loadInst(c)
 	if !ok {
@@ -1753,8 +1761,17 @@ func (m *Module) uninstall(c *gin.Context) {
 	}
 	var req struct {
 		RemoveData bool `json:"remove_data"`
+		Force      bool `json:"force"`
 	}
 	_ = c.ShouldBindJSON(&req)
+
+	// 面板依赖保护：卸载 nginx-pkg 会连带卸掉域名反代/网站托管所依赖的 Nginx
+	if r.Kind == "package" && r.AppKey == "nginx-pkg" && !req.Force {
+		if files, _ := filepath.Glob("/etc/nginx/conf.d/hanyuxin_*.conf"); len(files) > 0 {
+			core.Err(c, 400, "面板正在使用 Nginx（域名反代/网站托管，配置: "+strings.Join(baseNames(files), ", ")+"）。卸载将导致面板域名与网站无法访问；确认不受影响可携带 force=1 强制卸载")
+			return
+		}
+	}
 
 	if r.Kind == "package" {
 		_, _, _ = execx.Run("appstore", 60*time.Second, "systemctl", "disable", "--now", r.Binary)
