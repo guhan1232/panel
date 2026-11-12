@@ -243,12 +243,16 @@ func (m *Module) sshInstall(c *gin.Context) {
 
 	// 4. Agent 二进制：本机同目录优先（stdin 流上传），否则目标机 curl 下载
 	if local := localAgentBinary(arch); local != "" {
+		// 覆盖运行中的二进制会 ETXTBSY（Text file busy），先停旧服务
+		_, _, _ = sshRun(client, 30*time.Second, "systemctl stop hanyuxin-agent 2>/dev/null; pkill -f "+agentInstallBin+" 2>/dev/null; true")
 		slog.Info("SSH 接入：上传本机 agent", "local", local, "host", req.Host, "remote", agentInstallBin)
 		if err := sshUpload(client, 10*time.Minute, local, agentInstallBin); err != nil {
 			core.Err(c, 500, "上传 Agent 失败: "+err.Error())
 			return
 		}
 	} else {
+		// 覆盖运行中的二进制会 ETXTBSY，先停旧服务
+		_, _, _ = sshRun(client, 30*time.Second, "systemctl stop hanyuxin-agent 2>/dev/null; pkill -f "+agentInstallBin+" 2>/dev/null; true")
 		dlURL := agentURLDefault(arch)
 		if req.AgentURL != "" {
 			dlURL = req.AgentURL
