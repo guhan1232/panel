@@ -245,7 +245,8 @@ func (s *Service) currentSession(c *gin.Context) (*core.Session, bool) {
 // 命中后缓存进 gin context，同一请求的入口中间件与会话中间件不再重复查库。
 func (s *Service) bearerSession(c *gin.Context, token string) (*core.Session, bool) {
 	if v, ok := c.Get("bearer_session"); ok {
-		if sess, ok := v.(*core.Session); ok {
+		// 缓存值可能是类型化 nil（未命中时写入），断言成功也必须判空
+		if sess, ok := v.(*core.Session); ok && sess != nil {
 			return sess, true
 		}
 		return nil, false
@@ -288,12 +289,14 @@ func (s *Service) applySession(c *gin.Context, sess *core.Session) bool {
 		}
 	}
 
-	// viewer 只读：拦截写方法（退出登录豁免）
+	// viewer 只读：拦截写方法（退出登录与扫码确认/授权为认证动作，一并豁免）
 	if Role(u.Role) == RoleViewer {
 		switch c.Request.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
-			if c.Request.URL.Path != "/api/auth/logout" {
+			switch c.Request.URL.Path {
+			case "/api/auth/logout", "/api/auth/qr/confirm", "/api/auth/qr/approve":
+			default:
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "viewer 为只读角色，无权执行此操作"})
 				return false
 			}
@@ -340,6 +343,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 
 // EntranceRequired API 入口防护：包括登录在内的所有 /api 请求必须先经过安全入口；
 // 持有效开放 API Token 或 APP 会话令牌的客户端豁免入口 Cookie。
+// 出示了 Bearer 凭证但验证失败的请求返回 401（客户端据此回到登录页），未出示凭证的仍 404 隐身。
 func (s *Service) EntranceRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if s.APITokenValid(c) {
@@ -351,6 +355,8 @@ func (s *Service) EntranceRequired() gin.HandlerFunc {
 				c.Next()
 				return
 			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "凭证无效或已过期，请重新登录"})
+			return
 		}
 		if ck, err := c.Cookie(CookieEntrance); err == nil && ck == s.cfg.Server.Entrance {
 			c.Next()
