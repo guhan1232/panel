@@ -50,13 +50,18 @@ func findSoftSource(id string) (SoftwareSource, bool) {
 	return SoftwareSource{}, false
 }
 
-// aptMirrorSource 解析系统包安装所选镜像站；未选择或未收录 apt 仓库时返回 false。
+// aptMirrorSource 解析系统包安装所选镜像站。auto（含空）自动挑选第一个收录 apt
+// 仓库的镜像站（阿里云），使默认安装路径真正走镜像；official/off 返回 false 走官方。
 func aptMirrorSource(srcID string) (SoftwareSource, bool) {
 	switch srcID {
-	case "", "auto", "official", "off":
+	case "official", "off":
 		return SoftwareSource{}, false
 	}
-	s, ok := findSoftSource(srcID)
+	id := srcID
+	if srcID == "" || srcID == "auto" {
+		id = "aliyun"
+	}
+	s, ok := findSoftSource(id)
 	if !ok || s.AptUbuntu == "" {
 		return SoftwareSource{}, false
 	}

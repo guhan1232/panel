@@ -23,12 +23,12 @@
       </div>
     </WmSectionCard>
 
-    <a-row :gutter="16" class="store-grid">
-      <a-col :xs="24" :lg="8">
+    <a-tabs v-model:activeKey="storeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs" :class="{ 'store-tabs--left': wide }">
+      <a-tab-pane key="apps" tab="可安装软件">
         <WmSectionCard title="可安装软件" description="原生二进制与系统包一键部署，下载源可在安装时选择">
           <template #actions><span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span></template>
           <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
-            <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8">
+            <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8" :xl="6">
               <div class="store-card">
                 <div class="store-card__head">
                   <span class="store-card__avatar">{{ (t.name || '?').slice(0, 1) }}</span>
@@ -50,13 +50,13 @@
           </a-row>
           <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词，或把来源筛选切回「全部」。" />
         </WmSectionCard>
-      </a-col>
+      </a-tab-pane>
 
-      <a-col :xs="24" :lg="8">
+      <a-tab-pane key="runtime" tab="运行时环境">
         <WmSectionCard title="运行时环境" description="编程语言多版本共存，安装后软链到 /usr/local/bin">
           <template #actions><span class="wm-text-muted">{{ filteredRuntimes.length }} 个运行时</span></template>
           <a-row :gutter="[12, 12]" v-if="filteredRuntimes.length">
-            <a-col v-for="r in filteredRuntimes" :key="r.key" :xs="24" :sm="12" :lg="8">
+            <a-col v-for="r in filteredRuntimes" :key="r.key" :xs="24" :sm="12" :lg="8" :xl="6">
               <div class="store-card store-card--compact">
                 <div class="store-card__head">
                   <span class="store-card__avatar store-card__avatar--runtime">{{ (r.name || '?').slice(0, 1) }}</span>
@@ -77,9 +77,9 @@
           </a-row>
           <WmEmptyState v-else compact title="没有匹配的运行时" description="更换关键词后再试。" />
         </WmSectionCard>
-      </a-col>
+      </a-tab-pane>
 
-      <a-col :xs="24" :lg="8">
+      <a-tab-pane key="scripts" tab="脚本应用">
         <WmSectionCard title="脚本应用" description="仓库托管的一键安装脚本 + 自定义脚本（上传即用，执行留痕）">
           <template #actions>
             <a-button size="small" type="primary" @click="scriptDlg = true">上传脚本</a-button>
@@ -102,11 +102,10 @@
           <p v-else class="wm-text-muted">还没有上传自定义脚本。仓库清单中的 script 类应用会出现在左侧「可安装软件」里，可直接一键安装。</p>
           <WmNotice tone="neutral" class="wm-mt-4">脚本在面板服务器上以 bash 执行（限时 30 分钟），环境变量注入 PANEL_APP_NAME；安装时可声明参数，以双花括号参数名占位符替换。</WmNotice>
         </WmSectionCard>
-      </a-col>
-    </a-row>
+      </a-tab-pane>
 
-    <a-row :gutter="16" class="store-grid">
-      <a-col :xs="24" :lg="14">
+      <a-tab-pane key="grp-manage" tab="—— 管理 ——" disabled />
+      <a-tab-pane key="installed" tab="已安装 / 管理">
         <WmSectionCard title="已安装" :description="`${apps.length} 个实例，可查看日志或卸载`">
           <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
             <template #renderItem="{ item }">
@@ -123,9 +122,7 @@
           </a-list>
           <WmEmptyState v-else compact title="还没有安装软件" description="从左侧卡片选择软件并点击安装。" />
         </WmSectionCard>
-      </a-col>
 
-      <a-col :xs="24" :lg="10">
         <WmSectionCard title="下载源" description="安装时可为发行包选择来源">
           <a-list :data-source="sources" size="small" class="store-list">
             <template #renderItem="{ item }">
@@ -136,8 +133,8 @@
           </a-list>
           <WmNotice tone="neutral" class="wm-mt-4">镜像站仅收录部分软件，未收录的源会在安装界面置灰；GitHub 类发布走加速通道。</WmNotice>
         </WmSectionCard>
-      </a-col>
-    </a-row>
+      </a-tab-pane>
+    </a-tabs>
 
     <WmSectionCard title="实例明细" description="启动、停止、重启、查看日志与卸载" flush>
       <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从上方选择软件，选择下载源即可安装。">
@@ -320,7 +317,7 @@
 
 <script setup lang="ts">
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch , onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
@@ -335,6 +332,12 @@ const deploying = ref(false)
 const cur = ref<any>(null)
 const instName = ref('')
 const instSource = ref('auto')
+
+const storeTab = ref('apps')
+const wide = ref(typeof window !== 'undefined' && window.innerWidth > 1100)
+const onSsResize = () => { wide.value = window.innerWidth > 1100 }
+onMounted(() => window.addEventListener('resize', onSsResize))
+onUnmounted(() => window.removeEventListener('resize', onSsResize))
 const instVer = ref('')
 const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
@@ -804,5 +807,8 @@ async function savePecl(val: string) {
 .form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
 .form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+.store-tabs--left :deep(.ant-tabs-left > .ant-tabs-nav) { min-width: 168px; }
+.store-tabs--left :deep(.ant-tabs-tab[aria-disabled="true"]) { color: var(--wm-ink-3); font-size: 12px; cursor: default; margin: 10px 0 2px; pointer-events: none; }
+.store-tabs :deep(.ant-tabs-content-holder) { padding-top: 8px; }
 </style>
 
