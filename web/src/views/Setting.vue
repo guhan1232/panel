@@ -217,6 +217,33 @@
       </section>
       <section id="sec-ops" class="setting-group">
         <div class="setting-group__head"><span class="setting-group__bar"></span><h3>系统运维</h3></div>
+      <WmSectionCard title="系统软件源" description="一键把操作系统 apt/dnf 软件源换成国内镜像站并持久生效（自动备份原文件，可恢复）">
+        <template #actions>
+          <a-button size="small" @click="loadSysSrc">刷新</a-button>
+        </template>
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="系统"><span class="wm-mono">{{ sysSrc.os_id }} {{ sysSrc.os_ver }}</span></a-descriptions-item>
+          <a-descriptions-item label="包管理"><span class="wm-mono">{{ sysSrc.pkg }}</span></a-descriptions-item>
+          <a-descriptions-item label="当前源"><span class="wm-mono">{{ sysSrc.current || '—' }}</span></a-descriptions-item>
+          <a-descriptions-item label="原始备份">
+            <WmStatusPill :label="sysSrc.backup ? '已保存（可恢复）' : '未更换过'" :tone="sysSrc.backup ? 'success' : 'default'" :dot="false" />
+          </a-descriptions-item>
+        </a-descriptions>
+        <a-form layout="vertical" style="max-width: 560px" class="wm-mt-4">
+          <a-form-item label="目标镜像站">
+            <a-select v-model:value="sysTarget" style="width: 100%">
+              <a-select-option v-for="t in sysSrc.targets || []" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
+            </a-select>
+            <div class="hint">改写系统源文件（sources.list / DEB822），保留 suite 与组件结构；换源后自动 apt-get update 验证。第三方源（Docker/MySQL/PHP 等 .d 仓库）不受影响。</div>
+          </a-form-item>
+        </a-form>
+        <WmCodeBlock v-if="sysSrcOut" :content="sysSrcOut" label="update 输出尾部" class="wm-mt-4" />
+        <template #footer>
+          <a-button type="primary" size="small" :loading="sysSrcBusy" @click="applySysSrc">一键更换</a-button>
+          <a-button size="small" :disabled="!sysSrc.backup" :loading="sysSrcBusy" @click="restoreSysSrc">恢复原始源</a-button>
+        </template>
+      </WmSectionCard>
+
       <WmSectionCard title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
         <template #actions>
           <a-button size="small" @click="checkUpgrade">检查更新</a-button>
@@ -353,6 +380,48 @@ async function loadAppConfig() {
     Object.assign(appForm, (await api.get('/setting/app-config')) as any)
   } catch {
     /* 保持空值 */
+  }
+}
+
+// ---- 系统软件源（apt/dnf 持久化换源）----
+const sysSrc = reactive<any>({ pkg: 'apt', os_id: '', os_ver: '', current: '', backup: false, targets: [] })
+const sysTarget = ref('aliyun')
+const sysSrcBusy = ref(false)
+const sysSrcOut = ref('')
+
+async function loadSysSrc() {
+  try {
+    Object.assign(sysSrc, (await api.get('/apps/sys-source')) as any)
+    if (sysTarget.value === 'aliyun' && sysSrc.current && !sysSrc.current.includes('aliyun')) {
+      // 默认目标保持 aliyun，用户可自选
+    }
+  } catch { /* 保持空值 */ }
+}
+
+async function applySysSrc() {
+  sysSrcBusy.value = true
+  try {
+    const d: any = await api.post('/apps/sys-source', { target: sysTarget.value }, { timeout: 200000 })
+    sysSrcOut.value = d?.update || ''
+    ElMessage.success('已切换到 ' + (d?.name || sysTarget.value) + ' 源')
+    loadSysSrc()
+  } finally {
+    sysSrcBusy.value = false
+  }
+}
+
+async function restoreSysSrc() {
+  try {
+    await ElMessageBox.confirm('将把系统软件源恢复为最初备份的原始源文件，继续？', '恢复原始源', { type: 'warning' })
+  } catch { return }
+  sysSrcBusy.value = true
+  try {
+    const d: any = await api.post('/apps/sys-source/restore', {}, { timeout: 200000 })
+    sysSrcOut.value = d?.update || ''
+    ElMessage.success('已恢复原始系统源')
+    loadSysSrc()
+  } finally {
+    sysSrcBusy.value = false
   }
 }
 
@@ -712,6 +781,7 @@ onMounted(async () => {
   loadTls()
   loadProxy()
   loadAppConfig()
+  loadSysSrc()
   if (auth.role === 'admin') loadApiToken()
   checkUpgrade().catch(() => {})
 })

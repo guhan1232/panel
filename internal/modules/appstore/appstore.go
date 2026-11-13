@@ -959,6 +959,9 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g.POST("/:id/uninstall", m.uninstall)
 	g.POST("/:id/upgrade", m.upgrade)
 	admin.POST("/apps/source", m.setSource)
+	g.GET("/sys-source", sysSourceGet)
+	g.POST("/sys-source", sysSourceSet)
+	g.POST("/sys-source/restore", sysSourceRestore)
 }
 
 // ---- Docker 镜像源（daemon.json）管理 ----
