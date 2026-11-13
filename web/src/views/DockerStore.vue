@@ -1,39 +1,70 @@
 <template>
-  <div class="wm-page store-page">
-    <a-tabs v-model:activeKey="activeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs" :class="{ 'store-tabs--left': wide }">
+  <div class="wm-page store-page ops-page">
+    <section class="ops-summary">
+      <div class="ops-summary__lead">
+        <span class="ops-summary__icon ops-summary__icon--accent"><ContainerOutlined /></span>
+        <div>
+          <span class="ops-summary__eyebrow">Container operations</span>
+          <h2 class="ops-summary__title">Docker 容器工作台</h2>
+          <p class="ops-summary__desc">从引擎状态、容器启停到镜像、网络、存储卷和 Compose 编排，在一个任务导航内完成日常运维。</p>
+        </div>
+      </div>
+      <div class="ops-summary__metrics">
+        <div class="ops-metric">
+          <span>Docker 引擎</span>
+          <b :class="docker.installed ? (docker.compose ? 'is-success' : 'is-warning') : 'is-warning'">{{ docker.installed ? (docker.compose ? '就绪' : '缺 Compose') : '未安装' }}</b>
+          <small>{{ docker.compose ? 'Compose 可用' : '需要补齐依赖' }}</small>
+        </div>
+        <div class="ops-metric"><span>容器模板</span><b>{{ templates.length }}</b><small>内置 {{ builtinCount }}</small></div>
+        <div class="ops-metric"><span>已部署</span><b>{{ apps.length }}</b><small>Compose 实例</small></div>
+        <div class="ops-metric"><span>运行中</span><b>{{ overview?.running ?? '—' }}</b><small>容器数量</small></div>
+      </div>
+    </section>
+
+    <section class="ops-commandbar">
+      <div class="ops-commandbar__group">
+        <template v-if="activeTab === 'apps'">
+          <a-input v-model:value="keyword" placeholder="搜索容器模板" allow-clear style="width: 230px">
+            <template #prefix><SearchOutlined /></template>
+          </a-input>
+          <a-segmented v-model:value="sourceFilter" size="small" :options="[
+            { value: 'all', label: `全部 ${templates.length}` },
+            { value: 'builtin', label: `内置 ${builtinCount}` },
+            { value: 'remote', label: `镜像源 ${remoteCount}` }
+          ]" />
+        </template>
+        <span v-else class="ops-commandbar__hint">{{ docker.installed ? '按当前视图刷新 Docker 状态与资源列表。' : '安装 Docker 后可管理容器、镜像、网络和存储卷。' }}</span>
+      </div>
+      <div class="ops-commandbar__group ops-commandbar__group--end">
+        <a-button v-if="!docker.installed" data-tone="warning" :loading="installing" @click="installDocker">安装 Docker</a-button>
+        <a-button v-if="docker.installed && docker.compose" :disabled="!docker.installed || !docker.compose" @click="openCustom">自定义 Compose</a-button>
+        <a-button type="primary" @click="refreshCurrent"><ReloadOutlined />刷新</a-button>
+      </div>
+    </section>
+
+    <a-tabs v-model:activeKey="activeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs ops-tabs">
       <!-- 应用商店 -->
-      <a-tab-pane key="apps" tab="应用商店">
-        <WmSectionCard dense class="store-control">
-          <div class="store-control__row">
-            <div class="store-control__stats">
-              <div class="store-stat"><span>Docker</span><b>{{ docker.installed ? (docker.compose ? '就绪' : '缺 compose') : '未安装' }}</b></div>
-              <div class="store-stat"><span>容器模板</span><b>{{ templates.length }}</b></div>
-              <div class="store-stat"><span>已部署</span><b>{{ apps.length }}</b></div>
-            </div>
-            <div class="store-control__actions">
-              <a-input v-model:value="keyword" placeholder="搜索容器模板" allow-clear style="width: 200px">
-                <template #prefix><SearchOutlined /></template>
-              </a-input>
-              <a-segmented v-model:value="sourceFilter" size="small" :options="[
-                { value: 'all', label: `全部 ${templates.length}` },
-                { value: 'builtin', label: `内置 ${builtinCount}` },
-                { value: 'remote', label: `镜像源 ${remoteCount}` }
-              ]" />
-              <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
-            </div>
-          </div>
-        </WmSectionCard>
+      <a-tab-pane key="apps">
+        <template #tab>
+          <span class="ops-tab"><AppstoreOutlined /><span class="ops-tab__label">应用商店</span><span class="ops-tab__count">{{ templates.length }}</span></span>
+        </template>
         <a-row :gutter="16" class="store-grid">
           <a-col :xs="24" :xl="16">
-            <WmSectionCard title="容器模板" description="Docker Compose 编排，部署时可为镜像选择加速源">
-              <template #actions>
-                <span class="wm-text-muted ds-stats">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span>
-                <a-button v-if="!docker.installed" size="small" data-tone="warning" :loading="installing" @click="installDocker">一键安装 Docker</a-button>
-                <a-button type="primary" size="small" :disabled="!docker.installed || !docker.compose" @click="openCustom">部署自定义 Compose</a-button>
-              </template>
-              <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
-                <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8">
-                  <div class="store-card">
+            <section class="ops-panel">
+              <header class="ops-panel__head">
+                <div>
+                  <h3 class="ops-panel__title">容器模板</h3>
+                  <p class="ops-panel__desc">Docker Compose 编排，部署时可为镜像选择加速源。</p>
+                </div>
+                <div class="ops-panel__actions">
+                  <WmStatusPill :label="`显示 ${filteredTemplates.length} / ${templates.length}`" tone="neutral" :dot="false" outline />
+                  <a-button v-if="!docker.installed" size="small" data-tone="warning" :loading="installing" @click="installDocker">安装 Docker</a-button>
+                  <a-button type="primary" size="small" :disabled="!docker.installed || !docker.compose" @click="openCustom">部署 Compose</a-button>
+                </div>
+              </header>
+              <div class="ops-panel__body">
+                <div class="ops-card-grid" v-if="filteredTemplates.length">
+                  <article v-for="t in filteredTemplates" :key="t.key" class="store-card">
                     <div class="store-card__head">
                       <span class="store-card__avatar store-card__avatar--docker">{{ (t.name || '?').slice(0, 1) }}</span>
                       <div class="store-card__title">
@@ -48,43 +79,44 @@
                     <div class="store-card__foot">
                       <a-button type="primary" size="small" :disabled="!docker.installed || !docker.compose" @click="openInstall(t)">部署</a-button>
                     </div>
-                  </div>
-                </a-col>
-              </a-row>
-              <WmEmptyState v-else compact title="没有匹配的模板" description="试试更换关键词，或把来源筛选切回「全部」。" />
-            </WmSectionCard>
+                  </article>
+                </div>
+                <WmEmptyState v-else compact title="没有匹配的模板" description="试试更换关键词，或把来源筛选切回「全部」。" />
+              </div>
+            </section>
           </a-col>
           <a-col :xs="24" :xl="8">
-            <WmSectionCard title="已部署" :description="`${apps.length} 个实例`">
-              <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
-                <template #renderItem="{ item }">
-                  <a-list-item class="store-list__item">
-                    <div class="store-list__meta">
+            <div class="ops-stack">
+              <WmSectionCard title="已部署" :description="`${apps.length} 个实例`">
+                <div v-if="apps.length">
+                  <div class="ops-list-row" v-for="item in apps" :key="item.app.id">
+                    <div class="ops-list-row__meta">
                       <b class="wm-truncate">{{ item.app.name }}</b>
-                      <span class="wm-text-muted wm-truncate">{{ item.app.app_key }}</span>
+                      <span class="wm-truncate">{{ item.app.app_key }}</span>
                     </div>
-                    <template #actions>
-                      <a-button type="link" size="small" @click="viewLogs(item)">日志</a-button>
-                    </template>
-                  </a-list-item>
-                </template>
-              </a-list>
-              <WmEmptyState v-else compact title="还没有部署容器" description="从左侧卡片选择模板并点击部署。" />
-            </WmSectionCard>
-            <WmSectionCard title="运行环境" description="Docker 与镜像加速状态">
-              <div class="store-env">
-                <div><span>引擎</span><WmStatusPill :label="docker.installed ? '已安装' : '未安装'" :tone="docker.installed ? 'success' : 'danger'" /></div>
-                <div><span>compose 插件</span><WmStatusPill :label="docker.compose ? '就绪' : '缺失'" :tone="docker.compose ? 'success' : 'warning'" /></div>
-                <div><span>模板来源</span><b>内置 {{ builtinCount }} · 镜像源 {{ remoteCount }}</b></div>
-              </div>
-              <WmNotice tone="neutral" class="wm-mt-4">镜像加速写入 daemon.json，修改前自动备份；保存后需重启 Docker，运行中的容器会短暂中断。</WmNotice>
-            </WmSectionCard>
+                    <a-button type="link" size="small" @click="viewLogs(item)">日志</a-button>
+                  </div>
+                </div>
+                <WmEmptyState v-else compact title="还没有部署容器" description="从左侧卡片选择模板并点击部署。" />
+              </WmSectionCard>
+              <WmSectionCard title="运行环境" description="Docker 与镜像加速状态">
+                <div class="store-env">
+                  <div><span>引擎</span><WmStatusPill :label="docker.installed ? '已安装' : '未安装'" :tone="docker.installed ? 'success' : 'danger'" /></div>
+                  <div><span>compose 插件</span><WmStatusPill :label="docker.compose ? '就绪' : '缺失'" :tone="docker.compose ? 'success' : 'warning'" /></div>
+                  <div><span>模板来源</span><b>内置 {{ builtinCount }} · 镜像源 {{ remoteCount }}</b></div>
+                </div>
+                <WmNotice tone="neutral" class="wm-mt-4">镜像加速写入 daemon.json，修改前自动备份；保存后需重启 Docker，运行中的容器会短暂中断。</WmNotice>
+              </WmSectionCard>
+            </div>
           </a-col>
         </a-row>
       </a-tab-pane>
 
       <!-- 总览 -->
-      <a-tab-pane key="overview" tab="总览">
+      <a-tab-pane key="overview">
+        <template #tab>
+          <span class="ops-tab"><DashboardOutlined /><span class="ops-tab__label">总览</span></span>
+        </template>
         <WmSectionCard title="Docker 总览" description="引擎版本、资源与容器统计">
           <template #actions><a-button size="small" @click="loadOverview"><ReloadOutlined />刷新</a-button></template>
           <WmEmptyState v-if="overview && overview.installed === false" compact title="Docker 未安装" description="到「应用商店」标签一键安装 Docker 后使用全部功能。" />
@@ -109,7 +141,10 @@
       </a-tab-pane>
 
       <!-- 网站 -->
-      <a-tab-pane key="sites" tab="网站">
+      <a-tab-pane key="sites">
+        <template #tab>
+          <span class="ops-tab"><GlobalOutlined /><span class="ops-tab__label">容器站点</span><span class="ops-tab__count">{{ sitesRows.length }}</span></span>
+        </template>
         <WmSectionCard title="容器站点" description="发布了端口映射的容器（建站类应用一目了然）" flush>
           <template #actions><a-button size="small" @click="loadSites"><ReloadOutlined />刷新</a-button></template>
           <WmEmptyState v-if="sites && sites.installed === false" compact title="Docker 未安装" description="先安装 Docker。" />
@@ -124,7 +159,10 @@
       </a-tab-pane>
 
       <!-- 容器 -->
-      <a-tab-pane key="containers" tab="容器">
+      <a-tab-pane key="containers">
+        <template #tab>
+          <span class="ops-tab"><ContainerOutlined /><span class="ops-tab__label">容器</span><span class="ops-tab__count">{{ ctRows.length }}</span></span>
+        </template>
         <WmSectionCard title="容器列表" description="docker ps -a 全量容器，支持启停/日志/删除" flush>
           <template #actions>
             <a-button size="small" @click="loadContainers"><ReloadOutlined />刷新</a-button>
@@ -135,7 +173,7 @@
             <WmColumn label="镜像" min-width="200"><template #default="{ row }"><span class="wm-mono">{{ row.Image }}</span></template></WmColumn>
             <WmColumn label="状态" width="130"><template #default="{ row }"><WmStatusPill :label="stateLabel(row.State)" :tone="row.State === 'running' ? 'success' : row.State === 'exited' ? 'danger' : 'warning'" :dot="row.State === 'running'" /></template></WmColumn>
             <WmColumn label="端口" min-width="180"><template #default="{ row }"><span class="wm-mono wm-truncate">{{ row.Ports || '-' }}</span></template></WmColumn>
-            <WmColumn label="操作" width="200" fixed="right">
+            <WmColumn label="操作" width="260" fixed="right">
               <template #default="{ row }">
                 <a-button v-if="row.State !== 'running'" type="link" size="small" @click="ctAct(row, 'start')">启动</a-button>
                 <a-button v-else type="link" size="small" @click="ctAct(row, 'stop')">停止</a-button>
@@ -149,8 +187,10 @@
       </a-tab-pane>
 
       <!-- 线上镜像 -->
-      <a-tab-pane key="grp-mirror" tab="—— 镜像 ——" disabled />
-      <a-tab-pane key="remote-images" tab="线上镜像">
+      <a-tab-pane key="remote-images">
+        <template #tab>
+          <span class="ops-tab"><CloudDownloadOutlined /><span class="ops-tab__label">线上镜像</span></span>
+        </template>
         <WmSectionCard title="镜像搜索与拉取" description="Docker Hub 搜索，一键拉取到本地">
           <WmToolbar>
             <a-input v-model:value="searchTerm" placeholder="如 nginx / redis / postgres" style="width: 260px" @keyup.enter="doSearch" />
@@ -169,7 +209,10 @@
       </a-tab-pane>
 
       <!-- 本地镜像 -->
-      <a-tab-pane key="images" tab="本地镜像">
+      <a-tab-pane key="images">
+        <template #tab>
+          <span class="ops-tab"><PictureOutlined /><span class="ops-tab__label">本地镜像</span><span class="ops-tab__count">{{ imgRows.length }}</span></span>
+        </template>
         <WmSectionCard title="镜像列表" description="docker images 全量镜像与清理" flush>
           <template #actions>
             <a-button size="small" data-tone="danger" @click="pruneImages">清理未使用镜像</a-button>
@@ -185,7 +228,10 @@
       </a-tab-pane>
 
       <!-- 容器编排 -->
-      <a-tab-pane key="compose" tab="容器编排">
+      <a-tab-pane key="compose">
+        <template #tab>
+          <span class="ops-tab"><DeploymentUnitOutlined /><span class="ops-tab__label">容器编排</span><span class="ops-tab__count">{{ apps.length }}</span></span>
+        </template>
         <WmSectionCard title="已部署编排" description="Compose 实例：编辑 YAML 即时生效" flush>
           <template #actions>
             <a-button size="small" :disabled="!docker.installed || !docker.compose" @click="openCustom">部署自定义 Compose</a-button>
@@ -218,8 +264,10 @@
       </a-tab-pane>
 
       <!-- 网络 -->
-      <a-tab-pane key="grp-res" tab="—— 资源 ——" disabled />
-      <a-tab-pane key="networks" tab="网络">
+      <a-tab-pane key="networks">
+        <template #tab>
+          <span class="ops-tab"><ClusterOutlined /><span class="ops-tab__label">网络</span><span class="ops-tab__count">{{ netRows.length }}</span></span>
+        </template>
         <WmSectionCard title="Docker 网络" description="bridge/host/none 为内置网络不可删除" flush>
           <template #actions>
             <a-button size="small" type="primary" @click="netDlg = true">创建网络</a-button>
@@ -235,7 +283,10 @@
       </a-tab-pane>
 
       <!-- 存储卷 -->
-      <a-tab-pane key="volumes" tab="存储卷">
+      <a-tab-pane key="volumes">
+        <template #tab>
+          <span class="ops-tab"><HddOutlined /><span class="ops-tab__label">存储卷</span><span class="ops-tab__count">{{ volRows.length }}</span></span>
+        </template>
         <WmSectionCard title="Docker 存储卷" description="数据卷列表与删除（删除前确认容器未使用）" flush>
           <template #actions><a-button size="small" @click="loadVolumes"><ReloadOutlined />刷新</a-button></template>
           <WmTable :data="volRows" v-loading="volLoading" empty-title="没有存储卷" empty-description="">
@@ -247,8 +298,10 @@
       </a-tab-pane>
 
       <!-- 仓库 -->
-      <a-tab-pane key="grp-cfg" tab="—— 配置 ——" disabled />
-      <a-tab-pane key="registry" tab="仓库">
+      <a-tab-pane key="registry">
+        <template #tab>
+          <span class="ops-tab"><DatabaseOutlined /><span class="ops-tab__label">镜像仓库</span></span>
+        </template>
         <WmSectionCard title="镜像仓库登录" description="docker login 私有仓库；凭据由本机 credential store 保存，面板不落库">
           <a-form layout="vertical" style="max-width: 460px">
             <a-form-item label="仓库地址"><a-input v-model:value="regForm.registry" placeholder="如 registry.cn-hangzhou.aliyuncs.com" /></a-form-item>
@@ -263,7 +316,10 @@
       </a-tab-pane>
 
       <!-- 设置 -->
-      <a-tab-pane key="settings" tab="设置">
+      <a-tab-pane key="settings">
+        <template #tab>
+          <span class="ops-tab"><SettingOutlined /><span class="ops-tab__label">镜像源设置</span></span>
+        </template>
         <WmSectionCard title="镜像源配置（daemon.json）" description="加速镜像源与私有仓库白名单">
           <a-form layout="vertical">
             <a-form-item label="加速镜像源">
@@ -361,7 +417,21 @@
 </template>
 
 <script setup lang="ts">
-import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import {
+  AppstoreOutlined,
+  CloudDownloadOutlined,
+  ClusterOutlined,
+  ContainerOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
+  DeploymentUnitOutlined,
+  GlobalOutlined,
+  HddOutlined,
+  PictureOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  SettingOutlined
+} from '@ant-design/icons-vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
@@ -707,7 +777,7 @@ async function load() {
   try {
     docker.value = await api.get('/apps/docker/status')
     templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind === 'compose')
-    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind !== 'native' && a.app.kind !== 'script')
+    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind === 'compose')
     try {
       mirrorsList.value = (await api.get('/apps/mirrors')) as any
     } catch {
@@ -716,6 +786,11 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function refreshCurrent() {
+  await load()
+  await switchTab(activeTab.value)
 }
 
 async function openMirrors() {
@@ -835,28 +910,24 @@ watch(activeTab, switchTab)
 </script>
 
 <style scoped>
-.store-tabs--left :deep(.ant-tabs-left > .ant-tabs-nav) { min-width: 168px; }
-.store-tabs--left :deep(.ant-tabs-tab[aria-disabled="true"]) { color: var(--wm-text-muted, #94a3b8); font-size: 12px; cursor: default; margin: 10px 0 2px; pointer-events: none; }
-.store-tabs :deep(.ant-tabs-content-holder) {
-  padding-top: 8px;
-}
-.store-control {
-  margin-bottom: 12px;
-}
 .ds-stats { font-size: 12px; }
 .ds-dd-icon { margin-left: 4px; font-size: 10px; }
+.store-card__avatar { font-family: var(--wm-font-mono); }
+.store-card__foot { margin-top: auto; }
 
-/* Docker 总览统计块（页面私有，token 化） */
 .ov-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-.ov-stat {
-  padding: 12px 14px;
+  overflow: hidden;
   border: 1px solid var(--wm-line);
   border-radius: var(--wm-r-md);
   background: var(--wm-surface-2);
+}
+.ov-stat {
+  min-width: 0;
+  padding: 14px 16px;
+  border-right: 1px solid var(--wm-line);
+  border-bottom: 1px solid var(--wm-line);
 }
 .ov-stat span {
   display: block;
@@ -869,8 +940,11 @@ watch(activeTab, switchTab)
   font-variant-numeric: tabular-nums;
 }
 
-/* 抽屉表单分区 */
 .form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
 .form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
+
+@media (max-width: 900px) {
+  .ov-stat { border-right: 0; }
+}
 </style>

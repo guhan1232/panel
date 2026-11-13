@@ -26,12 +26,12 @@ const router = createRouter({
         { path: 'nodes', component: () => import('../views/Nodes.vue'), meta: { title: '节点管理', group: '系统运维', desc: 'Agent 反连接入、远程指标与命令执行。' } },
         { path: 'audit', component: () => import('../views/Audit.vue'), meta: { title: '审计日志', group: '面板', desc: '全部写操作留痕，支持方法、路径与操作人筛选。' } },
         { path: 'alerts', component: () => import('../views/Alerts.vue'), meta: { title: '告警策略', group: '系统运维', desc: '阈值规则与触发历史，通知渠道在「通知与存储」配置。' } },
-        { path: 'softstore', component: () => import('../views/SoftStore.vue'), meta: { title: '软件商店', group: '站点与服务', desc: '原生二进制应用部署，下载源可选官方直连、GitHub 加速与各大镜像站。' } },
-        { path: 'dockerstore', component: () => import('../views/DockerStore.vue'), meta: { title: 'Docker 容器管理', group: '站点与服务', desc: '容器模板化部署、启停与 Docker 镜像加速源管理。' } },
+        { path: 'softstore', component: () => import('../views/SoftStore.vue'), meta: { title: '软件商店', group: '站点与服务', desc: '浏览软件模板、安装多版本运行时，并在统一工作区管理已部署实例与下载来源。' } },
+        { path: 'dockerstore', component: () => import('../views/DockerStore.vue'), meta: { title: 'Docker 容器管理', group: '站点与服务', desc: '统一管理容器模板、运行状态、镜像、网络、存储卷和 Compose 编排。' } },
         { path: 'appstore', redirect: '/softstore' },
         { path: 'notify', component: () => import('../views/Notify.vue'), meta: { title: '通知与存储', group: '面板', desc: 'SMTP、IM Webhook 与 S3 兼容对象存储配置。' } },
         { path: 'users', component: () => import('../views/Users.vue'), meta: { title: '用户管理', group: '面板', desc: '三角色 RBAC、禁用与密码重置，含防自锁保护。', admin: true } },
-        { path: 'setting', component: () => import('../views/Setting.vue'), meta: { title: '系统设置', group: '面板', desc: '面板运行信息、入口配置说明与管理员密码修改。' } }
+        { path: 'setting', component: () => import('../views/Setting.vue'), meta: { title: '系统设置', group: '面板', desc: '集中配置账号安全、外部接入、证书、反向代理与面板维护。' } }
       ]
     },
     { path: '/:pathMatch(.*)*', redirect: '/' }

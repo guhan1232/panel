@@ -1,16 +1,26 @@
 <template>
-  <div class="wm-page store-page">
-    <!-- Control strip: search, source filter, quick counters -->
-    <WmSectionCard dense class="store-control">
-      <div class="store-control__row">
-        <div class="store-control__stats">
-          <div class="store-stat"><span>可安装软件</span><b>{{ templates.length }}</b></div>
-          <div class="store-stat"><span>内置模板</span><b>{{ builtinCount }}</b></div>
-          <div class="store-stat"><span>镜像源</span><b>{{ remoteCount }}</b></div>
-          <div class="store-stat"><span>已安装实例</span><b>{{ apps.length }}</b></div>
+  <div class="wm-page store-page ops-page">
+    <section class="ops-summary">
+      <div class="ops-summary__lead">
+        <span class="ops-summary__icon ops-summary__icon--success"><ShopOutlined /></span>
+        <div>
+          <span class="ops-summary__eyebrow">Software workspace</span>
+          <h2 class="ops-summary__title">软件目录、运行时与实例</h2>
+          <p class="ops-summary__desc">从软件模板完成安装，管理多版本运行时，并在同一工作区查看实例状态和下载来源。</p>
         </div>
-        <div class="store-control__actions">
-          <a-input v-model:value="keyword" placeholder="搜索软件或运行时" allow-clear style="width: 220px">
+      </div>
+      <div class="ops-summary__metrics">
+        <div class="ops-metric"><span>软件模板</span><b>{{ templates.length }}</b><small>内置 {{ builtinCount }}</small></div>
+        <div class="ops-metric"><span>镜像模板</span><b>{{ remoteCount }}</b><small>来自远端清单</small></div>
+        <div class="ops-metric"><span>运行时</span><b>{{ runtimes.length }}</b><small>多版本并存</small></div>
+        <div class="ops-metric"><span>已安装</span><b>{{ apps.length }}</b><small>正在纳管</small></div>
+      </div>
+    </section>
+
+    <section class="ops-commandbar">
+      <div class="ops-commandbar__group">
+        <template v-if="storeTab === 'apps' || storeTab === 'runtime'">
+          <a-input v-model:value="keyword" placeholder="搜索软件或运行时" allow-clear style="width: 240px">
             <template #prefix><SearchOutlined /></template>
           </a-input>
           <a-segmented v-model:value="sourceFilter" size="small" :options="[
@@ -18,18 +28,35 @@
             { value: 'builtin', label: `内置 ${builtinCount}` },
             { value: 'remote', label: `镜像源 ${remoteCount}` }
           ]" />
-          <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
-        </div>
+        </template>
+        <span v-else class="ops-commandbar__hint">
+          {{ storeTab === 'scripts' ? '自定义脚本执行后会留痕，可随时查看日志。' : '在实例管理中启动、停止、升级或卸载已安装软件。' }}
+        </span>
       </div>
-    </WmSectionCard>
+      <div class="ops-commandbar__group ops-commandbar__group--end">
+        <span class="ops-commandbar__hint">{{ loading ? '正在同步目录…' : '目录已同步' }}</span>
+        <a-button @click="load"><ReloadOutlined />刷新</a-button>
+      </div>
+    </section>
 
-    <a-tabs v-model:activeKey="storeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs" :class="{ 'store-tabs--left': wide }">
-      <a-tab-pane key="apps" tab="可安装软件">
-        <WmSectionCard title="可安装软件" description="原生二进制与系统包一键部署，下载源可在安装时选择">
-          <template #actions><span class="wm-text-muted">显示 {{ filteredTemplates.length }} / {{ templates.length }}</span></template>
-          <a-row :gutter="[12, 12]" v-if="filteredTemplates.length">
-            <a-col v-for="t in filteredTemplates" :key="t.key" :xs="24" :sm="12" :lg="8" :xl="6">
-              <div class="store-card">
+    <a-tabs v-model:activeKey="storeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs ops-tabs">
+      <a-tab-pane key="apps">
+        <template #tab>
+          <span class="ops-tab"><AppstoreOutlined /><span class="ops-tab__label">可安装软件</span><span class="ops-tab__count">{{ templates.length }}</span></span>
+        </template>
+        <section class="ops-panel">
+          <header class="ops-panel__head">
+            <div>
+              <h3 class="ops-panel__title">软件目录</h3>
+              <p class="ops-panel__desc">原生二进制与系统包一键部署，安装时可选择下载来源。</p>
+            </div>
+            <div class="ops-panel__actions">
+              <WmStatusPill :label="`显示 ${filteredTemplates.length} / ${templates.length}`" tone="neutral" :dot="false" outline />
+            </div>
+          </header>
+          <div class="ops-panel__body">
+            <div class="ops-card-grid" v-if="filteredTemplates.length">
+              <article v-for="t in filteredTemplates" :key="t.key" class="store-card">
                 <div class="store-card__head">
                   <span class="store-card__avatar">{{ (t.name || '?').slice(0, 1) }}</span>
                   <div class="store-card__title">
@@ -45,19 +72,30 @@
                 <div class="store-card__foot">
                   <a-button type="primary" size="small" @click="openInstall(t)">安装</a-button>
                 </div>
-              </div>
-            </a-col>
-          </a-row>
-          <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词，或把来源筛选切回「全部」。" />
-        </WmSectionCard>
+              </article>
+            </div>
+            <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词，或把来源筛选切回「全部」。" />
+          </div>
+        </section>
       </a-tab-pane>
 
-      <a-tab-pane key="runtime" tab="运行时环境">
-        <WmSectionCard title="运行时环境" description="编程语言多版本共存，安装后软链到 /usr/local/bin">
-          <template #actions><span class="wm-text-muted">{{ filteredRuntimes.length }} 个运行时</span></template>
-          <a-row :gutter="[12, 12]" v-if="filteredRuntimes.length">
-            <a-col v-for="r in filteredRuntimes" :key="r.key" :xs="24" :sm="12" :lg="8" :xl="6">
-              <div class="store-card store-card--compact">
+      <a-tab-pane key="runtime">
+        <template #tab>
+          <span class="ops-tab"><CodeOutlined /><span class="ops-tab__label">运行时环境</span><span class="ops-tab__count">{{ runtimes.length }}</span></span>
+        </template>
+        <section class="ops-panel">
+          <header class="ops-panel__head">
+            <div>
+              <h3 class="ops-panel__title">运行时环境</h3>
+              <p class="ops-panel__desc">编程语言多版本共存，安装后可切换默认版本并软链到系统路径。</p>
+            </div>
+            <div class="ops-panel__actions">
+              <WmStatusPill :label="`${filteredRuntimes.length} 个运行时`" tone="neutral" :dot="false" outline />
+            </div>
+          </header>
+          <div class="ops-panel__body">
+            <div class="ops-card-grid" v-if="filteredRuntimes.length">
+              <article v-for="r in filteredRuntimes" :key="r.key" class="store-card store-card--compact">
                 <div class="store-card__head">
                   <span class="store-card__avatar store-card__avatar--runtime">{{ (r.name || '?').slice(0, 1) }}</span>
                   <div class="store-card__title">
@@ -72,14 +110,17 @@
                 <div class="store-card__foot">
                   <a-button size="small" @click="openRt(r)">安装 / 管理版本</a-button>
                 </div>
-              </div>
-            </a-col>
-          </a-row>
-          <WmEmptyState v-else compact title="没有匹配的运行时" description="更换关键词后再试。" />
-        </WmSectionCard>
+              </article>
+            </div>
+            <WmEmptyState v-else compact title="没有匹配的运行时" description="更换关键词后再试。" />
+          </div>
+        </section>
       </a-tab-pane>
 
-      <a-tab-pane key="scripts" tab="脚本应用">
+      <a-tab-pane key="scripts">
+        <template #tab>
+          <span class="ops-tab"><FileTextOutlined /><span class="ops-tab__label">脚本应用</span><span class="ops-tab__count">{{ customScripts.length }}</span></span>
+        </template>
         <WmSectionCard title="脚本应用" description="仓库托管的一键安装脚本 + 自定义脚本（上传即用，执行留痕）">
           <template #actions>
             <a-button size="small" type="primary" @click="scriptDlg = true">上传脚本</a-button>
@@ -104,66 +145,64 @@
         </WmSectionCard>
       </a-tab-pane>
 
-      <a-tab-pane key="grp-manage" tab="—— 管理 ——" disabled />
-      <a-tab-pane key="installed" tab="已安装 / 管理">
-        <WmSectionCard title="已安装" :description="`${apps.length} 个实例，可查看日志或卸载`">
-          <a-list v-if="apps.length" :data-source="apps" size="small" class="store-list">
-            <template #renderItem="{ item }">
-              <a-list-item class="store-list__item">
-                <div class="store-list__meta">
-                  <b class="wm-truncate">{{ item.app.name }}</b>
-                  <span class="wm-text-muted wm-truncate">{{ item.app.app_key }}</span>
-                </div>
-                <template #actions>
-                  <a-button type="link" size="small" @click="viewLogs(item)">日志</a-button>
+      <a-tab-pane key="installed">
+        <template #tab>
+          <span class="ops-tab"><DownloadOutlined /><span class="ops-tab__label">已安装 / 管理</span><span class="ops-tab__count">{{ apps.length }}</span></span>
+        </template>
+        <div class="ops-stack">
+          <WmSectionCard title="实例管理" description="启动、停止、重启、升级、查看日志或卸载已安装软件" flush>
+            <template #actions>
+              <WmStatusPill :label="`${apps.length} 个实例`" tone="neutral" :dot="false" outline />
+            </template>
+            <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从「可安装软件」选择模板，选择下载源即可安装。">
+              <WmColumn label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></WmColumn>
+              <WmColumn label="软件" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></WmColumn>
+              <WmColumn label="形态" width="90">
+                <template #default="{ row }"><WmStatusPill :label="kindLabel(row.app.kind)" :tone="row.app.kind === 'package' ? 'success' : row.app.kind === 'native' ? 'warning' : 'info'" :dot="false" outline /></template>
+              </WmColumn>
+              <WmColumn label="状态" min-width="200"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></WmColumn>
+              <WmColumn label="安装时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></WmColumn>
+              <WmColumn label="操作" width="220" fixed="right">
+                <template #default="{ row }">
+                  <a-dropdown v-if="!row.app.tool">
+                    <a-button type="link" size="small">操作<span class="wm-icon ss-dd-icon"><ArrowDown /></span></a-button>
+                    <template #overlay>
+                      <a-menu>
+                        <a-menu-item key="start" @click="act(row, 'start')">启动</a-menu-item>
+                        <a-menu-item key="stop" @click="act(row, 'stop')">停止</a-menu-item>
+                        <a-menu-item key="restart" @click="act(row, 'restart')">重启</a-menu-item>
+                      </a-menu>
+                    </template>
+                  </a-dropdown>
+                  <a-button type="link" size="small" @click="openUpgrade(row)">升级</a-button>
+                  <a-button type="link" size="small" @click="viewLogs(row)">日志</a-button>
+                  <a-button type="link" size="small" danger @click="uninstall(row)">卸载</a-button>
                 </template>
-              </a-list-item>
-            </template>
-          </a-list>
-          <WmEmptyState v-else compact title="还没有安装软件" description="从左侧卡片选择软件并点击安装。" />
-        </WmSectionCard>
+              </WmColumn>
+            </WmTable>
+          </WmSectionCard>
 
-        <WmSectionCard title="下载源" description="安装时可为发行包选择来源">
-          <a-list :data-source="sources" size="small" class="store-list">
-            <template #renderItem="{ item }">
-              <a-list-item class="store-list__item">
-                <div class="store-list__meta"><b class="wm-truncate">{{ item.name }}</b></div>
-              </a-list-item>
-            </template>
-          </a-list>
-          <WmNotice tone="neutral" class="wm-mt-4">镜像站仅收录部分软件，未收录的源会在安装界面置灰；GitHub 类发布走加速通道。</WmNotice>
-        </WmSectionCard>
+          <div class="ops-split">
+            <WmSectionCard title="下载源" description="安装时可为发行包选择来源">
+              <div class="ops-list-row" v-for="item in sources" :key="item.id || item.name">
+                <div class="ops-list-row__meta">
+                  <b>{{ item.name }}</b>
+                  <span>{{ item.id || '下载通道' }}</span>
+                </div>
+                <WmStatusPill label="可用" tone="success" :dot="false" outline />
+              </div>
+              <WmEmptyState v-if="!sources.length" compact title="暂无下载源" />
+            </WmSectionCard>
+            <WmSectionCard title="来源策略" description="安装器如何选择下载通道">
+              <div class="ops-stack">
+                <WmNotice tone="neutral">镜像站仅收录部分软件，未收录的源会在安装界面置灰；GitHub 类发布走加速通道。</WmNotice>
+                <WmNotice tone="info">安装前可以先确认版本与来源，安装完成后可在实例管理中升级或查看运行状态。</WmNotice>
+              </div>
+            </WmSectionCard>
+          </div>
+        </div>
       </a-tab-pane>
     </a-tabs>
-
-    <WmSectionCard title="实例明细" description="启动、停止、重启、查看日志与卸载" flush>
-      <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从上方选择软件，选择下载源即可安装。">
-        <WmColumn label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></WmColumn>
-        <WmColumn label="软件" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></WmColumn>
-        <WmColumn label="形态" width="90">
-          <template #default="{ row }"><WmStatusPill :label="kindLabel(row.app.kind)" :tone="row.app.kind === 'package' ? 'success' : row.app.kind === 'native' ? 'warning' : 'info'" :dot="false" outline /></template>
-        </WmColumn>
-        <WmColumn label="状态" min-width="200"><template #default="{ row }"><span class="mono">{{ row.status }}</span></template></WmColumn>
-        <WmColumn label="安装时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.app.created_at) }}</span></template></WmColumn>
-        <WmColumn label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <a-dropdown v-if="!row.app.tool">
-              <a-button type="link" size="small">操作<span class="wm-icon ss-dd-icon"><ArrowDown /></span></a-button>
-              <template #overlay>
-                <a-menu>
-                  <a-menu-item key="start" @click="act(row, 'start')">启动</a-menu-item>
-                  <a-menu-item key="stop" @click="act(row, 'stop')">停止</a-menu-item>
-                  <a-menu-item key="restart" @click="act(row, 'restart')">重启</a-menu-item>
-                </a-menu>
-              </template>
-            </a-dropdown>
-            <a-button type="link" size="small" @click="openUpgrade(row)">升级</a-button>
-            <a-button type="link" size="small" @click="viewLogs(row)">日志</a-button>
-            <a-button type="link" size="small" danger @click="uninstall(row)">卸载</a-button>
-          </template>
-        </WmColumn>
-      </WmTable>
-    </WmSectionCard>
 
     <a-drawer v-model:open="rtDlg" width="62%" :title="`运行时版本 - ${rtLang?.name || ''}`">
       <WmToolbar>
@@ -316,7 +355,15 @@
 </template>
 
 <script setup lang="ts">
-import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import {
+  AppstoreOutlined,
+  CodeOutlined,
+  DownloadOutlined,
+  FileTextOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  ShopOutlined
+} from '@ant-design/icons-vue'
 import { computed, onMounted, reactive, ref, watch , onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
@@ -800,15 +847,20 @@ async function savePecl(val: string) {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 8px;
+  margin: 0 0 var(--wm-s3);
 }
 
 /* 抽屉表单分区 */
 .form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
 .form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
-.store-tabs--left :deep(.ant-tabs-left > .ant-tabs-nav) { min-width: 168px; }
-.store-tabs--left :deep(.ant-tabs-tab[aria-disabled="true"]) { color: var(--wm-ink-3); font-size: 12px; cursor: default; margin: 10px 0 2px; pointer-events: none; }
-.store-tabs :deep(.ant-tabs-content-holder) { padding-top: 8px; }
+
+.store-card__avatar { font-family: var(--wm-font-mono); }
+.store-card__desc { min-height: 38px; }
+.store-card__foot { margin-top: auto; }
+
+@media (max-width: 600px) {
+  .store-card__desc { min-height: 0; }
+}
 </style>
 

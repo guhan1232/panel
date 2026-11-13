@@ -1,16 +1,60 @@
 <template>
-  <div class="wm-page setting-page">
+  <div class="wm-page setting-page ops-page">
+    <section class="ops-summary">
+      <div class="ops-summary__lead">
+        <span class="ops-summary__icon"><SettingOutlined /></span>
+        <div>
+          <span class="ops-summary__eyebrow">Panel configuration</span>
+          <h2 class="ops-summary__title">面板配置与安全状态</h2>
+          <p class="ops-summary__desc">账号凭据、外部接入、证书和运维工具集中管理，变更立即写入当前面板。</p>
+        </div>
+      </div>
+      <div class="ops-summary__metrics">
+        <div class="ops-metric">
+          <span>当前账号</span>
+          <b>{{ auth.username || '未登录' }}</b>
+          <small>{{ sessions.length }} 个在线会话</small>
+        </div>
+        <div class="ops-metric">
+          <span>开放 API</span>
+          <b :class="apiToken.enabled ? 'is-success' : 'is-muted'">{{ apiToken.enabled ? '已启用' : '未启用' }}</b>
+          <small>{{ apiToken.readonly ? '只读权限' : '按 Token 控制' }}</small>
+        </div>
+        <div class="ops-metric">
+          <span>传输安全</span>
+          <b :class="tls.tls ? 'is-success' : 'is-warning'">{{ tls.tls ? 'HTTPS' : 'HTTP' }}</b>
+          <small>{{ tls.has_ca ? '中间 CA 已保存' : '暂无托管 CA' }}</small>
+        </div>
+        <div class="ops-metric">
+          <span>面板版本</span>
+          <b :class="upInfo.has_update ? 'is-warning' : 'is-success'">{{ upInfo.has_update ? '可升级' : (upInfo.current || '检查中') }}</b>
+          <small>{{ upInfo.has_update ? `最新 ${upInfo.remote || '—'}` : '升级通道已连接' }}</small>
+        </div>
+      </div>
+    </section>
+
     <div class="setting-shell">
       <aside class="setting-nav">
-        <div class="setting-nav__title">系统设置</div>
+        <div class="setting-nav__head">
+          <span class="setting-nav__eyebrow">配置导航</span>
+          <strong>4 个配置域</strong>
+        </div>
         <a v-for="g in groups" :key="g.id" :href="'#' + g.id" class="setting-nav__item" :class="{ 'setting-nav__item--active': activeGroup === g.id }" @click.prevent="jumpTo(g.id)">
-          <span class="setting-nav__dot"></span>{{ g.label }}
+          <span class="setting-nav__icon"><component :is="g.icon" /></span>
+          <span class="setting-nav__label">{{ g.label }}</span>
         </a>
+        <div class="setting-nav__foot">
+          <ShieldOutlined />
+          <span>敏感操作会要求二次确认</span>
+        </div>
       </aside>
       <div class="setting-main">
       <section id="sec-account" class="setting-group">
-        <div class="setting-group__head"><span class="setting-group__bar"></span><h3>账号与安全</h3></div>
-      <WmSectionCard title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
+        <div class="setting-group__head">
+          <div><span class="setting-group__kicker">IDENTITY</span><h3>账号与安全</h3><p>管理员凭据、二次验证与设备会话。</p></div>
+          <WmStatusPill label="核心配置" tone="info" :dot="false" outline />
+        </div>
+      <WmSectionCard class="setting-card setting-card--half" title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
         <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="当前用户名"><span class="wm-mono"><b>{{ auth.username }}</b></span></a-form-item>
           <a-form-item label="新用户名" style="margin-bottom: 0"><a-input v-model:value="newUsername" placeholder="3-64 位，字母/数字/_/-" /></a-form-item>
@@ -20,7 +64,7 @@
           <a-button type="primary" :loading="savingName" @click="saveUsername">保存用户名</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效" marker dense>
+      <WmSectionCard class="setting-card setting-card--half" title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效">
         <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="原密码"><a-input-password v-model:value="form.old" /></a-form-item>
           <a-form-item label="新密码"><a-input-password v-model:value="form.n1" placeholder="至少 8 位" /></a-form-item>
@@ -31,7 +75,7 @@
         </template>
       </WmSectionCard>
 
-      <WmSectionCard title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
+      <WmSectionCard class="setting-card setting-card--half" title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
         <template #actions>
           <a-button size="small" type="primary" @click="setup2fa">开始绑定</a-button>
           <a-button size="small" data-tone="danger" @click="disable2fa">解除绑定</a-button>
@@ -45,7 +89,7 @@
         </div>
         <p v-else class="wm-text-muted">尚未绑定或已解除。</p>
       </WmSectionCard>
-      <WmSectionCard title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
+      <WmSectionCard class="setting-card setting-card--full" title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
           <a-button size="small" data-tone="danger" :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
           <a-button size="small" @click="loadSessions">刷新</a-button>
@@ -70,8 +114,11 @@
       </WmSectionCard>
       </section>
       <section id="sec-access" class="setting-group">
-        <div class="setting-group__head"><span class="setting-group__bar"></span><h3>接入与扩展</h3></div>
-      <WmSectionCard title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板" marker>
+        <div class="setting-group__head">
+          <div><span class="setting-group__kicker">INTEGRATIONS</span><h3>接入与扩展</h3><p>面向脚本、AI 客户端与移动端的连接配置。</p></div>
+          <WmStatusPill :label="apiToken.enabled ? 'API 已启用' : 'API 未启用'" :tone="apiToken.enabled ? 'success' : 'neutral'" :dot="false" outline />
+        </div>
+      <WmSectionCard class="setting-card setting-card--full" title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板">
         <template #actions>
           <a-button size="small" @click="loadApiToken">刷新</a-button>
         </template>
@@ -123,7 +170,7 @@
           <a-button size="small" type="primary" :loading="permSaving" @click="savePerm">保存权限</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
+      <WmSectionCard class="setting-card setting-card--half" title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
         <a-form layout="vertical" style="max-width: 560px">
           <a-form-item label="面板对外地址">
             <a-input v-model:value="appForm.public_url" placeholder="留空按反代头/请求头自动推导，如 https://panel.hanyuxin.cn" />
@@ -144,8 +191,11 @@
       </WmSectionCard>
       </section>
       <section id="sec-network" class="setting-group">
-        <div class="setting-group__head"><span class="setting-group__bar"></span><h3>网络与证书</h3></div>
-      <WmSectionCard title="HTTPS 加密连接" description="中间 CA 签发（推荐）/ Let's Encrypt 公共免费 CA（域名）/ 纯自签 10 年兜底" marker>
+        <div class="setting-group__head">
+          <div><span class="setting-group__kicker">NETWORK</span><h3>网络与证书</h3><p>加密访问、证书签发和域名反向代理。</p></div>
+          <WmStatusPill :label="tls.tls ? 'HTTPS 已启用' : 'HTTP 明文'" :tone="tls.tls ? 'success' : 'warning'" :dot="false" outline />
+        </div>
+      <WmSectionCard class="setting-card setting-card--half" title="HTTPS 加密连接" description="中间 CA 签发（推荐）/ Let's Encrypt 公共免费 CA（域名）/ 纯自签 10 年兜底">
         <template #actions>
           <a-button size="small" @click="loadTls">刷新</a-button>
         </template>
@@ -156,7 +206,7 @@
           <a-descriptions-item label="证书主体"><span class="wm-mono">{{ tls.cert_subject || '—' }}</span></a-descriptions-item>
           <a-descriptions-item label="有效期至"><span class="wm-mono">{{ tls.cert_not_after || '—' }}</span></a-descriptions-item>
           <a-descriptions-item label="中间 CA">
-            <WmStatusPill :label="tls.has_ca ? '已保存（可复用续签）' : '未上传'" :tone="tls.has_ca ? 'success' : 'default'" :dot="false" />
+            <WmStatusPill :label="tls.has_ca ? '已保存（可复用续签）' : '未上传'" :tone="tls.has_ca ? 'success' : 'neutral'" :dot="false" />
           </a-descriptions-item>
         </a-descriptions>
         <a-form layout="vertical" style="max-width: 560px" class="wm-mt-4">
@@ -170,7 +220,7 @@
           <a-button :loading="tlsBusy === 'self'" @click="applyTls('self')">纯自签兜底（10 年）</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard title="域名反代访问（可选）" description="安装 NGINX 后可用自有域名反代面板并挂证书，域名 HTTPS 访问" marker>
+      <WmSectionCard class="setting-card setting-card--full" title="域名反代访问（可选）" description="安装 NGINX 后可用自有域名反代面板并挂证书，域名 HTTPS 访问">
         <template #actions>
           <a-button size="small" @click="loadProxy">刷新</a-button>
         </template>
@@ -181,7 +231,7 @@
           </a-descriptions-item>
           <a-descriptions-item v-if="proxySite" label="反代站点">
             <span class="wm-mono">{{ proxySite.site?.domains }} → {{ proxySite.site?.upstream }}</span>
-            <WmStatusPill :label="proxySite.site?.enabled ? '启用中' : '已停用'" :tone="proxySite.site?.enabled ? 'success' : 'default'" :dot="false" />
+            <WmStatusPill :label="proxySite.site?.enabled ? '启用中' : '已停用'" :tone="proxySite.site?.enabled ? 'success' : 'neutral'" :dot="false" />
             <a-space :size="4" style="margin-left:12px">
               <a-switch :checked="proxySite.site?.enabled" size="small" @change="toggleProxy" />
               <a-button size="small" @click="viewProxyLog('access')">访问日志</a-button>
@@ -216,8 +266,11 @@
       </WmSectionCard>
       </section>
       <section id="sec-ops" class="setting-group">
-        <div class="setting-group__head"><span class="setting-group__bar"></span><h3>系统运维</h3></div>
-      <WmSectionCard title="系统软件源" description="一键把操作系统 apt/dnf 软件源换成国内镜像站并持久生效（自动备份原文件，可恢复）">
+        <div class="setting-group__head">
+          <div><span class="setting-group__kicker">MAINTENANCE</span><h3>系统运维</h3><p>软件源、版本升级与面板数据保全。</p></div>
+          <WmStatusPill :label="upInfo.has_update ? '有新版本' : '维护工具'" :tone="upInfo.has_update ? 'warning' : 'neutral'" :dot="false" outline />
+        </div>
+      <WmSectionCard class="setting-card setting-card--half" title="系统软件源" description="一键把操作系统 apt/dnf 软件源换成国内镜像站并持久生效（自动备份原文件，可恢复）">
         <template #actions>
           <a-button size="small" @click="loadSysSrc">刷新</a-button>
         </template>
@@ -226,7 +279,7 @@
           <a-descriptions-item label="包管理"><span class="wm-mono">{{ sysSrc.pkg }}</span></a-descriptions-item>
           <a-descriptions-item label="当前源"><span class="wm-mono">{{ sysSrc.current || '—' }}</span></a-descriptions-item>
           <a-descriptions-item label="原始备份">
-            <WmStatusPill :label="sysSrc.backup ? '已保存（可恢复）' : '未更换过'" :tone="sysSrc.backup ? 'success' : 'default'" :dot="false" />
+            <WmStatusPill :label="sysSrc.backup ? '已保存（可恢复）' : '未更换过'" :tone="sysSrc.backup ? 'success' : 'neutral'" :dot="false" />
           </a-descriptions-item>
         </a-descriptions>
         <a-form layout="vertical" style="max-width: 560px" class="wm-mt-4">
@@ -244,7 +297,7 @@
         </template>
       </WmSectionCard>
 
-      <WmSectionCard title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
+      <WmSectionCard class="setting-card setting-card--half" title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
         <template #actions>
           <a-button size="small" @click="checkUpgrade">检查更新</a-button>
           <a-button v-if="upInfo.has_update" size="small" type="primary" :loading="upApplying" @click="applyUpgrade">升级到 {{ upInfo.remote }}</a-button>
@@ -260,7 +313,7 @@
         </div>
         <WmNotice tone="warning" class="wm-mt-4">升级会自动备份当前二进制为 *.bak 并重启服务，重启期间面板短暂不可访问。</WmNotice>
       </WmSectionCard>
-      <WmSectionCard title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
+      <WmSectionCard class="setting-card setting-card--full" title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
         <template #actions>
           <a-button size="small" type="primary" @click="downloadBackup">导出备份包</a-button>
           <a-button size="small" @click="restoreDlg = true; restoreFile = null">导入恢复</a-button>
@@ -319,6 +372,14 @@
 </template>
 
 <script setup lang="ts">
+import {
+  ApiOutlined,
+  GlobalOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+  ToolOutlined,
+  UserOutlined
+} from '@ant-design/icons-vue'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import api from '../api'
@@ -328,12 +389,13 @@ const auth = useAuth()
 
 // ---- 设置页锚点导航（分组滚动定位 + 高亮）----
 const groups = [
-  { id: 'sec-account', label: '账号与安全' },
-  { id: 'sec-access', label: '接入与扩展' },
-  { id: 'sec-network', label: '网络与证书' },
-  { id: 'sec-ops', label: '系统运维' },
+  { id: 'sec-account', label: '账号与安全', icon: UserOutlined },
+  { id: 'sec-access', label: '接入与扩展', icon: ApiOutlined },
+  { id: 'sec-network', label: '网络与证书', icon: GlobalOutlined },
+  { id: 'sec-ops', label: '系统运维', icon: ToolOutlined },
 ]
 const activeGroup = ref('sec-account')
+let settingScrollHost: HTMLElement | Window = window
 function jumpTo(id: string) {
   activeGroup.value = id
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -343,8 +405,12 @@ function onSettingScroll() {
   const cur = marks.filter(m => m.top <= 140).pop() || marks[0]
   if (cur) activeGroup.value = cur.id
 }
-onMounted(() => window.addEventListener('scroll', onSettingScroll, { passive: true }))
-onUnmounted(() => window.removeEventListener('scroll', onSettingScroll))
+onMounted(() => {
+  settingScrollHost = (document.querySelector('.wm-content') as HTMLElement | null) || window
+  settingScrollHost.addEventListener('scroll', onSettingScroll, { passive: true })
+  onSettingScroll()
+})
+onUnmounted(() => settingScrollHost.removeEventListener('scroll', onSettingScroll))
 const info = reactive<any>({})
 const form = reactive<any>({ old: '', n1: '', n2: '' })
 const saving = ref(false)
@@ -890,22 +956,128 @@ async function clearApiToken() {
 </script>
 
 <style scoped>
-/* 卡片 footer 内的说明文字靠左，按钮保持靠右 */
 .st-foot-note { margin-right: auto; font-size: 12px; align-self: center; }
->
-.setting-shell { display: flex; gap: 28px; align-items: flex-start; }
-.setting-nav { position: sticky; top: 12px; width: 188px; flex-shrink: 0; padding: 10px 8px; background: var(--wm-surface, #fff); border: 1px solid var(--wm-border, #e5e7eb); border-radius: 12px; }
-.setting-nav__title { font-weight: 700; font-size: 14px; padding: 6px 10px 10px; border-bottom: 1px solid var(--wm-border, #e5e7eb); margin-bottom: 6px; }
-.setting-nav__item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; color: var(--wm-text-muted, #6b7280); cursor: pointer; transition: all .15s; }
-.setting-nav__item:hover { background: var(--wm-surface-variant, #f3f4f6); color: var(--wm-text, #111827); }
-.setting-nav__item--active { background: var(--wm-primary-weak, #e8f7f4); color: var(--wm-primary, #14b8a6); font-weight: 600; }
-.setting-nav__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
-.setting-nav__item--active .setting-nav__dot { opacity: 1; }
-.setting-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 26px; }
-.setting-group { scroll-margin-top: 16px; display: flex; flex-direction: column; gap: 14px; }
-.setting-group__head { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; }
-.setting-group__bar { width: 4px; height: 15px; border-radius: 2px; background: var(--wm-primary, #14b8a6); }
-.setting-group__head h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .5px; }
-@media (max-width: 1100px) { .setting-nav { display: none; } }
+
+.setting-shell {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: var(--wm-s5);
+  align-items: start;
+}
+.setting-nav {
+  position: sticky;
+  top: 16px;
+  padding: 8px;
+  border: 1px solid var(--wm-line);
+  border-radius: var(--wm-r-lg);
+  background: var(--wm-surface);
+  box-shadow: var(--wm-shadow-1);
+}
+.setting-nav__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 12px;
+  border-bottom: 1px solid var(--wm-line);
+  margin-bottom: 4px;
+}
+.setting-nav__eyebrow {
+  color: var(--wm-ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.setting-nav__head strong { font-size: 13px; font-weight: 600; }
+.setting-nav__item {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--wm-r-md);
+  color: var(--wm-ink-2);
+  font-size: 12.5px;
+  transition: background var(--wm-dur-fast), color var(--wm-dur-fast);
+}
+.setting-nav__item:hover { background: var(--wm-surface-3); color: var(--wm-ink); }
+.setting-nav__item--active { background: var(--wm-surface-3); color: var(--wm-ink); font-weight: 600; }
+.setting-nav__icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--wm-r-sm);
+  color: var(--wm-ink-3);
+}
+.setting-nav__item--active .setting-nav__icon { background: var(--wm-surface); color: var(--wm-ink); box-shadow: var(--wm-shadow-1); }
+.setting-nav__label { min-width: 0; flex: 1; }
+.setting-nav__foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--wm-line);
+  color: var(--wm-ink-3);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+.setting-nav__foot .anticon { margin-top: 2px; flex: 0 0 auto; }
+
+.setting-main { min-width: 0; display: flex; flex-direction: column; gap: var(--wm-s8); }
+.setting-group {
+  scroll-margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--wm-s4);
+}
+.setting-group__head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--wm-s4);
+  padding: 0 2px var(--wm-s2);
+  border-bottom: 1px solid var(--wm-line);
+}
+.setting-group__kicker {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--wm-ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.setting-group__head h3 { margin: 0; font-size: 17px; font-weight: 650; line-height: 1.45; }
+.setting-group__head p { margin-top: 2px; color: var(--wm-ink-3); font-size: 12px; line-height: 1.65; }
+.setting-card--full { grid-column: 1 / -1; }
+.setting-card :deep(.wm-section__body) { display: flex; flex-direction: column; gap: var(--wm-s3); }
+.setting-card :deep(.wm-section__foot) { justify-content: flex-start; flex-wrap: wrap; }
+.setting-card :deep(.ant-form-item:last-child) { margin-bottom: 0; }
+.setting-card :deep(.ant-descriptions) { overflow: hidden; border-radius: var(--wm-r-md); }
+.setting-card :deep(.ant-descriptions-item-label) { width: 132px; color: var(--wm-ink-3); }
+
+@media (max-width: 1180px) {
+  .setting-shell { grid-template-columns: minmax(0, 1fr); gap: var(--wm-s3); }
+  .setting-nav {
+    position: static;
+    display: flex;
+    gap: 4px;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .setting-nav::-webkit-scrollbar { display: none; }
+  .setting-nav__head, .setting-nav__foot { display: none; }
+  .setting-nav__item { flex: 0 0 auto; min-height: 40px; white-space: nowrap; }
+}
+@media (max-width: 980px) {
+  .setting-group { grid-template-columns: minmax(0, 1fr); }
+  .setting-card--full { grid-column: auto; }
+  .setting-group__head { align-items: flex-start; flex-direction: column; gap: var(--wm-s2); }
+  .setting-main { gap: var(--wm-s6); }
+}
 </style>
 
