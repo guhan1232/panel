@@ -1,38 +1,45 @@
-// MeScreens.kt —— 「我的」（服务器信息/设备管理/生物识别锁/检查更新/退出）与消息中心。
+// MeScreens.kt —— 「我的」（系统设置：服务器信息/设备管理/生物识别锁/检查更新/退出）与消息中心。
 package cn.hanyuxin.panel.ui
 
 import android.content.Intent
 import android.net.Uri
 import androidx.biometric.BiometricManager
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +66,15 @@ import cn.hanyuxin.panel.data.SessionItem
 import cn.hanyuxin.panel.data.UpdateInfo
 import cn.hanyuxin.panel.data.clientFor
 import kotlinx.coroutines.launch
+
+// 语义色（与 Docker 页状态色共用一套）。
+internal val OkGreen = Color(0xFF22C55E)
+internal val IdleGray = Color(0xFF9CA3AF)
+internal val SkyBlue = Color(0xFF38BDF8)
+internal val Amber = Color(0xFFF59E0B)
+internal val Violet = Color(0xFFA78BFA)
+internal val Emerald = Color(0xFF34D399)
+internal val Slate = Color(0xFF94A3B8)
 
 @Composable
 fun MeScreen(server: ServerInfo) {
@@ -75,61 +92,143 @@ fun MeScreen(server: ServerInfo) {
 
     fun toast(s: String) = android.widget.Toast.makeText(ctx, s, android.widget.Toast.LENGTH_SHORT).show()
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("我的", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-
-        PanelCard {
-            Text(server.name.ifBlank { server.host }, fontWeight = FontWeight.SemiBold)
-            Text(server.host, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            info?.let { KeyValue("面板版本", it.version, mono = true) }
-            info?.let { KeyValue("服务端", "${it.os}/${it.arch} · ${if (it.tls) "HTTPS" else "HTTP"}") }
+    fun toggleBio() {
+        val bm = BiometricManager.from(ctx)
+        val can = bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+        if (can != BiometricManager.BIOMETRIC_SUCCESS) {
+            toast("设备未设置锁屏密码或指纹，无法开启")
+        } else {
+            bio = !bio
+            ServerStore.setBioEnabled(bio)
+            toast(if (bio) "生物识别锁已开启" else "生物识别锁已关闭")
         }
+    }
 
-        MenuRow(Icons.Outlined.Notifications, "消息中心", "告警规则触发事件") { Router.push(Router.Route.Alerts(server) { Router.pop() }) }
-        MenuRow(Icons.Outlined.Devices, "登录设备", "查看与踢出在线会话") { showDevices = true }
-        MenuRow(Icons.Outlined.SystemUpdate, "检查更新", "APP 自更新") {
-            checking = true
-            scope.launch {
-                apiGuard(onError = { toast(it.message ?: "检查失败") }) { Api.checkUpdate(server) }?.let { update = it }
-                checking = false
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth().clickable {
-                val bm = BiometricManager.from(ctx)
-                val can = bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-                if (can != BiometricManager.BIOMETRIC_SUCCESS) {
-                    toast("设备未设置锁屏密码或指纹，无法开启")
-                } else {
-                    bio = !bio
-                    ServerStore.setBioEnabled(bio)
-                    toast(if (bio) "生物识别锁已开启" else "生物识别锁已关闭")
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // 品牌渐变头卡：当前面板 + 版本/系统/协议徽标
+        item {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(PanelBrandBrush, RoundedCornerShape(20.dp))
+                    .padding(18.dp),
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(44.dp).background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(13.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Outlined.Dns, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                server.name.ifBlank { server.host },
+                                color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                            )
+                            Text(
+                                server.host,
+                                color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HeroChip("v${info?.version?.ifBlank { null } ?: "…"}")
+                        HeroChip(info?.let { "${it.os}/${it.arch}" } ?: "服务端")
+                        HeroChip(if (info?.tls == true) "HTTPS" else "HTTP")
+                    }
                 }
-            }.padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Fingerprint, null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("生物识别锁", fontWeight = FontWeight.Medium)
-                Text("每次打开 APP 需指纹或锁屏凭据解锁", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(checked = bio, onCheckedChange = null)
-        }
-        MenuRow(Icons.Outlined.QrCodeScanner, "扫码添加服务器", "扫 Web 登录页二维码") {
-            Router.push(Router.Route.Scanner(onQr = { handleScan(it) }, onClose = { Router.pop() }))
-        }
-        MenuRow(Icons.Outlined.SwapHoriz, "切换服务器", "返回服务器列表") { Session.leave() }
-        MenuRow(Icons.Outlined.Logout, "退出登录", "清除本机会话令牌", danger = true) {
-            scope.launch {
-                apiGuard { Api.logout(clientFor(server), server.host) }
-                Session.leave()
-                toast("已退出登录")
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text("寒语馨面板 APP · Kotlin/Compose · 设计文档 docs/APP.md", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // 安全与设备
+        item {
+            SectionLabel("安全与设备")
+            GroupCard {
+                SettingsRow(
+                    Icons.Outlined.Fingerprint, Emerald,
+                    "生物识别锁", "每次打开 APP 需指纹或锁屏凭据解锁",
+                    chevron = false,
+                    trailing = { Switch(checked = bio, onCheckedChange = { toggleBio() }) },
+                    onClick = { toggleBio() },
+                )
+                GroupDivider()
+                SettingsRow(Icons.Outlined.Devices, SkyBlue, "登录设备", "查看与踢出在线会话") { showDevices = true }
+            }
+        }
+
+        // 通用
+        item {
+            SectionLabel("通用")
+            GroupCard {
+                SettingsRow(Icons.Outlined.Notifications, Amber, "消息中心", "告警规则触发事件") {
+                    Router.push(Router.Route.Alerts(server) { Router.pop() })
+                }
+                GroupDivider()
+                SettingsRow(
+                    Icons.Outlined.SystemUpdate, Violet,
+                    "检查更新", "APP 自更新，保持与面板版本配套",
+                    chevron = !checking,
+                    trailing = if (checking) {
+                        { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) }
+                    } else null,
+                ) {
+                    checking = true
+                    scope.launch {
+                        apiGuard(onError = { toast(it.message ?: "检查失败") }) { Api.checkUpdate(server) }?.let { update = it }
+                        checking = false
+                    }
+                }
+                GroupDivider()
+                SettingsRow(Icons.Outlined.QrCodeScanner, OkGreen, "扫码添加服务器", "扫 Web 登录页二维码") {
+                    Router.push(Router.Route.Scanner(onQr = { handleScan(it) }, onClose = { Router.pop() }))
+                }
+            }
+        }
+
+        // 服务器
+        item {
+            SectionLabel("服务器")
+            GroupCard {
+                SettingsRow(Icons.Outlined.SwapHoriz, SkyBlue, "切换服务器", "返回服务器列表，可免密切回") { Session.leave() }
+            }
+        }
+
+        // 危险区：退出登录
+        item {
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        apiGuard { Api.logout(clientFor(server), server.host) }
+                        Session.leave(clearToken = true)
+                        toast("已退出登录")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = RoundedCornerShape(13.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Outlined.Logout, null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("退出登录", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+
+        item {
+            Text(
+                "寒语馨面板 APP · Kotlin / Compose",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
     }
 
     if (showDevices) {
@@ -164,19 +263,18 @@ fun MeScreen(server: ServerInfo) {
     }
 }
 
+/** 头卡上的半透明信息胶囊。 */
 @Composable
-private fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String, danger: Boolean = false, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Medium, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-            Text(sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+private fun HeroChip(text: String) {
+    Text(
+        text,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Color.White,
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(7.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }
 
 @Composable
