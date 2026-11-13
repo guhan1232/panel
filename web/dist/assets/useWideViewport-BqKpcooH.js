@@ -1,1 +1,0 @@
-import{x as r,y as a,r as d}from"./index-DGWSqHpe.js";function u(t=1100){const o=d(window.innerWidth>t);let e=null;function n(i){o.value=i.matches}return r(()=>{e=window.matchMedia(`(min-width: ${t+1}px)`),n(e),e.addEventListener("change",n)}),a(()=>e==null?void 0:e.removeEventListener("change",n)),{wide:o}}export{u};

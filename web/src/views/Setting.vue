@@ -23,27 +23,20 @@
     </div>
 
     <div class="setting-shell">
-      <aside class="setting-nav">
-        <div class="setting-nav__head">
-          <span class="setting-nav__eyebrow">配置导航</span>
-          <strong>4 个配置域</strong>
-        </div>
+      <nav class="setting-nav" aria-label="配置导航">
         <a v-for="g in groups" :key="g.id" :href="'#' + g.id" class="setting-nav__item" :class="{ 'setting-nav__item--active': activeGroup === g.id }" @click.prevent="jumpTo(g.id)">
           <span class="setting-nav__icon"><component :is="g.icon" /></span>
           <span class="setting-nav__label">{{ g.label }}</span>
         </a>
-        <div class="setting-nav__foot">
-          <ShieldOutlined />
-          <span>敏感操作会要求二次确认</span>
-        </div>
-      </aside>
+        <span class="setting-nav__foot"><ShieldOutlined /> 敏感操作会要求二次确认</span>
+      </nav>
       <div class="setting-main">
       <section id="sec-account" class="setting-group">
         <div class="setting-group__head">
           <div><span class="setting-group__kicker">IDENTITY</span><h3>账号与安全</h3><p>管理员凭据、二次验证与设备会话。</p></div>
           <WmStatusPill label="核心配置" tone="info" :dot="false" outline />
         </div>
-      <WmSectionCard class="setting-card setting-card--half" title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
+      <WmSectionCard class="setting-card" title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
         <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="当前用户名"><span class="wm-mono"><b>{{ auth.username }}</b></span></a-form-item>
           <a-form-item label="新用户名" style="margin-bottom: 0"><a-input v-model:value="newUsername" placeholder="3-64 位，字母/数字/_/-" /></a-form-item>
@@ -53,7 +46,7 @@
           <a-button type="primary" :loading="savingName" @click="saveUsername">保存用户名</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard class="setting-card setting-card--half" title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效">
+      <WmSectionCard class="setting-card" title="修改管理员密码" description="新密码至少 8 位，修改后当前会话保持有效">
         <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="原密码"><a-input-password v-model:value="form.old" /></a-form-item>
           <a-form-item label="新密码"><a-input-password v-model:value="form.n1" placeholder="至少 8 位" /></a-form-item>
@@ -64,7 +57,7 @@
         </template>
       </WmSectionCard>
 
-      <WmSectionCard class="setting-card setting-card--half" title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
+      <WmSectionCard class="setting-card" title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
         <template #actions>
           <a-button size="small" type="primary" @click="setup2fa">开始绑定</a-button>
           <a-button size="small" danger @click="disable2fa">解除绑定</a-button>
@@ -78,7 +71,7 @@
         </div>
         <p v-else class="wm-text-muted">尚未绑定或已解除。</p>
       </WmSectionCard>
-      <WmSectionCard class="setting-card setting-card--full" title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
+      <WmSectionCard class="setting-card" title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
           <a-button size="small" danger :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
           <a-button size="small" @click="loadSessions">刷新</a-button>
@@ -107,7 +100,7 @@
           <div><span class="setting-group__kicker">INTEGRATIONS</span><h3>接入与扩展</h3><p>面向脚本、AI 客户端与移动端的连接配置。</p></div>
           <WmStatusPill :label="apiToken.enabled ? 'API 已启用' : 'API 未启用'" :tone="apiToken.enabled ? 'success' : 'neutral'" :dot="false" outline />
         </div>
-      <WmSectionCard class="setting-card setting-card--full" title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板">
+      <WmSectionCard class="setting-card" title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板">
         <template #actions>
           <a-button size="small" @click="loadApiToken">刷新</a-button>
         </template>
@@ -159,7 +152,7 @@
           <a-button size="small" type="primary" :loading="permSaving" @click="savePerm">保存权限</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard class="setting-card setting-card--half" title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
+      <WmSectionCard class="setting-card" title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
         <a-form layout="vertical" style="max-width: 560px">
           <a-form-item label="面板对外地址">
             <a-input v-model:value="appForm.public_url" placeholder="留空按反代头/请求头自动推导，如 https://panel.hanyuxin.cn" />
@@ -185,7 +178,7 @@
           <div><span class="setting-group__kicker">NETWORK</span><h3>网络与证书</h3><p>加密访问、证书签发和域名反向代理。</p></div>
           <WmStatusPill :label="tls.tls ? 'HTTPS 已启用' : 'HTTP 明文'" :tone="tls.tls ? 'success' : 'warning'" :dot="false" outline />
         </div>
-      <WmSectionCard class="setting-card setting-card--half" title="HTTPS 加密连接" description="中间 CA 签发（推荐）/ Let's Encrypt 公共免费 CA（域名）/ 纯自签 10 年兜底">
+      <WmSectionCard class="setting-card" title="HTTPS 加密连接" description="中间 CA 签发（推荐）/ Let's Encrypt 公共免费 CA（域名）/ 纯自签 10 年兜底">
         <template #actions>
           <a-button size="small" @click="loadTls">刷新</a-button>
         </template>
@@ -210,7 +203,7 @@
           <a-button :loading="tlsBusy === 'self'" @click="applyTls('self')">纯自签兜底（10 年）</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard class="setting-card setting-card--full" title="域名反代访问（可选）" description="安装 NGINX 后可用自有域名反代面板并挂证书，域名 HTTPS 访问">
+      <WmSectionCard class="setting-card" title="域名反代访问（可选）" description="安装 NGINX 后可用自有域名反代面板并挂证书，域名 HTTPS 访问">
         <template #actions>
           <a-button size="small" @click="loadProxy">刷新</a-button>
         </template>
@@ -260,7 +253,7 @@
           <div><span class="setting-group__kicker">MAINTENANCE</span><h3>系统运维</h3><p>软件源、版本升级与面板数据保全。</p></div>
           <WmStatusPill :label="upInfo.has_update ? '有新版本' : '维护工具'" :tone="upInfo.has_update ? 'warning' : 'neutral'" :dot="false" outline />
         </div>
-      <WmSectionCard class="setting-card setting-card--half" title="系统软件源" description="一键把操作系统 apt/dnf 软件源换成国内镜像站并持久生效（自动备份原文件，可恢复）">
+      <WmSectionCard class="setting-card" title="系统软件源" description="一键把操作系统 apt/dnf 软件源换成国内镜像站并持久生效（自动备份原文件，可恢复）">
         <template #actions>
           <a-button size="small" @click="loadSysSrc">刷新</a-button>
         </template>
@@ -287,7 +280,7 @@
         </template>
       </WmSectionCard>
 
-      <WmSectionCard class="setting-card setting-card--half" title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
+      <WmSectionCard class="setting-card" title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
         <template #actions>
           <a-button size="small" @click="checkUpgrade">检查更新</a-button>
           <a-button v-if="upInfo.has_update" size="small" type="primary" :loading="upApplying" @click="applyUpgrade">升级到 {{ upInfo.remote }}</a-button>
@@ -303,7 +296,7 @@
         </div>
         <WmNotice tone="warning" class="wm-mt-4">升级会自动备份当前二进制为 *.bak 并重启服务，重启期间面板短暂不可访问。</WmNotice>
       </WmSectionCard>
-      <WmSectionCard class="setting-card setting-card--full" title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
+      <WmSectionCard class="setting-card" title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
         <template #actions>
           <a-button size="small" type="primary" @click="downloadBackup">导出备份包</a-button>
           <a-button size="small" @click="restoreDlg = true; restoreFile = null">导入恢复</a-button>
@@ -950,83 +943,68 @@ async function clearApiToken() {
 <style scoped>
 .st-foot-note { margin-right: auto; font-size: 12px; align-self: center; }
 
+/* 布局：水平锚点条 + 全宽单列卡片流（大屏不留半卡空缺） */
 .setting-shell {
-  display: grid;
-  grid-template-columns: 216px minmax(0, 1fr);
-  gap: var(--wm-s5);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wm-s4);
+  min-width: 0;
 }
 .setting-nav {
   position: sticky;
-  top: 16px;
-  padding: 8px;
-  border: 1px solid var(--wm-line);
-  border-radius: var(--wm-r-lg);
-  background: var(--wm-surface);
-  box-shadow: var(--wm-shadow-1);
-}
-.setting-nav__head {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px 12px;
-  border-bottom: 1px solid var(--wm-line);
-  margin-bottom: 4px;
-}
-.setting-nav__eyebrow {
-  color: var(--wm-ink-3);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.setting-nav__head strong { font-size: 13px; font-weight: 600; }
-.setting-nav__item {
-  min-height: 42px;
+  top: 0;
+  z-index: 9;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--wm-r-md);
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border: 1px solid var(--wm-line);
+  border-radius: var(--wm-r-lg);
+  background: color-mix(in srgb, var(--wm-surface) 86%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--wm-shadow-1);
+}
+.setting-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid transparent;
   color: var(--wm-ink-2);
-  font-size: 12.5px;
-  transition: background var(--wm-dur-fast), color var(--wm-dur-fast);
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background var(--wm-dur-fast), color var(--wm-dur-fast), border-color var(--wm-dur-fast);
 }
 .setting-nav__item:hover { background: var(--wm-surface-3); color: var(--wm-ink); }
-.setting-nav__item--active { background: var(--wm-surface-3); color: var(--wm-ink); font-weight: 600; }
-.setting-nav__icon {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--wm-r-sm);
-  color: var(--wm-ink-3);
+.setting-nav__item--active {
+  background: var(--wm-primary-soft);
+  border-color: var(--wm-primary-line);
+  color: var(--wm-primary);
+  font-weight: 600;
 }
-.setting-nav__item--active .setting-nav__icon { background: var(--wm-surface); color: var(--wm-ink); box-shadow: var(--wm-shadow-1); }
-.setting-nav__label { min-width: 0; flex: 1; }
+.setting-nav__icon { display: inline-grid; place-items: center; font-size: 14px; }
+.setting-nav__item--active .setting-nav__icon { color: var(--wm-primary); }
+.setting-nav__label { white-space: nowrap; }
 .setting-nav__foot {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 10px;
-  border-top: 1px solid var(--wm-line);
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--wm-ink-3);
-  font-size: 10.5px;
-  line-height: 1.55;
+  font-size: 11px;
+  padding-right: 6px;
 }
-.setting-nav__foot .anticon { margin-top: 2px; flex: 0 0 auto; }
 
-.setting-main { min-width: 0; display: flex; flex-direction: column; gap: var(--wm-s8); }
+.setting-main { min-width: 0; display: flex; flex-direction: column; gap: var(--wm-s6); }
 .setting-group {
-  scroll-margin-top: 20px;
+  scroll-margin-top: 64px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--wm-s4);
 }
 .setting-group__head {
-  grid-column: 1 / -1;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -1037,39 +1015,22 @@ async function clearApiToken() {
 .setting-group__kicker {
   display: block;
   margin-bottom: 2px;
-  color: var(--wm-ink-3);
+  color: var(--wm-primary);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
 .setting-group__head h3 { margin: 0; font-size: 17px; font-weight: 650; line-height: 1.45; }
 .setting-group__head p { margin-top: 2px; color: var(--wm-ink-3); font-size: 12px; line-height: 1.65; }
-.setting-card--full { grid-column: 1 / -1; }
 .setting-card :deep(.wm-section__body) { display: flex; flex-direction: column; gap: var(--wm-s3); }
 .setting-card :deep(.wm-section__foot) { justify-content: flex-start; flex-wrap: wrap; }
 .setting-card :deep(.ant-form-item:last-child) { margin-bottom: 0; }
 .setting-card :deep(.ant-descriptions) { overflow: hidden; border-radius: var(--wm-r-md); }
 .setting-card :deep(.ant-descriptions-item-label) { width: 132px; color: var(--wm-ink-3); }
 
-@media (max-width: 1180px) {
-  .setting-shell { grid-template-columns: minmax(0, 1fr); gap: var(--wm-s3); }
-  .setting-nav {
-    position: static;
-    display: flex;
-    gap: 4px;
-    width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .setting-nav::-webkit-scrollbar { display: none; }
-  .setting-nav__head, .setting-nav__foot { display: none; }
-  .setting-nav__item { flex: 0 0 auto; min-height: 40px; white-space: nowrap; }
-}
 @media (max-width: 980px) {
-  .setting-group { grid-template-columns: minmax(0, 1fr); }
-  .setting-card--full { grid-column: auto; }
   .setting-group__head { align-items: flex-start; flex-direction: column; gap: var(--wm-s2); }
-  .setting-main { gap: var(--wm-s6); }
+  .setting-main { gap: var(--wm-s5); }
+  .setting-nav__foot { display: none; }
 }
 </style>
-
