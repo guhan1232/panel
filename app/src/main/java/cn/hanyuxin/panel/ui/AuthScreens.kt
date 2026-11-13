@@ -228,6 +228,7 @@ fun ScannerScreen(onQr: (QrData) -> Unit, onClose: () -> Unit) {
                     )
                 }
                 val analysis = ImageAnalysis.Builder()
+                    .setTargetResolution(android.util.Size(1280, 720))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                 analysis.setAnalyzer(analyzerExecutor) { proxy ->
@@ -242,7 +243,14 @@ fun ScannerScreen(onQr: (QrData) -> Unit, onClose: () -> Unit) {
                     proxy.close()
                 }
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                val camera = provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                // 拍屏幕二维码需要近距离对焦：对取景中心持续自动对焦（disableAutoCancel = 不自动解除）
+                camera.cameraControl.startFocusAndMetering(
+                    androidx.camera.core.FocusMeteringAction.Builder(
+                        androidx.camera.core.SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(0.5f, 0.5f),
+                        androidx.camera.core.FocusMeteringAction.FLAG_AF or androidx.camera.core.FocusMeteringAction.FLAG_AE,
+                    ).disableAutoCancel().build()
+                )
             }
         } else {
             Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -254,6 +262,14 @@ fun ScannerScreen(onQr: (QrData) -> Unit, onClose: () -> Unit) {
         Row(Modifier.align(Alignment.TopStart).padding(8.dp)) {
             OutlinedButton(onClick = onClose) { Text("关闭") }
         }
+        Text(
+            "将二维码对准取景框 · 保持 10–30cm · 光线充足更易识别",
+            color = androidx.compose.ui.graphics.Color.White,
+            fontSize = 13.sp,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp)
+                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        )
     }
 }
 
