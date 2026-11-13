@@ -22,7 +22,7 @@
         :progress="Math.min(100, current.cpu || 0)"
         :loading="!loaded"
       >
-        <template #icon><span class="wm-icon"><Cpu /></span></template>
+        <template #icon><span class="wm-icon"><CpuFill /></span></template>
       </WmStatCard>
 
       <WmStatCard
@@ -33,7 +33,7 @@
         :progress="Math.min(100, current.mem_pct || 0)"
         :loading="!loaded"
       >
-        <template #icon><span class="wm-icon"><Memo /></span></template>
+        <template #icon><span class="wm-icon"><MemoFill /></span></template>
         <template #sub>共 {{ fmtBytes(current.mem_total) }} · 使用率 {{ fix(current.mem_pct) }}%</template>
       </WmStatCard>
 
@@ -44,12 +44,12 @@
         :palette="C.orange"
         :loading="!loaded"
       >
-        <template #icon><span class="wm-icon"><TrendCharts /></span></template>
+        <template #icon><span class="wm-icon"><TrendFill /></span></template>
         <template #sub>网络 ↓ {{ fmtBytes(current.recv) }}/s · ↑ {{ fmtBytes(current.sent) }}/s</template>
       </WmStatCard>
 
       <WmStatCard label="系统环境" :text="true" :value="[host.platform, host.platform_version].filter(Boolean).join(' ') || '-'" tone="neutral" :palette="C.green" :loading="!loaded">
-        <template #icon><span class="wm-icon"><Platform /></span></template>
+        <template #icon><span class="wm-icon"><ControlFill /></span></template>
         <template #sub>
           <template v-if="remote">远程节点 · 最近上报 {{ fmtTime(current.time) }}</template>
           <template v-else>
@@ -61,17 +61,17 @@
     </div>
 
     <div class="wm-grid-2">
-      <WmSectionCard title="CPU / 内存走势" description="实时曲线 · 百分比" quiet :icon="Cpu" :palette="C.blue">
+      <WmSectionCard title="CPU / 内存走势" description="实时曲线 · 百分比" quiet :icon="CpuFill" :palette="C.blue">
         <div ref="cpuEl" class="wm-chart" style="height: 272px"></div>
       </WmSectionCard>
-      <WmSectionCard title="网络流量" description="下载 / 上传 每秒速率" quiet :icon="TrendCharts" :palette="C.orange">
+      <WmSectionCard title="网络流量" description="下载 / 上传 每秒速率" quiet :icon="TrendFill" :palette="C.orange">
         <div ref="netEl" class="wm-chart" style="height: 272px"></div>
       </WmSectionCard>
     </div>
 
     <template v-if="!remote">
       <div class="wm-grid-2 wm-grid-2--wide-left">
-        <WmSectionCard title="磁盘" description="挂载点用量" flush :icon="Coin" :palette="C.green">
+        <WmSectionCard title="磁盘" description="挂载点用量" flush :icon="DatabaseFill" :palette="C.green">
           <WmTable :data="disks" size="small" empty-title="未检测到磁盘信息">
             <WmColumn prop="mount" label="挂载点" min-width="110" />
             <WmColumn label="用量" min-width="150">
@@ -85,7 +85,7 @@
             </WmColumn>
           </WmTable>
         </WmSectionCard>
-        <WmSectionCard title="CPU 占用 Top 进程" description="按当前占用排序" flush :icon="Cpu" :palette="C.pink">
+        <WmSectionCard title="CPU 占用 Top 进程" description="按当前占用排序" flush :icon="CpuFill" :palette="C.pink">
           <WmTable :data="procs" size="small" empty-title="暂无进程数据">
             <WmColumn prop="pid" label="PID" width="90"><template #default="{ row }"><span class="wm-mono">{{ row.pid }}</span></template></WmColumn>
             <WmColumn prop="name" label="进程" min-width="180" />
@@ -114,7 +114,7 @@ import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, Ti
 import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent, CanvasRenderer])
-import { Cpu, Memo, TrendCharts, Platform, Monitor as MonitorIcon, Coin } from '../antd-compat'
+import { CpuFill, MemoFill, TrendFill, PlatformFill, MonitorFill, DatabaseFill } from '../antd-compat'
 import AppBindDialog from '../components/AppBindDialog.vue'
 import api from '../api'
 import { fmtBytes, fmtDuration, fmtTime, chartPalette } from '../utils'

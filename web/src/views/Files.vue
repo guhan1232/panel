@@ -2,7 +2,7 @@
   <div class="wm-page">
 
     <!-- 右栏：浏览与列表 -->
-    <WmSectionCard title="文件浏览" :description="path" flush :icon="FolderOpen" :palette="C.amber">
+    <WmSectionCard title="文件浏览" :description="path" flush :icon="FolderOpenFill" :palette="C.amber">
       <template #actions>
         <span class="wm-text-muted wm-row-stats">共 {{ items.length }} 项</span>
       </template>
@@ -59,7 +59,7 @@
         <WmColumn type="selection" width="42" />
         <WmColumn label="名称" min-width="300">
           <template #default="{ row }">
-            <a v-if="row.is_dir" @click="enter(row)" class="wm-link"><span class="wm-icon"><Folder /></span>&nbsp;{{ row.name }}</a>
+            <a v-if="row.is_dir" @click="enter(row)" class="wm-link"><span class="wm-icon"><FolderFill /></span>&nbsp;{{ row.name }}</a>
             <span v-else>{{ row.name }}</span>
           </template>
         </WmColumn>
@@ -100,7 +100,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
-import { Folder, FolderOpen, Edit, ArrowDown } from '../antd-compat'
+import { FolderFill, FolderOpenFill, Edit, ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtTime } from '../utils'
 
