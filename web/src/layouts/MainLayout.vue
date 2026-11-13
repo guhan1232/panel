@@ -1,72 +1,48 @@
 <template>
-  <div class="wm-shell">
-    <!-- 顶部导航栏：品牌 + 分组下拉 + 右侧动作区 -->
-    <header class="wm-topbar">
-      <div class="wm-topbar__brand">
+  <div class="wm-shell" :class="{ 'wm-shell--mini': collapsed && !isMobile }">
+    <!-- 左侧可折叠导航（折叠/展开由用户手动控制，状态持久化） -->
+    <aside class="wm-sider">
+      <div class="wm-brand">
         <span class="wm-brand__mark">寒</span>
-        <span class="wm-brand__text">寒语馨面板</span>
+        <transition name="fade">
+          <span v-show="!collapsed || isMobile" class="wm-brand__text">寒语馨面板</span>
+        </transition>
+        <button
+          v-if="!isMobile"
+          class="wm-icon-btn wm-rail-toggle"
+          type="button"
+          :title="collapsed ? '展开菜单' : '折叠菜单'"
+          :aria-label="collapsed ? '展开菜单' : '折叠菜单'"
+          @click="toggleRail"
+        >
+          <Expand v-if="collapsed" /><Fold v-else />
+        </button>
       </div>
-
-      <!-- 桌面：分组下拉导航 -->
-      <nav v-if="!isMobile" class="wm-topnav" aria-label="主导航">
-        <a-dropdown v-for="group in navGroups" :key="group.label" trigger="['click', 'hover']" placement="bottomLeft">
-          <button
-            type="button"
-            class="wm-topnav__item"
-            :class="{ 'is-active': group.items.some((i) => i.path === route.path) }"
-          >
-            {{ group.label }}<ArrowDown class="wm-topnav__caret" />
-          </button>
-          <template #overlay>
-            <a-menu class="wm-topnav-menu" :selected-keys="[route.path]" @click="({ key }: any) => go(String(key))">
-              <a-menu-item v-for="item in group.items" :key="item.path">
-                <template #icon>
-                  <span class="wm-nav-ico" :style="{ background: item.c.soft, color: item.c.color }"><component :is="item.icon" /></span>
-                </template>
-                <span>{{ item.label }}</span>
-              </a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
-      </nav>
-
-      <!-- 移动端：汉堡 -->
-      <button v-if="isMobile" class="wm-icon-btn wm-topnav__burger" type="button" aria-label="打开导航" @click="drawerOpen = true">
-        <Menu />
-      </button>
-
-      <div class="wm-topbar__right">
-        <span class="wm-session">
-          <i class="wm-session__dot" :class="{ 'is-plain': !secure }" />
-          {{ secure ? '安全连接' : '明文连接' }}
-        </span>
-        <a-tooltip :title="theme.dark ? '切换到亮色' : '切换到暗色'">
-          <button class="wm-icon-btn" type="button" @click="theme.toggle()">
-            <Sunny v-if="theme.dark" /><Moon v-else />
-          </button>
-        </a-tooltip>
-        <a-dropdown trigger="['click']">
-          <button class="wm-user-trigger" type="button" aria-label="用户菜单">
-            <a-avatar :size="26" class="wm-user-avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</a-avatar>
-            <span class="wm-user-trigger__name">{{ auth.username }}</span>
-            <ArrowDown />
-          </button>
-          <template #overlay>
-            <a-menu class="wm-user-menu" @click="({ key }: any) => onCommand(String(key))">
-              <a-menu-item disabled>当前角色：{{ roleLabel }}</a-menu-item>
-              <a-menu-divider />
-              <a-menu-item key="theme">
-                <Moon v-if="!theme.dark" /><Sunny v-else />&nbsp;{{ theme.dark ? '亮色外观' : '暗色外观' }}
-              </a-menu-item>
-              <a-menu-divider />
-              <a-menu-item key="logout"><SwitchButton />&nbsp;退出登录</a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
+      <div class="wm-sider__scroll">
+        <a-menu
+          theme="light"
+          mode="inline"
+          :inline-collapsed="collapsed && !isMobile"
+          :selected-keys="[route.path]"
+          :open-keys="[]"
+          class="wm-nav"
+        >
+          <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
+            <a-menu-item
+              v-for="item in group.items"
+              :key="item.path"
+              @click="go(item.path)"
+            >
+              <template #icon><span class="wm-nav-ico" :style="{ background: item.c.soft, color: item.c.color }"><component :is="item.icon" /></span></template>
+              <span>{{ item.label }}</span>
+            </a-menu-item>
+          </a-menu-item-group>
+        </a-menu>
       </div>
-    </header>
+      <div v-show="!collapsed || isMobile" class="wm-sider__foot">全部写操作均被审计</div>
+    </aside>
 
-    <!-- 移动端抽屉（全菜单） -->
+    <!-- 移动端抽屉 -->
     <a-drawer
       v-model:open="drawerOpen"
       placement="left"
@@ -85,22 +61,67 @@
       </a-menu>
     </a-drawer>
 
-    <main class="wm-content">
-      <div class="wm-content__inner">
-        <WmPageHeader
-          :eyebrow="String(route.meta.group || '控制台')"
-          :title="String(route.meta.title || '')"
-          :description="String(route.meta.desc || '')"
-        >
-          <template #meta>
-            <WmStatusPill :label="roleLabel" tone="info" :dot="false" />
-          </template>
-        </WmPageHeader>
-        <router-view v-slot="{ Component }">
-          <component :is="Component" />
-        </router-view>
-      </div>
-    </main>
+    <div class="wm-main">
+      <header class="wm-topbar">
+        <div class="wm-topbar__left">
+          <button v-if="isMobile" class="wm-icon-btn" type="button" aria-label="打开导航" @click="drawerOpen = true">
+            <Menu />
+          </button>
+          <div class="wm-crumb">
+            <span>{{ route.meta.group || '面板' }}</span>
+            <span class="wm-crumb__sep">/</span>
+            <span class="wm-crumb__current">{{ route.meta.title }}</span>
+          </div>
+          <span class="wm-topbar__title">{{ route.meta.title }}</span>
+        </div>
+        <div class="wm-topbar__right">
+          <span class="wm-session">
+            <i class="wm-session__dot" :class="{ 'is-plain': !secure }" />
+            {{ secure ? '安全连接' : '明文连接' }}
+          </span>
+          <a-tooltip :title="theme.dark ? '切换到亮色' : '切换到暗色'">
+            <button class="wm-icon-btn" type="button" @click="theme.toggle()">
+              <Sunny v-if="theme.dark" /><Moon v-else />
+            </button>
+          </a-tooltip>
+          <a-dropdown trigger="['click']">
+            <button class="wm-user-trigger" type="button" aria-label="用户菜单">
+              <a-avatar :size="26" class="wm-user-avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</a-avatar>
+              <span class="wm-user-trigger__name">{{ auth.username }}</span>
+              <ArrowDown />
+            </button>
+            <template #overlay>
+              <a-menu class="wm-user-menu" @click="({ key }: any) => onCommand(String(key))">
+                <a-menu-item disabled>当前角色：{{ roleLabel }}</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="theme">
+                  <Moon v-if="!theme.dark" /><Sunny v-else />&nbsp;{{ theme.dark ? '亮色外观' : '暗色外观' }}
+                </a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="logout"><SwitchButton />&nbsp;退出登录</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+        </div>
+      </header>
+
+      <main class="wm-content">
+        <div class="wm-content__inner">
+          <WmPageHeader
+            :eyebrow="String(route.meta.group || '控制台')"
+            :title="String(route.meta.title || '')"
+            :description="String(route.meta.desc || '')"
+          >
+            <template #meta>
+              <WmStatusPill :label="roleLabel" tone="info" :dot="false" />
+            </template>
+          </WmPageHeader>
+          <router-view v-slot="{ Component }">
+            <component :is="Component" />
+          </router-view>
+        </div>
+      </main>
+    </div>
 
     <nav class="wm-mobilebar" aria-label="快捷导航">
       <router-link
@@ -124,7 +145,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Odometer, Connection, Coin, Shop, Monitor, Timer, Warning, Folder, Cpu,
-  Lock, Stamp, Document, Bell, Setting, Sunny, Moon,
+  Lock, Stamp, Document, Bell, Setting, Expand, Fold, Sunny, Moon,
   ArrowDown, SwitchButton, Avatar, Share, Menu, MoreFilled, Box
 } from '../antd-compat'
 import { useAuth } from '../stores/auth'
@@ -136,6 +157,8 @@ const theme = useTheme()
 const route = useRoute()
 const router = useRouter()
 
+// 折叠状态：用户手动切换并持久化（下次打开保持）
+const collapsed = ref(localStorage.getItem('wm_rail_mini') === '1')
 const drawerOpen = ref(false)
 const isMobile = ref(false)
 const secure = location.protocol === 'https:'
@@ -202,6 +225,11 @@ const mobileItems = [
 function go(path: string) {
   router.push(path)
   drawerOpen.value = false
+}
+
+function toggleRail() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem('wm_rail_mini', collapsed.value ? '1' : '0')
 }
 
 async function onCommand(cmd: string) {

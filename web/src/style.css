@@ -154,9 +154,9 @@ a { color: inherit; text-decoration: none; }
 .wm-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Application shell ------------------------------------------
-   顶部导航布局：品牌 + 分组下拉导航 + 动作区一行，内容区全宽滚动。 */
+   左侧可折叠导航（折叠/展开由用户手动控制并持久化）+ 顶部动作条。 */
 .wm-shell {
-  display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden;
+  display: flex; height: 100vh; height: 100dvh; overflow: hidden;
   background: var(--wm-ground);
 }
 
@@ -229,6 +229,11 @@ a { color: inherit; text-decoration: none; }
   color: var(--wm-sider-ink-3); font-size: 11px; text-align: center;
 }
 .wm-shell--mini .wm-sider__foot { display: none; }
+.wm-shell--mini .wm-brand {
+  flex-direction: column; justify-content: center; gap: 8px;
+  height: auto; min-height: 74px; padding: 10px 0;
+}
+.wm-shell--mini .wm-brand__mark { width: 30px; height: 30px; flex: 0 0 30px; }
 .wm-shell--mini .wm-brand { justify-content: center; padding: 0; }
 
 /* Ant Design sider menu: soft pill items, selected = tinted primary. */
@@ -270,13 +275,15 @@ a { color: inherit; text-decoration: none; }
 .wm-mobile-drawer .wm-nav .ant-menu-item-group-title { color: var(--wm-ink-3); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
 .wm-mobile-drawer .wm-nav .ant-menu-item { border-radius: var(--wm-r-md); margin: 1px 8px; width: calc(100% - 16px); }
 
-.wm-main { display: none; }
+.wm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .wm-topbar {
   height: var(--wm-topbar-h); flex: 0 0 var(--wm-topbar-h);
-  display: flex; align-items: center; gap: 12px; padding: 0 var(--wm-s5) 0 var(--wm-s4);
+  display: flex; align-items: center; gap: 12px; padding: 0 var(--wm-s6) 0 var(--wm-s4);
   background: var(--wm-surface); border-bottom: 1px solid var(--wm-line);
   position: relative; z-index: 20;
 }
+.wm-rail-toggle { margin-left: auto; }
+.wm-shell--mini .wm-rail-toggle { margin-left: 0; }
 .wm-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 0 64px; }
 .wm-topbar__left, .wm-topbar__right { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .wm-topbar__right { margin-left: auto; }
