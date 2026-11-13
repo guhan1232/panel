@@ -10,7 +10,7 @@
         <WmColumn prop="id" label="ID" width="70"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></WmColumn>
         <WmColumn prop="username" label="用户名" min-width="160"><template #default="{ row }"><b>{{ row.username }}</b></template></WmColumn>
         <WmColumn label="角色" width="130">
-          <template #default="{ row }"><WmStatusPill :label="roleLabel(row.role)" :tone="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'info' : 'neutral'" :dot="false" /></template>
+          <template #default="{ row }"><WmStatusPill :label="roleLabel(row.role)" :tone="row.role === 'admin' ? 'info' : row.role === 'operator' ? 'warning' : 'neutral'" :dot="false" /></template>
         </WmColumn>
         <WmColumn label="状态" width="110">
           <template #default="{ row }"><WmStatusPill :label="row.disabled ? '已禁用' : '正常'" :tone="row.disabled ? 'danger' : 'success'" /></template>

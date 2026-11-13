@@ -5,9 +5,9 @@
         <span class="wm-text-muted wm-row-stats">共 {{ items.length }} 项</span>
       </template>
       <WmToolbar>
-        <a-input v-model:value="pathInput" class="wm-path-input" size="small" placeholder="输入绝对路径" @keyup.enter="go" />
+        <span class="path-group"><a-input v-model:value="pathInput" class="wm-path-input" size="small" placeholder="输入绝对路径" @keyup.enter="go" />
         <a-button size="small" @click="go">跳转</a-button>
-        <a-button size="small" @click="goUp">上级</a-button>
+        <a-button size="small" @click="goUp">上级</a-button></span>
         <template #end>
           <a-upload :custom-request="doUpload" :show-upload-list="false">
             <a-button size="small">上传文件</a-button>
@@ -48,7 +48,7 @@
         <WmColumn prop="mode" label="权限" width="110"><template #default="{ row }"><span class="wm-mono">{{ row.mode }}</span></template></WmColumn>
         <WmColumn prop="owner" label="属主" width="110" />
         <WmColumn label="修改时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.mtime) }}</span></template></WmColumn>
-        <WmColumn label="操作" width="200" fixed="right">
+        <WmColumn label="操作" width="170" fixed="right">
           <template #default="{ row }">
             <a-button v-if="row.is_dir" type="link" size="small" @click="enter(row)">打开</a-button>
             <a-button v-if="!row.is_dir && row.size <= 2 * 1024 * 1024" type="link" size="small" @click="edit(row)">编辑</a-button>
@@ -59,10 +59,11 @@
                 <a-menu>
                   <a-menu-item v-if="isArchive(row.name)" key="unzip" @click="decompress(row)">解压</a-menu-item>
                   <a-menu-item key="rename" @click="rename(row)">重命名</a-menu-item>
+                  <a-menu-item key="del" danger @click="delOne(row)">删除</a-menu-item>
                 </a-menu>
               </template>
             </a-dropdown>
-            <a-button type="link" size="small" danger @click="delOne(row)">删除</a-button>
+            
           </template>
         </WmColumn>
       </WmTable>
@@ -246,3 +247,8 @@ async function doUpload(opt: any) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.path-group { display: flex; gap: 8px; flex: 1 1 280px; max-width: 520px; align-items: center; }
+.path-group :deep(.ant-btn) { flex: 0 0 auto; }
+</style>

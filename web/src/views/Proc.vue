@@ -1,8 +1,8 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="进程与服务" description="实时列表与 systemd 单元控制">
-      <a-tabs v-model:activeKey="tab">
-        <a-tab-pane tab="进程" key="procs">
+      <a-segmented v-model:value="tab" class="wm-mb-4" :options="[{ value: 'procs', label: '进程' }, { value: 'services', label: 'systemd 服务' }]" />
+        <template v-if="tab === 'procs'">
           <WmToolbar>
             <a-segmented v-model:value="sortBy" :options="[{ value: 'cpu', label: '按 CPU' }, { value: 'mem', label: '按内存' }]" size="small" @change="loadProcs" />
             <span class="proc-auto">
@@ -17,8 +17,8 @@
           <WmTable :data="procs" v-loading="pLoading" size="small" max-height="620" empty-title="暂无进程数据">
             <WmColumn prop="pid" label="PID" width="100"><template #default="{ row }"><span class="wm-mono">{{ row.pid }}</span></template></WmColumn>
             <WmColumn prop="name" label="进程名" min-width="220" />
-            <WmColumn label="CPU%" width="120"><template #default="{ row }"><span class="wm-mono" :class="{ hot: row.cpu > 60 }">{{ row.cpu.toFixed(1) }}</span></template></WmColumn>
-            <WmColumn label="内存%" width="120"><template #default="{ row }"><span class="wm-mono">{{ row.mem_pct.toFixed(1) }}</span></template></WmColumn>
+            <WmColumn label="CPU%" width="120"><template #default="{ row }"><span class="num-r" :class="{ hot: row.cpu > 60 }">{{ row.cpu.toFixed(1) }}</span></template></WmColumn>
+            <WmColumn label="内存%" width="120"><template #default="{ row }"><span class="num-r">{{ row.mem_pct.toFixed(1) }}</span></template></WmColumn>
             <WmColumn label="操作" width="110">
               <template #default="{ row }">
                 <a-button type="link" size="small" @click="kill(row, false)">结束</a-button>
@@ -26,9 +26,9 @@
               </template>
             </WmColumn>
           </WmTable>
-        </a-tab-pane>
+        </template>
 
-        <a-tab-pane tab="systemd 服务" key="services">
+        <template v-else>
           <WmToolbar>
             <template #end>
               <a-button size="small" @click="loadSvcs">刷新</a-button>
@@ -48,7 +48,7 @@
                 <a-button type="link" size="small" :disabled="row.active === 'active'" @click="svcAction(row, 'start')">启动</a-button>
                 <a-button type="link" size="small" :disabled="row.active !== 'active'" @click="svcAction(row, 'stop')">停止</a-button>
                 <a-dropdown>
-                  <a-button type="link" size="small">更多<span class="wm-icon proc-dd-icon"><ArrowDown /></span></a-button>
+                  <a-button type="link" size="small">更多<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
                   <template #overlay>
                     <a-menu>
                       <a-menu-item key="restart" @click="svcAction(row, 'restart')">重启</a-menu-item>
@@ -60,8 +60,8 @@
               </template>
             </WmColumn>
           </WmTable>
-        </a-tab-pane>
-      </a-tabs>
+        </template>
+      
     </WmSectionCard>
   </div>
 </template>
@@ -139,5 +139,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .proc-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
-.proc-dd-icon { margin-left: 4px; font-size: 10px; }
+.num-r { display: block; text-align: right; font-family: var(--wm-font-mono); font-variant-numeric: tabular-nums; }
+.wm-dd-icon { margin-left: 4px; font-size: 10px; }
 </style>
