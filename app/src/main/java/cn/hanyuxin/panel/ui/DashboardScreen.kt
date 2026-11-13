@@ -40,7 +40,7 @@ fun DashboardScreen(server: ServerInfo) {
 
     LaunchedEffect(server.host) {
         while (true) {
-            apiGuard(onError = { err = it.message ?: "请求失败" }) { Api.dashboard(clientFor(server)) }?.let { data = it; err = null }
+            apiGuard(onError = { err = (it::class.simpleName ?: "Error") + ": " + (it.message ?: "无详情") }) { Api.dashboard(clientFor(server)) }?.let { data = it; err = null }
             delay(3000)
         }
     }

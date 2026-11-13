@@ -130,18 +130,15 @@ object Api {
                 },
             )
             .build()
-        val resp = c.requestRaw("POST", "/api/files/upload", body)
-        resp.use { r ->
-            val text = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw ApiException(r.code, "上传失败 HTTP " + r.code)
-            val parsed = runCatching { Http.json.decodeFromString<Resp<Unit>>(text) }.getOrNull()
-            if (parsed != null && parsed.code != 0) throw ApiException(parsed.code, parsed.msg ?: "上传失败")
-        }
+        val raw = c.requestRaw("POST", "/api/files/upload", body)
+        if (!raw.isSuccessful) throw ApiException(raw.code, "上传失败 HTTP " + raw.code)
+        val parsed = runCatching { Http.json.decodeFromString<Resp<Unit>>(raw.text) }.getOrNull()
+        if (parsed != null && parsed.code != 0) throw ApiException(parsed.code, parsed.msg ?: "上传失败")
     }
 
     /** 下载文件到输出流（SAF 目标流），回调进度。 */
     suspend fun downloadFile(c: PanelClient, path: String, out: OutputStream, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
-        val resp = c.requestRaw("GET", "/api/files/download", query = listOf("path" to path))
+        val resp = c.streamRaw("GET", "/api/files/download", query = listOf("path" to path))
         resp.use { r ->
             if (!r.isSuccessful) throw ApiException(r.code, "下载失败 HTTP ${r.code}")
             val total = r.body?.contentLength() ?: -1

@@ -377,7 +377,7 @@ fun LoginScreen(server: ServerInfo, qrKey: String, onLoggedIn: (ServerInfo) -> U
                     } catch (e: ApiException) {
                         err = e.message
                     } catch (e: Exception) {
-                        err = "连接失败：${e.message}"
+                        err = (e::class.simpleName ?: "Error") + ": " + (e.message ?: "无详情")
                     } finally {
                         busy = false
                     }
