@@ -1,28 +1,47 @@
 <template>
   <div class="wm-page">
-    <WmSectionCard title="文件浏览" :description="path" flush>
+
+    <!-- 右栏：浏览与列表 -->
+    <WmSectionCard title="文件浏览" :description="path" flush :icon="FolderOpen" :palette="C.amber">
       <template #actions>
         <span class="wm-text-muted wm-row-stats">共 {{ items.length }} 项</span>
       </template>
+
+      <!-- 面包屑路径条 -->
+      <div class="files-crumb">
+        <template v-if="!pathEditing">
+          <button
+            v-for="(c, i) in crumbs"
+            :key="c.p"
+            type="button"
+            class="files-crumb__seg"
+            @click="goPath(c.p)"
+          >{{ c.name }}<span v-if="i < crumbs.length - 1" class="files-crumb__sep">/</span></button>
+          <button class="wm-icon-btn" type="button" title="编辑路径" @click="startEdit"><Edit /></button>
+        </template>
+        <template v-else>
+          <a-input v-model:value="pathInput" size="small" placeholder="输入绝对路径" @keyup.enter="applyPath" style="max-width: 420px" />
+          <a-button size="small" type="primary" @click="applyPath">跳转</a-button>
+          <a-button size="small" @click="pathEditing = false">取消</a-button>
+        </template>
+      </div>
+
       <WmToolbar>
-        <span class="path-group"><a-input v-model:value="pathInput" class="wm-path-input" size="small" placeholder="输入绝对路径" @keyup.enter="go" />
-        <a-button size="small" @click="go">跳转</a-button>
-        <a-button size="small" @click="goUp">上级</a-button></span>
+        <a-upload :custom-request="doUpload" :show-upload-list="false">
+          <a-button size="small">上传文件</a-button>
+        </a-upload>
+        <a-dropdown :disabled="!selection.length">
+          <a-button size="small" :disabled="!selection.length">批量操作<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item key="zip" @click="compress('zip')">压缩为 .zip</a-menu-item>
+              <a-menu-item key="targz" @click="compress('targz')">压缩为 .tar.gz</a-menu-item>
+              <a-menu-divider />
+              <a-menu-item key="del" danger @click="delSelected">删除选中</a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
         <template #end>
-          <a-upload :custom-request="doUpload" :show-upload-list="false">
-            <a-button size="small">上传文件</a-button>
-          </a-upload>
-          <a-dropdown :disabled="!selection.length">
-            <a-button size="small" :disabled="!selection.length">批量操作<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
-            <template #overlay>
-              <a-menu>
-                <a-menu-item key="zip" @click="compress('zip')">压缩为 .zip</a-menu-item>
-                <a-menu-item key="targz" @click="compress('targz')">压缩为 .tar.gz</a-menu-item>
-                <a-menu-divider />
-                <a-menu-item key="del" danger @click="delSelected">删除选中</a-menu-item>
-              </a-menu>
-            </template>
-          </a-dropdown>
           <a-button type="primary" size="small" @click="mkdir">新建目录</a-button>
           <a-button size="small" @click="load">刷新</a-button>
         </template>
@@ -63,7 +82,6 @@
                 </a-menu>
               </template>
             </a-dropdown>
-            
           </template>
         </WmColumn>
       </WmTable>
@@ -80,17 +98,44 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
-import { Folder, ArrowDown } from '../antd-compat'
+import { Folder, FolderOpen, Edit, ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtBytes, fmtTime } from '../utils'
+
+// 彩色模块色板
+const C = {
+  amber: { color: 'var(--wm-p-amber)', soft: 'var(--wm-p-amber-soft)' }
+}
+
+const quickSpots = [
+  { label: '根目录', path: '/' },
+  { label: 'root', path: '/root' },
+  { label: 'opt', path: '/opt' },
+  { label: 'www 站点', path: '/www' },
+  { label: 'etc 配置', path: '/etc' },
+  { label: 'var 日志', path: '/var/log' },
+  { label: 'home', path: '/home' }
+]
 
 const path = ref('/')
 const pathInput = ref('/')
 const items = ref<any[]>([])
 const loading = ref(false)
 const selection = ref<any[]>([])
+const pathEditing = ref(false)
+
+const crumbs = computed(() => {
+  const parts = path.value.split('/').filter(Boolean)
+  const arr = [{ name: '/', p: '/' }]
+  let acc = ''
+  for (const seg of parts) {
+    acc += '/' + seg
+    arr.push({ name: seg, p: acc })
+  }
+  return arr
+})
 
 function isArchive(name: string) {
   const n = name.toLowerCase()
@@ -124,14 +169,25 @@ function enter(row: any) {
   load()
 }
 
-function go() {
-  path.value = pathInput.value
+function goPath(p: string) {
+  path.value = p
+  pathEditing.value = false
   load()
 }
 
-function goUp() {
-  path.value = parentPath(path.value)
+function go() {
+  path.value = pathInput.value
+  pathEditing.value = false
   load()
+}
+
+function applyPath() {
+  go()
+}
+
+function startEdit() {
+  pathInput.value = path.value
+  pathEditing.value = true
 }
 
 async function ask(title: string, msg: string, ph = ''): Promise<string | null> {
@@ -244,11 +300,20 @@ async function doUpload(opt: any) {
   load()
 }
 
-
 onMounted(load)
 </script>
 
 <style scoped>
-.path-group { display: flex; gap: 8px; flex: 1 1 280px; max-width: 520px; align-items: center; }
-.path-group :deep(.ant-btn) { flex: 0 0 auto; }
+.files-crumb {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  padding: 0 var(--wm-s5) var(--wm-s3);
+}
+.files-crumb__seg {
+  border: 0; background: transparent; cursor: pointer;
+  font-size: 13px; color: var(--wm-ink-2); padding: 2px 4px; border-radius: 6px;
+  font-family: var(--wm-font-mono);
+}
+.files-crumb__seg:hover { color: var(--wm-primary); background: var(--wm-surface-3); }
+.files-crumb__seg:last-child { color: var(--wm-ink); font-weight: 600; }
+.files-crumb__sep { margin-left: 4px; color: var(--wm-ink-3); }
 </style>

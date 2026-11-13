@@ -21,7 +21,7 @@
       </div>
     </section>
 
-    <a-tabs v-model:activeKey="activeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs ops-tabs">
+    <a-tabs v-model:activeKey="activeTab" tab-position="top" class="store-tabs ops-tabs">
       <!-- 应用商店 -->
       <a-tab-pane key="apps">
         <template #tab>
@@ -416,7 +416,7 @@ import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
-import { useWideViewport } from '../composables/useWideViewport'
+
 
 const docker = ref<any>({})
 const templates = ref<any[]>([])
@@ -434,7 +434,7 @@ const logName = ref('')
 const logContent = ref('')
 
 const activeTab = ref('apps')
-const { wide } = useWideViewport(1100)
+
 const containers = ref<any>({})
 const images = ref<any>({})
 const ctLoading = ref(false)

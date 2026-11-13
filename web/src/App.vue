@@ -15,15 +15,15 @@ const store = useTheme()
 const antTheme = computed(() => ({
   algorithm: store.dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
   token: {
-    colorPrimary: '#0f766e',
-    colorInfo: '#0f766e',
-    colorSuccess: '#059669',
+    colorPrimary: '#0d9488',
+    colorInfo: '#0d9488',
+    colorSuccess: '#16a34a',
     colorWarning: '#d97706',
     colorError: '#dc2626',
     colorLink: '#0d9488',
-    borderRadius: 6,
-    borderRadiusLG: 8,
-    borderRadiusSM: 4,
+    borderRadius: 8,
+    borderRadiusLG: 12,
+    borderRadiusSM: 5,
     controlHeight: 36,
     fontSize: 14,
     fontFamily:

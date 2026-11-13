@@ -2,7 +2,11 @@
   <div class="wm-stat" :class="[`wm-stat--${tone}`, { 'wm-stat--dense': dense }]">
     <div class="wm-stat__top">
       <span class="wm-stat__label">{{ label }}</span>
-      <span v-if="$slots.icon || icon" class="wm-stat__icon">
+      <span
+        v-if="$slots.icon || icon"
+        class="wm-stat__icon"
+        :style="palette ? { background: palette.soft, color: palette.color } : undefined"
+      >
         <slot name="icon"><span v-if="icon" class="wm-stat__icon-inline"><component :is="icon" /></span></slot>
       </span>
     </div>
@@ -26,7 +30,7 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(
+const props = withDefaults(
   defineProps<{
     label: string
     value?: string | number
@@ -38,7 +42,10 @@ withDefaults(
     loading?: boolean
     icon?: any
     dense?: boolean
+    /** 彩色模块色板变量名对，覆盖 tone 的图标底色 */
+    palette?: { color: string; soft: string } | null
   }>(),
-  { value: '-', unit: '', sub: '', tone: 'info', progress: null, text: false, loading: false, icon: null, dense: false }
+  { value: '-', unit: '', sub: '', tone: 'info', progress: null, text: false, loading: false, icon: null, dense: false, palette: null }
 )
+void props
 </script>

@@ -7,54 +7,66 @@
    ========================================================================= */
 
 :root {
-  --wm-primary: #0f766e;
-  --wm-primary-hover: #0d9488;
+  --wm-primary: #0d9488;
+  --wm-primary-hover: #0f766e;
   --wm-primary-active: #115e59;
-  --wm-primary-soft: #f0fdfa;
+  --wm-primary-soft: #ccfbf1;
   --wm-primary-line: #99f6e4;
-  --wm-primary-ring: rgba(20, 184, 166, 0.15);
+  --wm-primary-ring: rgba(13, 148, 136, 0.16);
   --wm-primary-contrast: #ffffff;
   --wm-accent: #0d9488;
-  --wm-accent-soft: #f0fdfa;
+  --wm-accent-soft: #ccfbf1;
 
-  --wm-ground: #fafafa;
+  --wm-ground: #f4f6fa;
   --wm-surface: #ffffff;
-  --wm-surface-2: #fafafa;
-  --wm-surface-3: #f4f4f5;
-  --wm-ink: #18181b;
-  --wm-ink-2: #52525b;
-  --wm-ink-3: #a1a1aa;
-  --wm-line: #e4e4e7;
-  --wm-line-strong: #d4d4d8;
+  --wm-surface-2: #f8fafc;
+  --wm-surface-3: #eef2f7;
+  --wm-ink: #1e2a3a;
+  --wm-ink-2: #5b6b81;
+  --wm-ink-3: #93a1b5;
+  --wm-line: #e7ecf3;
+  --wm-line-strong: #d9e0ea;
 
   --wm-sider: #ffffff;
-  --wm-sider-2: #fafafa;
-  --wm-sider-ink: #18181b;
-  --wm-sider-ink-2: #52525b;
-  --wm-sider-ink-3: #a1a1aa;
-  --wm-sider-line: #e4e4e7;
+  --wm-sider-2: #f6f8fb;
+  --wm-sider-ink: #1e2a3a;
+  --wm-sider-ink-2: #5b6b81;
+  --wm-sider-ink-3: #93a1b5;
+  --wm-sider-line: #e7ecf3;
 
-  --wm-success: #059669;
-  --wm-success-soft: #ecfdf5;
+  --wm-success: #16a34a;
+  --wm-success-soft: #f0fdf4;
   --wm-warning: #d97706;
   --wm-warning-soft: #fffbeb;
   --wm-danger: #dc2626;
   --wm-danger-soft: #fef2f2;
-  --wm-info: #18181b;
-  --wm-info-soft: #f4f4f5;
-  --wm-neutral: #52525b;
-  --wm-neutral-soft: #fafafa;
+  --wm-info: #0d9488;
+  --wm-info-soft: #f0fdfa;
+  --wm-neutral: #5b6b81;
+  --wm-neutral-soft: #f4f6fa;
 
-  --wm-r-sm: 4px;
-  --wm-r-md: 6px;
-  --wm-r-lg: 8px;
-  --wm-r-xl: 12px;
+  --wm-r-sm: 5px;
+  --wm-r-md: 8px;
+  --wm-r-lg: 12px;
+  --wm-r-xl: 16px;
   --wm-s1: 4px; --wm-s2: 8px; --wm-s3: 12px; --wm-s4: 16px;
   --wm-s5: 20px; --wm-s6: 24px; --wm-s8: 32px; --wm-s12: 48px;
 
-  --wm-shadow-1: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --wm-shadow-2: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --wm-shadow-3: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --wm-shadow-1: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --wm-shadow-2: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --wm-shadow-3: 0 12px 24px -6px rgba(15, 23, 42, 0.12), 0 4px 8px -4px rgba(15, 23, 42, 0.05);
+
+  /* 彩色模块色板：菜单/卡片图标体系（soft 透明底双主题通用） */
+  --wm-p-blue: #3b82f6;   --wm-p-blue-soft: rgba(59, 130, 246, 0.12);
+  --wm-p-green: #22c55e;  --wm-p-green-soft: rgba(34, 197, 94, 0.12);
+  --wm-p-orange: #f59e0b; --wm-p-orange-soft: rgba(245, 158, 11, 0.13);
+  --wm-p-violet: #8b5cf6; --wm-p-violet-soft: rgba(139, 92, 246, 0.12);
+  --wm-p-cyan: #06b6d4;   --wm-p-cyan-soft: rgba(6, 182, 212, 0.12);
+  --wm-p-red: #ef4444;    --wm-p-red-soft: rgba(239, 68, 68, 0.11);
+  --wm-p-amber: #d97706;  --wm-p-amber-soft: rgba(217, 119, 6, 0.13);
+  --wm-p-pink: #ec4899;   --wm-p-pink-soft: rgba(236, 72, 153, 0.12);
+  --wm-p-indigo: #6366f1; --wm-p-indigo-soft: rgba(99, 102, 241, 0.12);
+  --wm-p-teal: #14b8a6;   --wm-p-teal-soft: rgba(20, 184, 166, 0.12);
 
   --wm-dur-fast: 150ms;
   --wm-ease: cubic-bezier(0.4, 0, 0.2, 1);
@@ -73,39 +85,39 @@ html.dark {
   --wm-primary: #2dd4bf;
   --wm-primary-hover: #5eead4;
   --wm-primary-active: #14b8a6;
-  --wm-primary-soft: rgba(45, 212, 191, 0.12);
+  --wm-primary-soft: rgba(45, 212, 191, 0.13);
   --wm-primary-line: rgba(45, 212, 191, 0.35);
   --wm-primary-ring: rgba(45, 212, 191, 0.2);
   --wm-primary-contrast: #04211d;
   --wm-accent: #2dd4bf;
-  --wm-accent-soft: rgba(45, 212, 191, 0.12);
+  --wm-accent-soft: rgba(45, 212, 191, 0.13);
 
-  --wm-ground: #09090b;
-  --wm-surface: #101012;
-  --wm-surface-2: #18181b;
-  --wm-surface-3: #27272a;
-  --wm-ink: #fafafa;
-  --wm-ink-2: #a1a1aa;
-  --wm-ink-3: #71717a;
-  --wm-line: #26272a;
-  --wm-line-strong: #3f3f46;
+  --wm-ground: #0c111c;
+  --wm-surface: #141b28;
+  --wm-surface-2: #1a2231;
+  --wm-surface-3: #222c3e;
+  --wm-ink: #e8edf5;
+  --wm-ink-2: #9aa8bf;
+  --wm-ink-3: #64748b;
+  --wm-line: #232d40;
+  --wm-line-strong: #2f3a52;
 
-  --wm-sider: #0c0c0e;
-  --wm-sider-2: #18181b;
-  --wm-sider-ink: #fafafa;
-  --wm-sider-ink-2: #a1a1aa;
-  --wm-sider-ink-3: #71717a;
-  --wm-sider-line: #26272a;
+  --wm-sider: #0f1520;
+  --wm-sider-2: #1a2231;
+  --wm-sider-ink: #e8edf5;
+  --wm-sider-ink-2: #9aa8bf;
+  --wm-sider-ink-3: #64748b;
+  --wm-sider-line: #232d40;
 
   --wm-success: #34d399; --wm-success-soft: rgba(52, 211, 153, 0.1);
   --wm-warning: #fbbf24; --wm-warning-soft: rgba(251, 191, 36, 0.1);
   --wm-danger: #f87171; --wm-danger-soft: rgba(248, 113, 113, 0.1);
-  --wm-info: #fafafa; --wm-info-soft: #27272a;
-  --wm-neutral: #a1a1aa;
-  --wm-neutral-soft: #18181b;
+  --wm-info: #2dd4bf; --wm-info-soft: rgba(45, 212, 191, 0.1);
+  --wm-neutral: #9aa8bf;
+  --wm-neutral-soft: #1a2231;
   --wm-shadow-1: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --wm-shadow-2: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
-  --wm-shadow-3: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
+  --wm-shadow-2: 0 4px 12px -2px rgba(0, 0, 0, 0.5);
+  --wm-shadow-3: 0 12px 24px -6px rgba(0, 0, 0, 0.6);
   --wm-code-bg: #0b1120;
   color-scheme: dark;
 }
@@ -142,11 +154,41 @@ a { color: inherit; text-decoration: none; }
 .wm-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Application shell ------------------------------------------
-   shadcn 风格：扁平全出血布局，侧栏白底细分隔线，内容浮于 zinc-50 底色。 */
+   顶部导航布局：品牌 + 分组下拉导航 + 动作区一行，内容区全宽滚动。 */
 .wm-shell {
-  display: flex; height: 100vh; height: 100dvh; overflow: hidden;
+  display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden;
   background: var(--wm-ground);
 }
+
+.wm-topbar__brand {
+  display: flex; align-items: center; gap: 10px;
+  align-self: stretch; padding-right: var(--wm-s5);
+  border-right: 1px solid var(--wm-line);
+  color: var(--wm-sider-ink); white-space: nowrap;
+}
+.wm-topnav {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1; min-width: 0; margin-left: var(--wm-s4);
+}
+.wm-topnav__item {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 8px 14px; border: 0; background: transparent;
+  border-radius: var(--wm-r-md);
+  color: var(--wm-ink-2); font-size: 13.5px; font-family: inherit;
+  cursor: pointer; white-space: nowrap;
+  transition: background var(--wm-dur-fast), color var(--wm-dur-fast);
+}
+.wm-topnav__item:hover { background: var(--wm-surface-3); color: var(--wm-ink); }
+.wm-topnav__item.is-active {
+  background: var(--wm-primary-soft); color: var(--wm-primary); font-weight: 600;
+}
+.wm-topnav__caret { font-size: 11px; opacity: 0.55; }
+.wm-topnav__burger { margin-left: 4px; }
+.wm-topnav-menu .ant-menu-item {
+  border-radius: 8px; margin: 2px 6px !important;
+  display: flex; align-items: center;
+}
+.wm-topnav-menu .wm-nav-ico { margin-right: 2px; }
 
 .wm-sider {
   width: var(--wm-sider-w);
@@ -198,13 +240,19 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: 0.06em;
 }
 .wm-shell .wm-nav .ant-menu-item {
-  margin: 1px 8px;
+  margin: 2px 8px;
   width: calc(100% - 16px);
   border-radius: var(--wm-r-md);
   color: var(--wm-sider-ink-2) !important;
-  height: 36px;
-  line-height: 36px;
+  height: 40px;
+  line-height: 40px;
   font-size: 13px;
+}
+.wm-shell .wm-nav .ant-menu-item .anticon { font-size: 15px; }
+.wm-nav-ico {
+  width: 26px; height: 26px; border-radius: 8px;
+  display: inline-grid; place-items: center;
+  font-size: 14px; flex: 0 0 26px;
 }
 .wm-shell .wm-nav .ant-menu-item:hover { background: var(--wm-surface-3) !important; color: var(--wm-sider-ink) !important; }
 .wm-shell .wm-nav .ant-menu-item-selected {
@@ -222,13 +270,14 @@ a { color: inherit; text-decoration: none; }
 .wm-mobile-drawer .wm-nav .ant-menu-item-group-title { color: var(--wm-ink-3); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
 .wm-mobile-drawer .wm-nav .ant-menu-item { border-radius: var(--wm-r-md); margin: 1px 8px; width: calc(100% - 16px); }
 
-.wm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.wm-main { display: none; }
 .wm-topbar {
   height: var(--wm-topbar-h); flex: 0 0 var(--wm-topbar-h);
-  display: flex; align-items: center; gap: 12px; padding: 0 var(--wm-s6) 0 var(--wm-s4);
+  display: flex; align-items: center; gap: 12px; padding: 0 var(--wm-s5) 0 var(--wm-s4);
   background: var(--wm-surface); border-bottom: 1px solid var(--wm-line);
   position: relative; z-index: 20;
 }
+.wm-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 0 64px; }
 .wm-topbar__left, .wm-topbar__right { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .wm-topbar__right { margin-left: auto; }
 .wm-icon-btn {
@@ -297,6 +346,13 @@ a { color: inherit; text-decoration: none; }
   padding: 15px var(--wm-s5);
   border-bottom: 1px solid var(--wm-line);
 }
+.wm-section__icon {
+  width: 34px; height: 34px; flex: 0 0 34px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  font-size: 17px;
+}
+.wm-section__head-text { flex: 1; min-width: 0; }
 .wm-section__title { font-size: 15px; font-weight: 600; line-height: 1.5; }
 .wm-section__desc { font-size: 12px; color: var(--wm-ink-3); margin-top: 2px; text-wrap: pretty; }
 .wm-section__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

@@ -9,6 +9,7 @@
 import { h, ref } from 'vue'
 import { message, Modal, Input } from 'ant-design-vue'
 import {
+  FolderOpenOutlined, EditOutlined,
   DashboardOutlined, GlobalOutlined, DatabaseOutlined, AppstoreOutlined,
   CodeOutlined, ClockCircleOutlined, AlertOutlined, FolderOutlined,
   ThunderboltOutlined, HddOutlined, LockOutlined, SafetyCertificateOutlined,
@@ -90,6 +91,8 @@ export {
   ClockCircleOutlined as Timer,
   AlertOutlined as Warning,
   FolderOutlined as Folder,
+  FolderOpenOutlined as FolderOpen,
+  EditOutlined as Edit,
   ThunderboltOutlined as Cpu,
   HddOutlined as Memo,
   LineChartOutlined as TrendCharts,

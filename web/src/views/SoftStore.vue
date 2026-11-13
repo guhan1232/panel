@@ -22,7 +22,7 @@
       </div>
     </section>
 
-    <a-tabs v-model:activeKey="storeTab" :tab-position="wide ? 'left' : 'top'" class="store-tabs ops-tabs">
+    <a-tabs v-model:activeKey="storeTab" tab-position="top" class="store-tabs ops-tabs">
       <a-tab-pane key="apps">
         <template #tab>
           <span class="ops-tab"><AppstoreOutlined /><span class="ops-tab__label">可安装软件</span><span class="ops-tab__count">{{ templates.length }}</span></span>
@@ -351,7 +351,7 @@ import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
-import { useWideViewport } from '../composables/useWideViewport'
+
 
 const templates = ref<any[]>([])
 const apps = ref<any[]>([])
@@ -364,7 +364,7 @@ const instName = ref('')
 const instSource = ref('auto')
 
 const storeTab = ref('apps')
-const { wide } = useWideViewport(1100)
+
 const instVer = ref('')
 const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
