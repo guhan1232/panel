@@ -23,15 +23,11 @@
     </div>
 
     <div class="setting-shell">
-      <nav class="setting-nav" aria-label="配置导航">
-        <a v-for="g in groups" :key="g.id" :href="'#' + g.id" class="setting-nav__item" :class="{ 'setting-nav__item--active': activeGroup === g.id }" @click.prevent="jumpTo(g.id)">
-          <span class="setting-nav__icon"><component :is="g.icon" /></span>
-          <span class="setting-nav__label">{{ g.label }}</span>
-        </a>
-        <span class="setting-nav__foot"><ShieldOutlined /> 敏感操作会要求二次确认</span>
-      </nav>
+      <div class="setting-tabs">
+        <a-segmented v-model:value="activeTab" :options="tabOptions" />
+      </div>
       <div class="setting-main">
-      <section id="sec-account" class="setting-group">
+      <section v-if="activeTab === 'account'" class="setting-group">
         <div class="setting-group__head">
           <div><span class="setting-group__kicker">IDENTITY</span><h3>账号与安全</h3><p>管理员凭据、二次验证与设备会话。</p></div>
           <WmStatusPill label="核心配置" tone="info" :dot="false" outline />
@@ -95,7 +91,7 @@
         </WmTable>
       </WmSectionCard>
       </section>
-      <section id="sec-access" class="setting-group">
+      <section v-if="activeTab === 'access'" class="setting-group">
         <div class="setting-group__head">
           <div><span class="setting-group__kicker">INTEGRATIONS</span><h3>接入与扩展</h3><p>面向脚本、AI 客户端与移动端的连接配置。</p></div>
           <WmStatusPill :label="apiToken.enabled ? 'API 已启用' : 'API 未启用'" :tone="apiToken.enabled ? 'success' : 'neutral'" :dot="false" outline />
@@ -173,7 +169,7 @@
         </template>
       </WmSectionCard>
       </section>
-      <section id="sec-network" class="setting-group">
+      <section v-if="activeTab === 'network'" class="setting-group">
         <div class="setting-group__head">
           <div><span class="setting-group__kicker">NETWORK</span><h3>网络与证书</h3><p>加密访问、证书签发和域名反向代理。</p></div>
           <WmStatusPill :label="tls.tls ? 'HTTPS 已启用' : 'HTTP 明文'" :tone="tls.tls ? 'success' : 'warning'" :dot="false" outline />
@@ -248,7 +244,7 @@
         </template>
       </WmSectionCard>
       </section>
-      <section id="sec-ops" class="setting-group">
+      <section v-if="activeTab === 'ops'" class="setting-group">
         <div class="setting-group__head">
           <div><span class="setting-group__kicker">MAINTENANCE</span><h3>系统运维</h3><p>软件源、版本升级与面板数据保全。</p></div>
           <WmStatusPill :label="upInfo.has_update ? '有新版本' : '维护工具'" :tone="upInfo.has_update ? 'warning' : 'neutral'" :dot="false" outline />
@@ -363,38 +359,30 @@ import {
   ToolOutlined,
   UserOutlined
 } from '@ant-design/icons-vue'
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import AppBindDialog from '../components/AppBindDialog.vue'
 import api from '../api'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()
+const route = useRoute()
+const router = useRouter()
 
 // ---- 设置页锚点导航（分组滚动定位 + 高亮）----
-const groups = [
-  { id: 'sec-account', label: '账号与安全', icon: UserOutlined },
-  { id: 'sec-access', label: '接入与扩展', icon: ApiOutlined },
-  { id: 'sec-network', label: '网络与证书', icon: GlobalOutlined },
-  { id: 'sec-ops', label: '系统运维', icon: ToolOutlined },
+const tabOptions = [
+  { value: 'account', label: '账号与安全' },
+  { value: 'access', label: '接入与扩展' },
+  { value: 'network', label: '网络与证书' },
+  { value: 'ops', label: '系统运维' }
 ]
-const activeGroup = ref('sec-account')
-let settingScrollHost: HTMLElement | Window = window
-function jumpTo(id: string) {
-  activeGroup.value = id
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-function onSettingScroll() {
-  const marks = groups.map(g => ({ id: g.id, top: document.getElementById(g.id)?.getBoundingClientRect().top ?? 9999 }))
-  const cur = marks.filter(m => m.top <= 140).pop() || marks[0]
-  if (cur) activeGroup.value = cur.id
-}
-onMounted(() => {
-  settingScrollHost = (document.querySelector('.wm-content') as HTMLElement | null) || window
-  settingScrollHost.addEventListener('scroll', onSettingScroll, { passive: true })
-  onSettingScroll()
+const activeTab = ref((route.query.tab as string) || 'account')
+watch(activeTab, (t) => {
+  router.replace({ query: { ...route.query, tab: t } })
 })
-onUnmounted(() => settingScrollHost.removeEventListener('scroll', onSettingScroll))
+const activeGroup = ref('sec-account')
+
 const info = reactive<any>({})
 const form = reactive<any>({ old: '', n1: '', n2: '' })
 const saving = ref(false)
@@ -944,59 +932,7 @@ async function clearApiToken() {
 .st-foot-note { margin-right: auto; font-size: 12px; align-self: center; }
 
 /* 布局：水平锚点条 + 全宽单列卡片流（大屏不留半卡空缺） */
-.setting-shell {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wm-s4);
-  min-width: 0;
-}
-.setting-nav {
-  position: sticky;
-  top: 0;
-  z-index: 9;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 7px 10px;
-  border: 1px solid var(--wm-line);
-  border-radius: var(--wm-r-lg);
-  background: color-mix(in srgb, var(--wm-surface) 86%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow: var(--wm-shadow-1);
-}
-.setting-nav__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  color: var(--wm-ink-2);
-  font-size: 13px;
-  line-height: 1.4;
-  transition: background var(--wm-dur-fast), color var(--wm-dur-fast), border-color var(--wm-dur-fast);
-}
-.setting-nav__item:hover { background: var(--wm-surface-3); color: var(--wm-ink); }
-.setting-nav__item--active {
-  background: var(--wm-primary-soft);
-  border-color: var(--wm-primary-line);
-  color: var(--wm-primary);
-  font-weight: 600;
-}
-.setting-nav__icon { display: inline-grid; place-items: center; font-size: 14px; }
-.setting-nav__item--active .setting-nav__icon { color: var(--wm-primary); }
-.setting-nav__label { white-space: nowrap; }
-.setting-nav__foot {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--wm-ink-3);
-  font-size: 11px;
-  padding-right: 6px;
-}
-
+.setting-tabs { margin-bottom: var(--wm-s2); }
 .setting-main { min-width: 0; display: flex; flex-direction: column; gap: var(--wm-s6); }
 .setting-group {
   scroll-margin-top: 64px;
