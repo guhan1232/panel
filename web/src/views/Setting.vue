@@ -187,6 +187,7 @@
         </a-form>
         <template #footer>
           <a-button size="small" @click="bindDlg = true">生成绑定二维码</a-button>
+          <a-button size="small" @click="bindDlg = true">绑定 APP</a-button>
           <a-button type="primary" size="small" :loading="appSaving" @click="saveAppConfig">保存 APP 配置</a-button>
         </template>
       </WmSectionCard>

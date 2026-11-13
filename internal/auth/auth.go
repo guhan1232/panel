@@ -124,6 +124,10 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.POST("/sessions/revoke-others", s.revokeOtherSessions)
 	authed.POST("/auth/sessions/revoke-others", s.revokeOtherSessions) // 别名
 	authed.GET("/auth/app-bind", s.appBindInfo)
+	authed.GET("/auth/bind/status", s.bindStatus)
+	authed.POST("/auth/bind/generate", s.bindGenerate)
+	authed.POST("/auth/bind/unbind", s.bindUnbind)
+	api.POST("/auth/bind/login", s.bindLogin)
 	authed.POST("/auth/qr/confirm", s.qrConfirm)
 	authed.POST("/auth/qr/approve", s.qrApprove)
 }
