@@ -1,0 +1,11 @@
+﻿server:
+    listen: :26154
+    entrance: e2c43bc1
+    secret: ""
+    tls:
+        enabled: true
+        cert: ""
+        key: ""
+data_dir: data
+log_dir: logs
+log_level: info

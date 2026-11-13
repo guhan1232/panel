@@ -1,0 +1,65 @@
+# azapp 分支 = 寒语馨面板 Android APP 专属源码工作区（APP 源码在仓库根）。
+# CNB 云原生构建：每次 push 自动出 Debug 签名 APK 并发布到仓库 Release 附件。
+# 正式 release 签名版不走云端（keystore 不入库），仍由本地 gradle assembleRelease 构建。
+azapp:
+  push:
+    - name: android-apk
+      runner:
+        cpus: 4
+      docker:
+        image: eclipse-temurin:17-jdk
+      env:
+        ANDROID_HOME: /opt/android-sdk
+        ANDROID_SDK_ROOT: /opt/android-sdk
+      volumes:
+        - /root/.gradle   # gradle 依赖与构建缓存（跨次构建复用）
+        - /root/.android  # debug.keystore 缓存
+      stages:
+        - name: 安装 Android SDK
+          script: |
+            apt-get update -qq >/dev/null && apt-get install -y -qq unzip >/dev/null
+            mkdir -p $ANDROID_HOME/cmdline-tools
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/tools.zip \
+              || curl -fsSL https://mirrors.cloud.tencent.com/AndroidSDK/commandlinetools-linux-11076708_latest.zip -o /tmp/tools.zip
+            unzip -q /tmp/tools.zip -d /tmp/clt
+            mv /tmp/clt/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+            yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME --licenses >/dev/null
+            yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+            echo "SDK components installed:"
+            ls $ANDROID_HOME/platforms $ANDROID_HOME/build-tools
+        - name: 安装 Gradle
+          script: |
+            curl -fsSL https://mirrors.cloud.tencent.com/gradle/gradle-8.10.2-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /opt
+            ln -sf /opt/gradle-8.10.2/bin/gradle /usr/local/bin/gradle
+            gradle --version | head -4
+        - name: 构建 Debug APK
+          script: |
+            gradle assembleDebug --no-daemon --console=plain
+            mkdir -p /workspace/dist
+            cp app/build/outputs/apk/debug/app-debug.apk /workspace/dist/hanyuxin-panel-debug.apk
+            sha256sum /workspace/dist/hanyuxin-panel-debug.apk
+            ls -lh /workspace/dist/
+        - name: 创建 Release
+          type: git:release
+          options:
+            tag: app-debug
+            title: 寒语馨面板 Android APP（Debug 签名 · CNB 云端构建）
+            description: CNB 云原生构建产物：Debug 签名 APK（可直接安装试用）。与正式 release 签名版签名不同，覆盖安装前需先卸载旧版。
+            latest: true
+        - name: 上传附件（OpenAPI 直传）
+          script: |
+            APK=/workspace/dist/hanyuxin-panel-debug.apk
+            SIZE=$(stat -c%s "$APK")
+            REL=$(curl -sf -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/tags/app-debug")
+            REL_ID=$(echo "$REL" | grep -o '"id":"[0-9]*"' | head -1 | grep -o '[0-9]*')
+            echo "release id: $REL_ID"
+            UP=$(curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" \
+              -d "{\"asset_name\":\"hanyuxin-panel-debug.apk\",\"size\":$SIZE,\"overwrite\":true}" \
+              "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/$REL_ID/asset-upload-url")
+            UPLOAD_URL=$(echo "$UP" | grep -o '"upload_url":"[^"]*"' | cut -d'"' -f4)
+            VERIFY_URL=$(echo "$UP" | grep -o '"verify_url":"[^"]*"' | cut -d'"' -f4)
+            echo "upload url acquired"
+            curl -sf -X PUT -T "$APK" "$UPLOAD_URL"
+            curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$VERIFY_URL"
+            echo "附件已上传并确认"
