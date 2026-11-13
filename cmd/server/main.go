@@ -115,7 +115,10 @@ func main() {
 	term.RegisterSSH(termGrp, db, cfg)
 	proc.Register(protected)
 	certMod := cert.New(db, cfg.DataDir)
-	setting.New(db, cfg, certMod).Register(protected)
+	settingMod := setting.New(db, cfg, certMod)
+	settingMod.Register(protected)
+	// 面板品牌名：登录页/布局壳匿名可读（仍受安全入口防护）
+	api.GET("/setting/brand", settingMod.BrandPublic)
 	certMod.Register(protected)
 
 	// P1 模块

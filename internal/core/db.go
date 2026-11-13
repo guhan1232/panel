@@ -25,6 +25,7 @@ const (
 	KAppSourceURL   = "appstore_source_url"
 	KAppSourceCache = "appstore_source_cache"
 	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）
+	KPanelName      = "panel_name"           // 自定义面板名称（空 = 默认「寒语馨面板」）
 
 	// 移动 APP（docs/APP.md §7）：对外地址、APK 分发与自更新检查。
 	KAppPublicURL    = "app_public_url"    // 面板对外访问地址（扫码登录 qr_text 的 host；空 = 自动推导）

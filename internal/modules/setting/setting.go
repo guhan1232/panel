@@ -25,8 +25,8 @@ import (
 
 	"cnb.cool/hanyuxin/panel/internal/archive"
 	"cnb.cool/hanyuxin/panel/internal/config"
-	"cnb.cool/hanyuxin/panel/internal/modules/cert"
 	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/modules/cert"
 	"cnb.cool/hanyuxin/panel/internal/selfcert"
 )
 
@@ -56,6 +56,9 @@ func (m *Module) Register(api gin.IRouter) {
 	// HTTPS 证书（自签兜底 10 年 / 中间 CA 交叉签发跟随 CA 有效期）
 	g.GET("/tls/status", m.tlsStatus)
 	g.POST("/tls/apply", m.tlsApply)
+	// 自定义面板名称（admin 可改；brand 为匿名可读的公开端点，见 main.go）
+	g.GET("/name", m.panelNameGet)
+	g.POST("/name", m.panelNameSet)
 }
 
 // ---- HTTPS 证书管理 ----
@@ -272,6 +275,7 @@ func (m *Module) writePanelCertAndRestart(certPEM, keyPEM []byte, panelDir, mode
 
 func (m *Module) info(c *gin.Context) {
 	core.OK(c, gin.H{
+		"panel_name":  m.panelName(),
 		"version":     core.Version,
 		"listen":      m.cfg.Server.Listen,
 		"entrance_on": m.cfg.Server.Entrance != "",
@@ -498,7 +502,7 @@ func (m *Module) panelRestore(c *gin.Context) {
 	}
 	zipPath := filepath.Join(restoreDir, "restore.zip")
 	if err := c.SaveUploadedFile(file, zipPath); err != nil {
-		core.Err(c, 500, "保存上传失败: " + err.Error())
+		core.Err(c, 500, "保存上传失败: "+err.Error())
 		return
 	}
 	// 解包校验（防路径穿越由 archive.UnZip 处理；必含所选恢复项）
@@ -506,7 +510,7 @@ func (m *Module) panelRestore(c *gin.Context) {
 	_ = os.RemoveAll(checkDir)
 	if err := archive.UnZip(zipPath, checkDir); err != nil {
 		_ = os.RemoveAll(restoreDir)
-		core.Err(c, 400, "备份包解析失败: " + err.Error())
+		core.Err(c, 400, "备份包解析失败: "+err.Error())
 		return
 	}
 	itemFiles := map[string]string{"db": "panel.db", "config": "config.yaml", "certs": "certs-managed"}
@@ -608,7 +612,6 @@ func (m *Module) panelRestoreRollback(c *gin.Context) {
 	_, _ = exec.Command("sh", "-c", "setsid nohup sh "+filepath.Join(restoreDir, "restore.sh")+" >/dev/null 2>&1 &").CombinedOutput()
 	core.OK(c, gin.H{"ok": true, "message": "回滚任务已执行（使用 " + latest.Name() + "），面板将重启"})
 }
-
 
 // ---- 面板在线自升级：清单 JSON {version, binary_url, sha256?} ----
 
@@ -786,4 +789,56 @@ func (m *Module) changeUsername(c *gin.Context) {
 		return
 	}
 	core.OK(c, gin.H{"username": name})
+}
+
+// ---- 自定义面板名称 ----
+
+// panelName 读取当前面板名（settings 表；空值由前端回退默认「寒语馨面板」）。
+func (m *Module) panelName() string {
+	return strings.TrimSpace(core.GetSetting(m.db, core.KPanelName))
+}
+
+// panelNameGet 登录会话读取面板名。
+func (m *Module) panelNameGet(c *gin.Context) {
+	core.OK(c, gin.H{"name": m.panelName()})
+}
+
+// panelNameSet 修改面板名（仅 admin，1-40 字符；前后端品牌处即时生效，无需重启）。
+func (m *Module) panelNameSet(c *gin.Context) {
+	if c.GetString("role") != "admin" {
+		core.Err(c, 403, "仅管理员可修改面板名称")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		// 清空 = 恢复默认
+		if err := core.SetSetting(m.db, core.KPanelName, ""); err != nil {
+			core.Err(c, 500, "保存失败")
+			return
+		}
+		core.OK(c, gin.H{"name": ""})
+		return
+	}
+	if n := len([]rune(name)); n < 1 || n > 40 {
+		core.Err(c, 400, "面板名称需 1-40 个字")
+		return
+	}
+	if err := core.SetSetting(m.db, core.KPanelName, name); err != nil {
+		core.Err(c, 500, "保存失败")
+		return
+	}
+	core.OK(c, gin.H{"name": name})
+}
+
+// BrandPublic 匿名可读的面板品牌信息（登录页 / 布局壳品牌名用；仍受安全入口与审计中间件防护）。
+func (m *Module) BrandPublic(c *gin.Context) {
+	name := strings.TrimSpace(core.GetSetting(m.db, core.KPanelName))
+	core.OK(c, gin.H{"name": name, "version": core.Version})
 }

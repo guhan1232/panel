@@ -5,7 +5,7 @@
       <div class="wm-brand">
         <span class="wm-brand__mark">寒</span>
         <transition name="fade">
-          <span v-show="!collapsed || isMobile" class="wm-brand__text">寒语馨面板</span>
+          <span v-show="!collapsed || isMobile" class="wm-brand__text">{{ brand.name }}</span>
         </transition>
         <button
           v-if="!isMobile"
@@ -50,7 +50,7 @@
       :closable="false"
       class="wm-mobile-drawer"
     >
-      <div class="wm-brand wm-brand--drawer"><span class="wm-brand__mark">寒</span><span class="wm-brand__text">寒语馨面板</span></div>
+      <div class="wm-brand wm-brand--drawer"><span class="wm-brand__mark">寒</span><span class="wm-brand__text">{{ brand.name }}</span></div>
       <a-menu theme="light" mode="inline" :selected-keys="[route.path]" class="wm-nav">
         <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
           <a-menu-item v-for="item in group.items" :key="item.path" @click="go(item.path)">
@@ -151,9 +151,11 @@ import {
 import { useAuth } from '../stores/auth'
 import { t as tr } from '../i18n'
 import { useTheme } from '../stores/theme'
+import { useBrand } from '../stores/brand'
 
 const auth = useAuth()
 const theme = useTheme()
+const brand = useBrand()
 const route = useRoute()
 const router = useRouter()
 
@@ -247,6 +249,7 @@ function onViewport(e: MediaQueryListEvent | MediaQueryList) {
 }
 watch(() => route.fullPath, () => { drawerOpen.value = false })
 onMounted(() => {
+  brand.load()
   mql = window.matchMedia('(max-width: 900px)')
   onViewport(mql)
   mql.addEventListener('change', onViewport)

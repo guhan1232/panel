@@ -32,6 +32,17 @@
           <div><span class="setting-group__kicker">IDENTITY</span><h3>账号与安全</h3><p>管理员凭据、二次验证与设备会话。</p></div>
           <WmStatusPill label="核心配置" tone="info" :dot="false" outline />
         </div>
+      <WmSectionCard class="setting-card" title="面板名称" description="自定义侧栏左上角与登录页显示的名称（1-40 字）；留空恢复默认「寒语馨面板」" :icon="SettingOutlined" :palette="{ color: 'var(--wm-p-teal)', soft: 'var(--wm-p-teal-soft)' }">
+        <a-form layout="vertical" style="max-width: 440px">
+          <a-form-item label="面板名称" style="margin-bottom: 0">
+            <a-input v-model:value="panelNameForm" placeholder="寒语馨面板" :maxlength="40" :disabled="auth.role !== 'admin'" />
+          </a-form-item>
+        </a-form>
+        <WmNotice v-if="auth.role !== 'admin'" tone="neutral" class="wm-mt-4">仅管理员可修改面板名称。</WmNotice>
+        <template #footer>
+          <a-button type="primary" :loading="savingPanelName" :disabled="auth.role !== 'admin'" @click="savePanelName">保存名称</a-button>
+        </template>
+      </WmSectionCard>
       <WmSectionCard class="setting-card" title="账号信息" description="修改登录用户名；初始随机用户名建议尽快改为易记名称">
         <a-form layout="vertical" style="max-width: 440px">
           <a-form-item label="当前用户名"><span class="wm-mono"><b>{{ auth.username }}</b></span></a-form-item>
@@ -353,7 +364,7 @@
 
 <script setup lang="ts">
 import {
-  ApiOutlined,
+  ApiOutlined, SettingOutlined,
   GlobalOutlined,
   SafetyCertificateOutlined,
   ToolOutlined,
@@ -365,8 +376,10 @@ import AppBindDialog from '../components/AppBindDialog.vue'
 import api from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../stores/auth'
+import { useBrand } from '../stores/brand'
 
 const auth = useAuth()
+const brand = useBrand()
 const route = useRoute()
 const router = useRouter()
 
@@ -475,6 +488,23 @@ async function saveAppConfig() {
     ElMessage.success('APP 配置已保存')
   } finally {
     appSaving.value = false
+  }
+}
+
+// ---- 面板名称（自定义品牌名）----
+const panelNameForm = ref(brand.name.value)
+const savingPanelName = ref(false)
+
+async function savePanelName() {
+  savingPanelName.value = true
+  try {
+    const d: any = await api.post('/setting/name', { name: panelNameForm.value })
+    brand.name.value = (d.name || '').trim() || brand.DEFAULT_PANEL_NAME
+    localStorage.setItem('wm_panel_name', brand.name.value)
+    document.title = brand.name.value + ' · 服务器管理面板'
+    ElMessage.success('面板名称已保存')
+  } finally {
+    savingPanelName.value = false
   }
 }
 
@@ -823,6 +853,10 @@ onMounted(async () => {
   loadSysSrc()
   if (auth.role === 'admin') loadApiToken()
   checkUpgrade().catch(() => {})
+  try {
+    await brand.load()
+    panelNameForm.value = brand.name.value
+  } catch { /* 保持本地缓存 */ }
 })
 
 // ---- 开放 API 与 MCP ----

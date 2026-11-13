@@ -3,7 +3,7 @@
     <div class="login-shell">
       <div class="login-aside">
         <div>
-          <div class="login-brand"><span class="login-brand__mark">寒</span><span>寒语馨面板</span></div>
+          <div class="login-brand"><span class="login-brand__mark">寒</span><span>{{ brand.name }}</span></div>
           <h1>服务器管理，<br />从一个清晰的入口开始。</h1>
           <p>站点、任务、证书、进程与节点集中管理。观察、操作、留痕，都在同一处完成。</p>
           <div class="login-facts">
@@ -12,7 +12,7 @@
             <div><CheckCircleFilled />全量写操作审计</div>
           </div>
         </div>
-        <div class="login-aside__foot">寒语馨面板 / Hanyuxin Panel</div>
+        <div class="login-aside__foot">{{ brand.name }} / Hanyuxin Panel</div>
       </div>
 
       <section class="login-panel">
@@ -77,15 +77,17 @@
 </template>
 
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { UserOutlined, LockOutlined, CheckCircleFilled, SafetyOutlined, MobileOutlined } from '@ant-design/icons-vue'
 import QrcodeVue from 'vue-qrcode'
 import { useAuth } from '../stores/auth'
+import { useBrand } from '../stores/brand'
 import api from '../api'
 import { t as tr } from '../i18n'
 
 const auth = useAuth()
+const brand = useBrand()
 const router = useRouter()
 const username = ref('')
 const password = ref('')
@@ -168,6 +170,7 @@ async function poll() {
 
 watch(tab, v => (v === 'qr' ? startQr() : stopQr()))
 onUnmounted(stopQr)
+onMounted(() => { brand.load() })
 </script>
 
 <style scoped>
