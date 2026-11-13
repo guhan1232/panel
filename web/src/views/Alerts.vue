@@ -38,10 +38,10 @@
       </div>
     </WmSectionCard>
 
-    <a-drawer v-model:open="dlg" :title="form.id ? '编辑规则' : '新建规则'" :width="620">
-      <a-form layout="vertical" class="alert-form">
-        <div class="form-sec">
-          <div class="form-sec__title">基本信息</div>
+    <a-drawer v-model:open="dlg" :title="form.id ? '编辑规则' : '新建规则'" :width="680">
+      <a-form layout="vertical">
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">基本信息</div>
           <a-form-item label="规则名称"><a-input v-model:value="form.name" placeholder="如 CPU 过载" /></a-form-item>
           <a-form-item label="监控对象">
             <a-select v-model:value="form.node_id" style="width: 100%">
@@ -56,8 +56,8 @@
             </a-select>
           </a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">触发与冷却</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">触发与冷却</div>
           <a-form-item label="触发条件">
             <a-select v-model:value="form.op" style="width: 110px">
               <a-select-option value=">">大于 ></a-select-option>
@@ -168,10 +168,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
-</style>

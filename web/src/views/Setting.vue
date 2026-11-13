@@ -1,37 +1,26 @@
 <template>
   <div class="wm-page setting-page ops-page">
-    <section class="ops-summary">
-      <div class="ops-summary__lead">
-        <span class="ops-summary__icon"><SettingOutlined /></span>
-        <div>
-          <span class="ops-summary__eyebrow">Panel configuration</span>
-          <h2 class="ops-summary__title">面板配置与安全状态</h2>
-          <p class="ops-summary__desc">账号凭据、外部接入、证书和运维工具集中管理，变更立即写入当前面板。</p>
-        </div>
-      </div>
-      <div class="ops-summary__metrics">
-        <div class="ops-metric">
-          <span>当前账号</span>
-          <b>{{ auth.username || '未登录' }}</b>
-          <small>{{ sessions.length }} 个在线会话</small>
-        </div>
-        <div class="ops-metric">
-          <span>开放 API</span>
-          <b :class="apiToken.enabled ? 'is-success' : 'is-muted'">{{ apiToken.enabled ? '已启用' : '未启用' }}</b>
-          <small>{{ apiToken.readonly ? '只读权限' : '按 Token 控制' }}</small>
-        </div>
-        <div class="ops-metric">
-          <span>传输安全</span>
-          <b :class="tls.tls ? 'is-success' : 'is-warning'">{{ tls.tls ? 'HTTPS' : 'HTTP' }}</b>
-          <small>{{ tls.has_ca ? '中间 CA 已保存' : '暂无托管 CA' }}</small>
-        </div>
-        <div class="ops-metric">
-          <span>面板版本</span>
-          <b :class="upInfo.has_update ? 'is-warning' : 'is-success'">{{ upInfo.has_update ? '可升级' : (upInfo.current || '检查中') }}</b>
-          <small>{{ upInfo.has_update ? `最新 ${upInfo.remote || '—'}` : '升级通道已连接' }}</small>
-        </div>
-      </div>
-    </section>
+    <div class="wm-grid-4">
+      <WmStatCard dense label="当前账号" text :value="auth.username || '未登录'" :sub="`${sessions.length} 个在线会话`" />
+      <WmStatCard
+        dense label="开放 API" text
+        :value="apiToken.enabled ? '已启用' : '未启用'"
+        :tone="apiToken.enabled ? 'success' : 'neutral'"
+        :sub="apiToken.enabled ? (apiToken.readonly ? '只读权限' : '按 Token 控制') : '可在下方生成 Token 启用'"
+      />
+      <WmStatCard
+        dense label="传输安全" text
+        :value="tls.tls ? 'HTTPS' : 'HTTP'"
+        :tone="tls.tls ? 'success' : 'warning'"
+        :sub="tls.has_ca ? '中间 CA 已保存' : '暂无托管 CA'"
+      />
+      <WmStatCard
+        dense label="面板版本" text
+        :value="upInfo.has_update ? '可升级' : (upInfo.current || '检查中')"
+        :tone="upInfo.has_update ? 'warning' : 'success'"
+        :sub="upInfo.has_update ? `最新 ${upInfo.remote || '—'}` : '升级通道已连接'"
+      />
+    </div>
 
     <div class="setting-shell">
       <aside class="setting-nav">
@@ -78,7 +67,7 @@
       <WmSectionCard class="setting-card setting-card--half" title="两因素验证（TOTP）" description="启用后登录需输入验证器 App 的 6 位动态码">
         <template #actions>
           <a-button size="small" type="primary" @click="setup2fa">开始绑定</a-button>
-          <a-button size="small" data-tone="danger" @click="disable2fa">解除绑定</a-button>
+          <a-button size="small" danger @click="disable2fa">解除绑定</a-button>
         </template>
         <div v-if="faSecret">
           <p class="wm-text-muted">将以下密钥录入验证器（Google Authenticator / 微信小程序「腾讯 Token」等），然后输入动态码确认：</p>
@@ -91,7 +80,7 @@
       </WmSectionCard>
       <WmSectionCard class="setting-card setting-card--full" title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
         <template #actions>
-          <a-button size="small" data-tone="danger" :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
+          <a-button size="small" danger :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
           <a-button size="small" @click="loadSessions">刷新</a-button>
         </template>
         <WmTable :data="sessions" size="small" empty-title="没有在线会话" empty-description="">
@@ -138,7 +127,7 @@
         <div class="wm-mt-4">
           <a-space wrap>
             <a-button type="primary" :loading="tokenBusy" @click="genApiToken">{{ apiToken.enabled ? '重置 Token' : '生成 Token 启用' }}</a-button>
-            <a-button v-if="apiToken.enabled" data-tone="danger" :loading="tokenBusy" @click="clearApiToken">禁用开放 API</a-button>
+            <a-button v-if="apiToken.enabled" danger :loading="tokenBusy" @click="clearApiToken">禁用开放 API</a-button>
           </a-space>
         </div>
         <template v-if="apiToken.enabled">
@@ -186,8 +175,7 @@
           </a-form-item>
         </a-form>
         <template #footer>
-          <a-button size="small" @click="bindDlg = true">生成绑定二维码</a-button>
-          <a-button size="small" @click="bindDlg = true">绑定 APP</a-button>
+          <a-button size="small" type="primary" @click="bindDlg = true">绑定移动 APP</a-button>
           <a-button type="primary" size="small" :loading="appSaving" @click="saveAppConfig">保存 APP 配置</a-button>
         </template>
       </WmSectionCard>
@@ -319,7 +307,7 @@
         <template #actions>
           <a-button size="small" type="primary" @click="downloadBackup">导出备份包</a-button>
           <a-button size="small" @click="restoreDlg = true; restoreFile = null">导入恢复</a-button>
-          <a-button v-if="hasRollback" size="small" data-tone="danger" :loading="rollbackBusy" @click="doRollback">回滚上次恢复前数据</a-button>
+          <a-button v-if="hasRollback" size="small" danger :loading="rollbackBusy" @click="doRollback">回滚上次恢复前数据</a-button>
         </template>
         <p class="wm-text-muted">导出包含 panel.db（一致性快照）、config.yaml（含安全入口/TLS）与 certs-managed 目录。导入恢复支持按项勾选（数据库 / 配置 / 证书），恢复前自动把当前数据留存为回滚点，面板自动重启；恢复配置项会改变端口/入口/TLS，请留意提示。</p>
       </WmSectionCard>
@@ -339,12 +327,12 @@
       </a-form>
     </a-modal>
     <!-- 反代日志 -->
-    <a-modal v-model:open="proxyLogDlg" :title="proxyLogName" width="820px">
+    <a-modal v-model:open="proxyLogDlg" :title="proxyLogName" width="860px">
       <WmCodeBlock :content="proxyLogContent" :label="proxyLogName" />
     </a-modal>
 
     <!-- 面板备份导入恢复 -->
-    <a-modal v-model:open="restoreDlg" title="导入备份包恢复面板" ok-text="开始恢复" cancel-text="取消" :confirm-loading="restoring" @ok="doRestore" width="560px">
+    <a-modal v-model:open="restoreDlg" title="导入备份包恢复面板" ok-text="开始恢复" cancel-text="取消" :confirm-loading="restoring" @ok="doRestore" width="520px">
       <a-form layout="vertical">
         <a-form-item label="备份包（zip）" required>
           <input type="file" accept=".zip" @change="e => restoreFile = e.target?.files?.[0] || null" />
@@ -370,7 +358,8 @@
         <WmNotice tone="warning">CA 私钥仅保存在面板服务器本地（data/certs/ca，权限 600）。若已上传过，此处留空直接确认即可复用。</WmNotice>
       </a-form>
     </a-modal>
-  </div>    <AppBindDialog v-model:open="bindDlg" />
+  </div>
+  <AppBindDialog v-model:open="bindDlg" />
 </template>
 
 <script setup lang="ts">
@@ -378,7 +367,6 @@ import {
   ApiOutlined,
   GlobalOutlined,
   SafetyCertificateOutlined,
-  SettingOutlined,
   ToolOutlined,
   UserOutlined
 } from '@ant-design/icons-vue'

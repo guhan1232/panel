@@ -2,7 +2,7 @@
   <div class="wm-page">
     <WmSectionCard title="任务列表" description="任务定义持久化于面板数据库，重启后自动恢复调度" flush>
       <template #actions>
-        <span class="wm-text-muted cron-stats">{{ tasks.length }} 条 · {{ enabledCount }} 启用</span>
+        <span class="wm-text-muted wm-row-stats">{{ tasks.length }} 条 · {{ enabledCount }} 启用</span>
       </template>
       <WmToolbar>
         <template #end>
@@ -14,12 +14,11 @@
 
       <WmTable :data="tasks" v-loading="loading" empty-title="还没有计划任务" empty-description="新建一条任务，按 cron 表达式或预设周期自动执行。">
         <template #empty>
-          <div class="cron-empty">
-            <div class="cron-empty__icon"><span class="wm-icon"><Timer /></span></div>
-            <p class="cron-empty__title">还没有计划任务</p>
-            <p class="cron-empty__desc">新建一条任务，按 cron 表达式或预设周期自动执行；支持 Shell、备份、日志切割等类型。</p>
-            <a-button type="primary" @click="openCreate">新建任务</a-button>
-          </div>
+          <WmEmptyState compact title="还没有计划任务" description="新建一条任务，按 cron 表达式或预设周期自动执行；支持 Shell、备份、日志切割等类型。">
+            <template #action>
+              <a-button type="primary" @click="openCreate">新建任务</a-button>
+            </template>
+          </WmEmptyState>
         </template>
         <WmColumn prop="id" label="ID" width="60"><template #default="{ row }"><span class="wm-mono">{{ row.id }}</span></template></WmColumn>
         <WmColumn prop="name" label="任务名称" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></WmColumn>
@@ -50,11 +49,11 @@
       </WmTable>
     </WmSectionCard>
 
-    <a-drawer v-model:open="dlg" :title="form.id ? '编辑任务' : '新建任务'" :width="620">
+    <a-drawer v-model:open="dlg" :title="form.id ? '编辑任务' : '新建任务'" :width="680">
       <WmNotice tone="neutral" class="wm-mb-4">周期支持 5 段 cron、带秒 6 段与 @daily 等描述符；同一任务默认防重叠执行。</WmNotice>
       <a-form layout="vertical">
-        <div class="form-sec">
-          <div class="form-sec__title">基本信息</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">基本信息</div>
           <a-form-item label="任务名称"><a-input v-model:value="form.name" placeholder="如：每日备份数据库" /></a-form-item>
           <a-form-item label="任务类型">
             <a-select v-model:value="form.type" style="width: 100%">
@@ -64,12 +63,12 @@
           <a-form-item label="执行周期" style="margin-bottom: 0">
             <a-input v-model:value="form.spec" placeholder="分 时 日 月 周，如 */5 * * * *；支持 @daily 等" />
             <div class="wm-tag-row">
-              <a-tag v-for="p in presets" :key="p.v" size="small" class="preset" @click="form.spec = p.v">{{ p.k }}</a-tag>
+              <a-tag v-for="p in presets" :key="p.v" class="preset" @click="form.spec = p.v">{{ p.k }}</a-tag>
             </div>
           </a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">任务配置</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">任务配置</div>
           <a-form-item v-if="form.type === 'shell'" label="执行位置">
             <a-select v-model:value="form.node_id" style="width: 100%">
               <a-select-option :value="0">本机（面板所在服务器）</a-select-option>
@@ -104,8 +103,8 @@
           </template>
           <WmNotice v-if="form.type === 'sys_update'" tone="warning" title="请在低峰期执行">将执行 apt-get upgrade / dnf upgrade 全量系统更新。</WmNotice>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">执行策略</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">执行策略</div>
           <a-form-item label="超时(秒)"><a-input-number v-model:value="form.timeout_sec" :min="0" :step="60" /><span class="hint">0 = 不限制</span></a-form-item>
           <a-form-item label="允许并发">
             <div><a-switch v-model:checked="form.concurrent" /></div>
@@ -120,10 +119,10 @@
       </template>
     </a-drawer>
 
-    <a-drawer v-model:open="logsDlg" width="62%" :title="`执行日志 - ${logsTask?.name || ''}`">
+    <a-drawer v-model:open="logsDlg" width="860px" :title="`执行日志 - ${logsTask?.name || ''}`">
       <WmNotice tone="neutral" class="wm-mb-4">每次执行记录状态、耗时、退出码与输出；历史保留 90 天后自动清理。</WmNotice>
       <WmToolbar>
-        <a-button size="small" data-tone="warning" @click="stopRun">终止运行中实例</a-button>
+        <a-button size="small" danger @click="stopRun">终止运行中实例</a-button>
         <a-button size="small" @click="loadLogs">刷新</a-button>
       </WmToolbar>
       <WmTable :data="logItems" v-loading="logsLoading" size="small" empty-title="暂无执行记录">
@@ -141,7 +140,7 @@
       <a-pagination :total="logTotal" :page-size="logSize" v-model:current="logPage" @change="loadLogs" />
     </a-drawer>
 
-    <a-modal v-model:open="outDlg" title="任务输出" width="760px">
+    <a-modal v-model:open="outDlg" title="任务输出" width="680px">
       <WmCodeBlock :content="outContent" label="task output" />
     </a-modal>
   </div>
@@ -317,25 +316,3 @@ async function stopRun() {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.cron-stats { font-size: 12px; }
-
-/* 空态 */
-.cron-empty {
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  padding: 48px 20px 52px;
-}
-.cron-empty__icon {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: var(--wm-surface-3); color: var(--wm-ink-3);
-  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
-}
-.cron-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
-.cron-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
-
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
-</style>

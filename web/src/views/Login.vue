@@ -180,7 +180,7 @@ onUnmounted(stopQr)
 .qr-box {
   position: relative;
   padding: 12px;
-  border: 1px solid var(--wm-border, #e5e7eb);
+  border: 1px solid var(--wm-line);
   border-radius: 12px;
   background: #fff;
   line-height: 0;
@@ -196,7 +196,7 @@ onUnmounted(stopQr)
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: #1677ff;
+  color: var(--wm-accent);
   font-weight: 600;
 }
 .qr-scan-mask__icon {
@@ -205,13 +205,13 @@ onUnmounted(stopQr)
 .qr-tip {
   margin: 12px 0 0;
   font-size: 13px;
-  color: var(--wm-text-muted, #6b7280);
+  color: var(--wm-ink-3);
   text-align: center;
 }
 .qr-expired {
   padding: 24px 0;
   text-align: center;
-  color: var(--wm-text-muted, #6b7280);
+  color: var(--wm-ink-3);
 }
 .qr-expired p {
   margin-bottom: 12px;

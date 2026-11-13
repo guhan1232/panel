@@ -2,7 +2,7 @@
   <div class="wm-page">
     <WmSectionCard title="证书列表" description="ACME 证书剩余 30 天内自动续期，到期前推送告警" flush>
       <template #actions>
-        <span class="wm-text-muted cert-stats">{{ certs.length }} 张证书 · {{ expiringCount }} 张即将到期</span>
+        <span class="wm-text-muted wm-row-stats">{{ certs.length }} 张证书 · {{ expiringCount }} 张即将到期</span>
       </template>
       <WmToolbar>
         <template #end>
@@ -14,12 +14,11 @@
       </WmToolbar>
       <WmTable :data="certs" v-loading="loading" empty-title="还没有托管证书" empty-description="上传已有证书，或通过 Let's Encrypt 自动签发。">
         <template #empty>
-          <div class="cert-empty">
-            <div class="cert-empty__icon"><span class="wm-icon"><Stamp /></span></div>
-            <p class="cert-empty__title">还没有托管证书</p>
-            <p class="cert-empty__desc">上传已有证书，或通过 Let's Encrypt 自动签发；ACME 证书剩余 30 天内自动续期。</p>
-            <a-button type="primary" @click="openIssue">申请证书</a-button>
-          </div>
+          <WmEmptyState compact title="还没有托管证书" description="上传已有证书，或通过 Let's Encrypt 自动签发；ACME 证书剩余 30 天内自动续期。">
+            <template #action>
+              <a-button type="primary" @click="openIssue">申请证书</a-button>
+            </template>
+          </WmEmptyState>
         </template>
         <WmColumn prop="domain" label="主域名" min-width="170"><template #default="{ row }"><b class="wm-mono">{{ row.domain }}</b></template></WmColumn>
         <WmColumn label="包含域名" min-width="250"><template #default="{ row }"><span class="wm-mono">{{ (row.domains || []).join(', ') }}</span></template></WmColumn>
@@ -41,15 +40,15 @@
       </WmTable>
     </WmSectionCard>
 
-    <a-drawer v-model:open="issueDlg" title="Let's Encrypt 签发" :width="620">
+    <a-drawer v-model:open="issueDlg" title="Let's Encrypt 签发" :width="680">
       <a-form layout="vertical">
-        <div class="form-sec">
-          <div class="form-sec__title">基本信息</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">基本信息</div>
           <a-form-item label="域名列表"><a-input v-model:value="issue.domains" placeholder="example.com, www.example.com" /></a-form-item>
           <a-form-item label="邮箱" style="margin-bottom: 0"><a-input v-model:value="issue.email" placeholder="用于 Let's Encrypt 账户注册" /></a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">校验方式</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">校验方式</div>
           <a-form-item label="挑战类型">
             <a-radio-group v-model:value="issue.challenge" option-type="button" button-style="solid">
               <a-radio-button value="http01">HTTP-01</a-radio-button>
@@ -96,7 +95,7 @@
       </template>
     </a-modal>
 
-    <a-modal v-model:open="upDlg" title="上传证书" width="640px">
+    <a-modal v-model:open="upDlg" title="上传证书" width="680px">
       <WmNotice tone="neutral" class="wm-mb-4">上传后将校验证书与私钥是否配对；fullchain 与私钥需同时提供。</WmNotice>
       <a-form :label-col="{ style: { width: '90px' } }">
         <a-form-item label="证书 PEM"><a-textarea v-model:value="up.cert"  :rows="7" placeholder="-----BEGIN CERTIFICATE-----（fullchain）" /></a-form-item>
@@ -222,25 +221,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.cert-stats { font-size: 12px; }
-
-/* 空态 */
-.cert-empty {
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  padding: 48px 20px 52px;
-}
-.cert-empty__icon {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: var(--wm-surface-3); color: var(--wm-ink-3);
-  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
-}
-.cert-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
-.cert-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
-
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
-</style>

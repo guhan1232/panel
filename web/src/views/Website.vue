@@ -4,7 +4,7 @@
       <template #actions>
         <WmStatusPill :label="nginxLabel" :tone="nginx.installed ? (nginx.running ? 'success' : 'warning') : 'danger'" :pulse="nginx.running" />
         <span v-if="nginx.installed && nginx.version" class="wm-mono wm-text-muted">{{ nginx.version }}</span>
-        <span class="wm-text-muted site-stats">{{ totalStats.total }} 站点 · {{ totalStats.enabled }} 启用 · {{ totalStats.https }} HTTPS</span>
+        <span class="wm-text-muted wm-row-stats">{{ totalStats.total }} 站点 · {{ totalStats.enabled }} 启用 · {{ totalStats.https }} HTTPS</span>
       </template>
 
       <WmToolbar>
@@ -13,11 +13,11 @@
           <a-select-option v-for="t in backendTypes" :key="t.id" :value="t.id">{{ t.name }}项目（{{ catCounts[t.id] || 0 }}）</a-select-option>
         </a-select>
         <template #end>
-          <a-button v-if="!nginx.installed" size="small" data-tone="warning" :loading="installing" @click="installNginx">安装 Nginx</a-button>
+          <a-button v-if="!nginx.installed" size="small" type="primary" :loading="installing" @click="installNginx">安装 Nginx</a-button>
           <template v-else>
             <a-button size="small" :loading="acting === 'reload'" @click="nginxDo('reload')">重载</a-button>
             <a-dropdown>
-              <a-button size="small">Nginx<span class="wm-icon site-dd-icon"><ArrowDown /></span></a-button>
+              <a-button size="small">Nginx<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
               <template #overlay>
                 <a-menu @click="onNginxMenu">
                   <a-menu-item v-if="!nginx.running" key="start">启动 Nginx</a-menu-item>
@@ -37,16 +37,13 @@
 
       <WmTable :data="filteredSites" v-loading="loading" empty-title="该分类下还没有站点" empty-description="点击「创建站点」，按类型创建；HTML/PHP 为文件站，其余分类为反向代理到本机后端。">
         <template #empty>
-          <div class="site-empty">
-            <div class="site-empty__icon"><span class="wm-icon"><Box /></span></div>
-            <p class="site-empty__title">{{ typeFilter === 'all' ? '还没有站点' : CATE_NAME[typeFilter] + '分类下还没有站点' }}</p>
-            <p class="site-empty__desc">
-              {{ typeFilter === 'html' || typeFilter === 'php' || typeFilter === 'all' ? '创建后 Nginx 自动生成配置；HTML/PHP 为文件站。' : '创建后反向代理到本机端口，请先在「进程管理」启动对应后端服务。' }}
-            </p>
-            <a-button type="primary" @click="openCreate(typeFilter === 'all' ? undefined : typeFilter)">
-              {{ typeFilter === 'all' ? '创建站点' : '创建' + CATE_NAME[typeFilter] }}
-            </a-button>
-          </div>
+          <WmEmptyState compact :title="typeFilter === 'all' ? '还没有站点' : CATE_NAME[typeFilter] + '分类下还没有站点'" :description="typeFilter === 'html' || typeFilter === 'php' || typeFilter === 'all' ? '创建后 Nginx 自动生成配置；HTML/PHP 为文件站。' : '创建后反向代理到本机端口，请先在「进程管理」启动对应后端服务。'">
+            <template #action>
+              <a-button type="primary" @click="openCreate(typeFilter === 'all' ? undefined : typeFilter)">
+                {{ typeFilter === 'all' ? '创建站点' : '创建' + CATE_NAME[typeFilter] }}
+              </a-button>
+            </template>
+          </WmEmptyState>
         </template>
         <WmColumn label="站点" min-width="150"><template #default="{ row }"><b>{{ row.name }}</b></template></WmColumn>
         <WmColumn label="类型" width="110">
@@ -66,7 +63,7 @@
           <template #default="{ row }">
             <a-button type="link" size="small" @click="openEdit(row)">编辑</a-button>
             <a-dropdown>
-              <a-button type="link" size="small">日志<span class="wm-icon site-dd-icon"><ArrowDown /></span></a-button>
+              <a-button type="link" size="small">日志<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
               <template #overlay>
                 <a-menu>
                   <a-menu-item key="access" @click="viewLog(row, 'access')">访问日志</a-menu-item>
@@ -81,15 +78,15 @@
       </WmTable>
     </WmSectionCard>
 
-    <a-drawer v-model:open="dlg" :title="dlgTitle" :width="620">
+    <a-drawer v-model:open="dlg" :title="dlgTitle" :width="680">
       <a-form layout="vertical" class="site-form">
-        <div class="form-sec">
-          <div class="form-sec__title">基本信息</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">基本信息</div>
           <a-form-item label="站点标识"><a-input v-model:value="form.name" placeholder="小写字母数字点短横线，如 myblog" :disabled="!!form.id" /></a-form-item>
           <a-form-item label="域名" style="margin-bottom: 0"><a-input v-model:value="form.domains" placeholder="example.com www.example.com（空格分隔多个）" /></a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">类型与目标</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">类型与目标</div>
           <a-form-item label="站点类型">
             <a-radio-group v-model:value="form.type" option-type="button" button-style="solid">
               <a-radio-button value="static">静态站</a-radio-button>
@@ -125,13 +122,13 @@
             <div v-for="(loc, i) in form.extra" :key="i" class="loc-row">
               <a-input v-model:value="loc.prefix" placeholder="/api" style="width: 160px" />
               <a-input v-model:value="loc.target" placeholder="http://127.0.0.1:8000" style="width: 300px" />
-              <a-button size="small" shape="circle" data-tone="danger" @click="form.extra.splice(i, 1)"><span class="wm-icon"><Delete /></span></a-button>
+              <a-button size="small" shape="circle" danger @click="form.extra.splice(i, 1)"><span class="wm-icon"><Delete /></span></a-button>
             </div>
             <a-button size="small" @click="form.extra.push({ prefix: '', target: '' })">添加规则</a-button>
           </a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">HTTPS</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">HTTPS</div>
           <a-form-item label="SSL 证书">
             <a-select v-model:value="form.ssl_cert" placeholder="选择已托管证书或留空" style="width: 100%" allow-clear>
               <a-select-option v-for="ct in certs" :key="ct.domain" :value="ct.domain">{{ `${ct.domain}（至 ${ct.not_after?.slice(0, 10)}）` }}</a-select-option>
@@ -147,12 +144,12 @@
       </template>
     </a-drawer>
 
-    <a-modal v-model:open="logDlg" :title="`日志 - ${logSite} (${logType})`" width="820px">
+    <a-modal v-model:open="logDlg" :title="`日志 - ${logSite} (${logType})`" width="860px">
       <WmCodeBlock :content="logContent" :label="`${logSite} / ${logType}.log`" empty-text="（日志为空）" />
     </a-modal>
 
     <!-- 站点数据备份 -->
-    <a-modal v-model:open="bakDlg" :title="'数据备份 - ' + (bakSite?.name || '')" width="760px" :footer="null">
+    <a-modal v-model:open="bakDlg" :title="'数据备份 - ' + (bakSite?.name || '')" width="680px" :footer="null">
       <WmToolbar>
         <a-button type="primary" size="small" :loading="bakCreating" @click="createSiteBackup">立即备份</a-button>
         <a-button size="small" @click="loadSiteBackups">刷新</a-button>
@@ -166,7 +163,7 @@
           <template #default="{ row }">
             <a-button size="small" @click="downloadSiteBackup(row)">下载</a-button>
             <a-button size="small" @click="restoreSiteBackup(row)">恢复</a-button>
-            <a-button size="small" data-tone="danger" @click="deleteSiteBackup(row)">删除</a-button>
+            <a-button size="small" danger @click="deleteSiteBackup(row)">删除</a-button>
           </template>
         </WmColumn>
       </WmTable>
@@ -180,11 +177,11 @@
       </div>
     </a-modal>
     <!-- NGINX 配置文件 -->
-    <a-modal v-model:open="confDlg" title="Nginx 配置文件（conf.d / sites-enabled）" width="760px" :footer="null">
+    <a-modal v-model:open="confDlg" title="Nginx 配置文件（conf.d / sites-enabled）" width="680px" :footer="null">
       <WmTable :data="confList" size="small" empty-title="没有配置文件">
         <WmColumn label="文件" min-width="220"><template #default="{ row }"><span class="wm-mono">{{ row.file }}</span></template></WmColumn>
         <WmColumn label="目录" min-width="200"><template #default="{ row }"><span class="wm-mono wm-text-muted">{{ row.dir }}</span></template></WmColumn>
-        <WmColumn label="面板托管" width="100"><template #default="{ row }"><WmStatusPill :label="row.managed ? '是' : '否'" :tone="row.managed ? 'success' : 'default'" :dot="false" /></template></WmColumn>
+        <WmColumn label="面板托管" width="100"><template #default="{ row }"><WmStatusPill :label="row.managed ? '是' : '否'" :tone="row.managed ? 'success' : 'neutral'" :dot="false" /></template></WmColumn>
         <WmColumn label="操作" width="90" fixed="right"><template #default="{ row }"><a-button size="small" @click="editConf(row)">编辑</a-button></template></WmColumn>
       </WmTable>
       <p class="hint" style="margin-top:8px">编辑保存前自动执行 nginx -t 校验，失败自动回滚原文件。</p>
@@ -630,27 +627,7 @@ async function uploadRestore() {
 </script>
 
 <style scoped>
-.site-stats { font-size: 12px; }
 .sub-filter { width: 168px; }
-.site-dd-icon { margin-left: 4px; font-size: 10px; }
-
-/* 空态 */
-.site-empty {
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  padding: 48px 20px 52px;
-}
-.site-empty__icon {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: var(--wm-surface-3); color: var(--wm-ink-3);
-  display: grid; place-items: center; font-size: 20px; margin-bottom: 12px;
-}
-.site-empty__title { font-size: 14px; font-weight: 500; color: var(--wm-ink); }
-.site-empty__desc { font-size: 12px; color: var(--wm-ink-3); margin: 4px 0 14px; max-width: 46ch; line-height: 1.7; }
-
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
 
 /* 备份上传 */
 .bak-upload { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }

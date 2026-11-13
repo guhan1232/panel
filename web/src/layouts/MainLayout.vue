@@ -74,9 +74,6 @@
               <Sunny v-if="theme.dark" /><Moon v-else />
             </button>
           </a-tooltip>
-          <a-tooltip :title="getLocale() === 'zh-CN' ? 'Switch to English' : '切换到中文'">
-            <button class="wm-icon-btn" type="button" @click="toggleLocale">{{ getLocale() === 'zh-CN' ? 'EN' : '中' }}</button>
-          </a-tooltip>
           <a-dropdown trigger="['click']">
             <button class="wm-user-trigger" type="button" aria-label="用户菜单">
               <a-avatar :size="26" class="wm-user-avatar">{{ (auth.username || 'U').slice(0, 1).toUpperCase() }}</a-avatar>
@@ -142,7 +139,7 @@ import {
   ArrowDown, SwitchButton, Avatar, Share, Menu, MoreFilled, Box
 } from '../antd-compat'
 import { useAuth } from '../stores/auth'
-import { t as tr, setLocale, getLocale } from '../i18n'
+import { t as tr } from '../i18n'
 import { useTheme } from '../stores/theme'
 
 const auth = useAuth()
@@ -156,13 +153,7 @@ const isMobile = ref(false)
 const secure = location.protocol === 'https:'
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', operator: '操作员', viewer: '只读' }
-const localeTick = ref(0)
 const roleLabel = computed(() => ROLE_LABEL[auth.role] || '未登录')
-
-function toggleLocale() {
-  setLocale(getLocale() === 'zh-CN' ? 'en' : 'zh-CN')
-  localeTick.value++ // 触发 computed 重算（tr 依赖 reactive state）
-}
 
 const navGroups = computed(() => [
   { label: tr('概览'), items: [{ path: '/dashboard', label: tr('仪表盘'), icon: Odometer }] },

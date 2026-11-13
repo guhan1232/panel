@@ -56,7 +56,7 @@
 
       <!-- 终端区（所有标签 DOM 常驻，切标签时 display 切换保输出） -->
       <div class="term-area" :style="{ height: termHeight }">
-        <div v-for="t in tabs" :key="t.id" v-show="t.id === activeId" class="term-pane" :ref="el => setPane(t.id, el)"></div>
+        <div v-for="t in tabs" :key="t.id" v-show="t.id === activeId" class="term-pane" :style="{ background: paneBg }" :ref="el => setPane(t.id, el)"></div>
         <div v-if="!tabs.length" class="term-empty">
           <p>从上方选择主机连接，或使用「快速连接」</p>
           <p class="wm-text-muted">支持多标签并行 · 选中即复制 · 右键粘贴 · Ctrl+Shift+F 全屏</p>
@@ -74,10 +74,10 @@
     </WmSectionCard>
 
     <!-- 快速连接 / 主机编辑 抽屉 -->
-    <a-drawer v-model:open="dlgOpen" :title="dlgTitle" :width="620">
+    <a-drawer v-model:open="dlgOpen" :title="dlgTitle" :width="680">
       <a-form layout="vertical">
-        <div class="form-sec">
-          <div class="form-sec__title">连接信息</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">连接信息</div>
           <a-form-item label="类型">
             <a-radio-group v-model:value="dlg.mode" :disabled="dlg.mode === 'edit'">
               <a-radio value="quick">临时连接（不保存）</a-radio>
@@ -90,8 +90,8 @@
           <a-form-item label="端口"><a-input-number v-model:value="dlg.port" :min="1" :max="65535" style="width: 140px" /></a-form-item>
           <a-form-item label="用户名" style="margin-bottom: 0"><a-input v-model:value="dlg.username" placeholder="root" /></a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">认证</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">认证</div>
           <a-form-item label="认证方式">
             <a-radio-group v-model:value="dlg.authType">
               <a-radio value="password">密码</a-radio>
@@ -140,6 +140,8 @@ const fullscreen = ref(false)
 const termHeight = computed(() => (fullscreen.value ? 'calc(100vh - 320px)' : '52vh'))
 const panes = new Map<number, HTMLElement>()
 const themeOptions = Object.entries(THEMES).map(([k, v]) => ({ value: k, label: v.name }))
+// 终端容器底色随所选主题（与 xterm 实例自身主题底色一致）
+const paneBg = computed(() => (THEMES[themeName.value] || THEMES.dark).bg)
 
 function setPane(id: number, el: any) {
   if (el) panes.set(id, el as HTMLElement)
@@ -559,8 +561,7 @@ onBeforeUnmount(() => {
   height: 100%;
   padding: 8px 10px;
   border-radius: var(--wm-r-lg);
-  background: #14181f;
-}
+  }
 .term-empty {
   position: absolute;
   inset: 0;
@@ -610,8 +611,4 @@ onBeforeUnmount(() => {
   min-width: 40px;
 }
 
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
 </style>

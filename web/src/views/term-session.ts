@@ -5,7 +5,7 @@ import { ClipboardAddon } from '@xterm/addon-clipboard'
 import '@xterm/xterm/css/xterm.css'
 
 export const THEMES: Record<string, { bg: string; fg: string; cursor: string; sel: string; name: string }> = {
-  dark: { bg: '#14181f', fg: '#d6deeb', cursor: '#7fd1ff', sel: '#3b5c8f', name: '暗色' },
+  dark: { bg: '#10162b', fg: '#d6deeb', cursor: '#7fd1ff', sel: '#3b5c8f', name: '暗色' },
   light: { bg: '#ffffff', fg: '#263238', cursor: '#0b57d0', sel: '#b3d1f7', name: '亮色' },
   dracula: { bg: '#282a36', fg: '#f8f8f2', cursor: '#ff79c6', sel: '#44475a', name: 'Dracula' },
   nord: { bg: '#2e3440', fg: '#d8dee9', cursor: '#88c0d0', sel: '#434c5e', name: 'Nord' },

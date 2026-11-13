@@ -1,22 +1,5 @@
 <template>
   <div class="wm-page store-page ops-page">
-    <section class="ops-summary">
-      <div class="ops-summary__lead">
-        <span class="ops-summary__icon ops-summary__icon--success"><ShopOutlined /></span>
-        <div>
-          <span class="ops-summary__eyebrow">Software workspace</span>
-          <h2 class="ops-summary__title">软件目录、运行时与实例</h2>
-          <p class="ops-summary__desc">从软件模板完成安装，管理多版本运行时，并在同一工作区查看实例状态和下载来源。</p>
-        </div>
-      </div>
-      <div class="ops-summary__metrics">
-        <div class="ops-metric"><span>软件模板</span><b>{{ templates.length }}</b><small>内置 {{ builtinCount }}</small></div>
-        <div class="ops-metric"><span>镜像模板</span><b>{{ remoteCount }}</b><small>来自远端清单</small></div>
-        <div class="ops-metric"><span>运行时</span><b>{{ runtimes.length }}</b><small>多版本并存</small></div>
-        <div class="ops-metric"><span>已安装</span><b>{{ apps.length }}</b><small>正在纳管</small></div>
-      </div>
-    </section>
-
     <section class="ops-commandbar">
       <div class="ops-commandbar__group">
         <template v-if="storeTab === 'apps' || storeTab === 'runtime'">
@@ -35,7 +18,7 @@
       </div>
       <div class="ops-commandbar__group ops-commandbar__group--end">
         <span class="ops-commandbar__hint">{{ loading ? '正在同步目录…' : '目录已同步' }}</span>
-        <a-button @click="load"><ReloadOutlined />刷新</a-button>
+        <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
       </div>
     </section>
 
@@ -105,7 +88,7 @@
                 </div>
                 <p class="store-card__desc">{{ r.desc }}</p>
                 <div class="rt-chips" v-if="r.installed.length">
-                  <a-tag v-for="i in r.installed" :key="i.id" :data-tone="i.is_default ? 'success' : 'primary'">{{ i.version }}{{ i.is_default ? '（默认）' : '' }}</a-tag>
+                  <a-tag v-for="i in r.installed" :key="i.id" :color="i.is_default ? 'success' : 'processing'">{{ i.version }}{{ i.is_default ? '（默认）' : '' }}</a-tag>
                 </div>
                 <div class="store-card__foot">
                   <a-button size="small" @click="openRt(r)">安装 / 管理版本</a-button>
@@ -165,7 +148,7 @@
               <WmColumn label="操作" width="220" fixed="right">
                 <template #default="{ row }">
                   <a-dropdown v-if="!row.app.tool">
-                    <a-button type="link" size="small">操作<span class="wm-icon ss-dd-icon"><ArrowDown /></span></a-button>
+                    <a-button type="link" size="small">操作<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
                     <template #overlay>
                       <a-menu>
                         <a-menu-item key="start" @click="act(row, 'start')">启动</a-menu-item>
@@ -204,7 +187,7 @@
       </a-tab-pane>
     </a-tabs>
 
-    <a-drawer v-model:open="rtDlg" width="62%" :title="`运行时版本 - ${rtLang?.name || ''}`">
+    <a-drawer v-model:open="rtDlg" width="860px" :title="`运行时版本 - ${rtLang?.name || ''}`">
       <WmToolbar>
         <a-select v-model:value="rtSource" style="width: 190px" @change="loadVersions">
           <a-select-option v-for="s in rtLang?.sources || []" :key="s.id" :value="s.id">{{ s.name }}</a-select-option>
@@ -249,7 +232,7 @@
       </WmToolbar>
       <WmTable :data="filteredVersions" v-loading="rtLoading" size="small" max-height="380">
         <WmColumn label="版本" width="150">
-          <template #default="{ row }"><b>{{ row.version }}</b> <a-tag v-if="row.lts" size="small" data-tone="success">LTS</a-tag></template>
+          <template #default="{ row }"><b>{{ row.version }}</b> <a-tag v-if="row.lts" color="success">LTS</a-tag></template>
         </WmColumn>
         <WmColumn v-if="rtLang?.key === 'nodejs'" label="NPM" width="90"><template #default="{ row }">{{ row.npm || '-' }}</template></WmColumn>
         <WmColumn v-if="rtLang?.key === 'nodejs'" label="V8" width="110"><template #default="{ row }">{{ row.v8 || '-' }}</template></WmColumn>
@@ -261,7 +244,7 @@
       <h4 class="store-subhead">已安装</h4>
       <WmTable :data="rtInstalled" size="small">
         <WmColumn prop="version" label="版本" width="150" />
-        <WmColumn label="默认" width="70"><template #default="{ row }"><a-tag v-if="row.is_default" size="small" data-tone="success">默认</a-tag><span v-else>-</span></template></WmColumn>
+        <WmColumn label="默认" width="70"><template #default="{ row }"><a-tag v-if="row.is_default" color="success">默认</a-tag><span v-else>-</span></template></WmColumn>
         <WmColumn label="软件路径" min-width="220"><template #default="{ row }"><span class="mono">{{ row.dir }}</span></template></WmColumn>
         <WmColumn label="安装时间" width="165"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></WmColumn>
         <WmColumn label="操作" width="150">
@@ -273,10 +256,10 @@
       </WmTable>
     </a-drawer>
 
-    <a-drawer v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" :width="620">
-      <a-form layout="vertical" class="inst-form">
-        <div class="form-sec">
-          <div class="form-sec__title">基本信息</div>
+    <a-drawer v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" :width="680">
+      <a-form layout="vertical">
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">基本信息</div>
           <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
           <a-form-item v-if="cur?.versions?.length" label="版本" style="margin-bottom: 0">
             <a-select v-model:value="instVer" style="width: 100%">
@@ -287,8 +270,8 @@
             <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
           </a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">下载与安装</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">下载与安装</div>
           <a-form-item label="下载源" :style="cur?.kind === 'package' ? '' : 'margin-bottom: 0'">
             <a-select v-model:value="instSource" style="width: 100%">
               <a-select-option v-for="s in sources" :key="s.id"
@@ -301,8 +284,8 @@
             <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
           </a-form-item>
         </div>
-        <div v-if="(cur?.params || []).length" class="form-sec">
-          <div class="form-sec__title">参数</div>
+        <div v-if="(cur?.params || []).length" class="wm-form-sec">
+          <div class="wm-form-sec__title">参数</div>
           <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label" style="margin-bottom: 16px">
             <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
           </a-form-item>
@@ -314,7 +297,7 @@
       </template>
     </a-drawer>
 
-    <a-modal v-model:open="upDlg" :title="`升级 ${upRow?.name || ''}`" width="560px">
+    <a-modal v-model:open="upDlg" :title="`升级 ${upRow?.name || ''}`" width="520px">
       <a-form layout="vertical">
         <a-form-item label="当前版本"><span class="wm-mono">{{ upRow?.app?.version || '未记录' }}</span></a-form-item>
         <a-form-item label="目标版本">
@@ -332,23 +315,23 @@
       </template>
     </a-modal>
 
-    <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="820px">
+    <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="860px">
       <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
     </a-modal>
 
     <!-- 上传脚本 -->
-    <a-modal v-model:open="scriptDlg" title="上传自定义脚本（bash）" ok-text="保存" cancel-text="取消" @ok="saveScript" width="640px">
+    <a-modal v-model:open="scriptDlg" title="上传自定义脚本（bash）" ok-text="保存" cancel-text="取消" @ok="saveScript" width="680px">
       <a-form layout="vertical">
         <a-form-item label="脚本名（小写字母数字_-）"><a-input v-model:value="scriptForm.name" placeholder="如 init-blog" /></a-form-item>
         <a-form-item label="脚本内容">
           <a-textarea v-model:value="scriptForm.content" :rows="10" placeholder="#!/bin/bash&#10;echo hello" class="wm-mono" />
         </a-form-item>
-        <WmNotice tone="warning">脚本将以 bash 在面板服务器执行；安装该脚本应用时参数会以双花括号参数名占位符替换（如  写法）.</WmNotice>
+        <WmNotice tone="warning">脚本将以 bash 在面板服务器执行；安装该脚本应用时，参数会以「双花括号包裹参数名」的占位符替换进脚本（例如双花括号包裹 db_pass）。</WmNotice>
       </a-form>
     </a-modal>
 
     <!-- 脚本日志 -->
-    <a-modal v-model:open="scriptLogDlg" :title="`脚本日志 - ${scriptLogName}`" width="820px">
+    <a-modal v-model:open="scriptLogDlg" :title="`脚本日志 - ${scriptLogName}`" width="860px">
       <WmCodeBlock :content="scriptLogContent" :label="`${scriptLogName} / script log`" />
     </a-modal>
   </div>
@@ -361,14 +344,14 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   ReloadOutlined,
-  SearchOutlined,
-  ShopOutlined
+  SearchOutlined
 } from '@ant-design/icons-vue'
-import { computed, onMounted, reactive, ref, watch , onUnmounted } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
+import { useWideViewport } from '../composables/useWideViewport'
 
 const templates = ref<any[]>([])
 const apps = ref<any[]>([])
@@ -381,10 +364,7 @@ const instName = ref('')
 const instSource = ref('auto')
 
 const storeTab = ref('apps')
-const wide = ref(typeof window !== 'undefined' && window.innerWidth > 1100)
-const onSsResize = () => { wide.value = window.innerWidth > 1100 }
-onMounted(() => window.addEventListener('resize', onSsResize))
-onUnmounted(() => window.removeEventListener('resize', onSsResize))
+const { wide } = useWideViewport(1100)
 const instVer = ref('')
 const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
@@ -841,26 +821,10 @@ async function savePecl(val: string) {
 </script>
 
 <style scoped>
-.ss-dd-icon { margin-left: 4px; font-size: 10px; }
-
 .rt-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin: 0 0 var(--wm-s3);
 }
-
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
-
-.store-card__avatar { font-family: var(--wm-font-mono); }
-.store-card__desc { min-height: 38px; }
-.store-card__foot { margin-top: auto; }
-
-@media (max-width: 600px) {
-  .store-card__desc { min-height: 0; }
-}
 </style>
-

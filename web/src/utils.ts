@@ -46,6 +46,11 @@ export function chartPalette() {
   }
 }
 
+// 终端/代码块深色底（CSS 变量运行时读取，供 xterm theme 使用）
+export function codeBg(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--wm-code-bg').trim() || '#10162b'
+}
+
 export function fmtTime(t?: string | number | null): string {
   if (!t) return '-'
   const d = new Date(t)

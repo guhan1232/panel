@@ -2,7 +2,7 @@
   <div class="wm-page">
     <WmSectionCard title="文件浏览" :description="path" flush>
       <template #actions>
-        <span class="wm-text-muted files-stats">共 {{ items.length }} 项</span>
+        <span class="wm-text-muted wm-row-stats">共 {{ items.length }} 项</span>
       </template>
       <WmToolbar>
         <a-input v-model:value="pathInput" class="wm-path-input" size="small" placeholder="输入绝对路径" @keyup.enter="go" />
@@ -13,7 +13,7 @@
             <a-button size="small">上传文件</a-button>
           </a-upload>
           <a-dropdown :disabled="!selection.length">
-            <a-button size="small" :disabled="!selection.length">批量操作<span class="wm-icon files-dd-icon"><ArrowDown /></span></a-button>
+            <a-button size="small" :disabled="!selection.length">批量操作<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
             <template #overlay>
               <a-menu>
                 <a-menu-item key="zip" @click="compress('zip')">压缩为 .zip</a-menu-item>
@@ -54,7 +54,7 @@
             <a-button v-if="!row.is_dir && row.size <= 2 * 1024 * 1024" type="link" size="small" @click="edit(row)">编辑</a-button>
             <a-button v-if="!row.is_dir" type="link" size="small" @click="download(row)">下载</a-button>
             <a-dropdown>
-              <a-button type="link" size="small">更多<span class="wm-icon files-dd-icon"><ArrowDown /></span></a-button>
+              <a-button type="link" size="small">更多<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
               <template #overlay>
                 <a-menu>
                   <a-menu-item v-if="isArchive(row.name)" key="unzip" @click="decompress(row)">解压</a-menu-item>
@@ -68,7 +68,7 @@
       </WmTable>
     </WmSectionCard>
 
-    <a-modal v-model:open="editDlg" :title="`编辑 - ${editPath}`" width="820px">
+    <a-modal v-model:open="editDlg" :title="`编辑 - ${editPath}`" width="860px">
       <a-textarea v-model:value="editContent" :rows="18" class="wm-mono" style="font-size: 12px" />
       <template #footer>
         <a-button @click="editDlg = false">取消</a-button>
@@ -246,8 +246,3 @@ async function doUpload(opt: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.files-stats { font-size: 12px; }
-.files-dd-icon { margin-left: 4px; font-size: 10px; }
-</style>

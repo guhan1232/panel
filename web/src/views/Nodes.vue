@@ -6,7 +6,7 @@
         <a-button size="small" @click="copyCmd">复制</a-button>
         <template #end>
           <a-dropdown v-if="auth.role === 'admin'">
-            <a-button size="small">更多<span class="wm-icon nd-dd-icon"><ArrowDown /></span></a-button>
+            <a-button size="small">更多<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
             <template #overlay>
               <a-menu>
                 <a-menu-item key="regen" @click="regenToken">重置 Token</a-menu-item>
@@ -22,7 +22,7 @@
 
     <WmSectionCard title="节点列表" description="在线状态依据最近心跳判定" flush>
       <template #actions>
-        <span class="wm-text-muted nd-stats">共 {{ nodes.length }} 个节点 · {{ nodes.filter((n) => n.online).length }} 在线</span>
+        <span class="wm-text-muted wm-row-stats">共 {{ nodes.length }} 个节点 · {{ nodes.filter((n) => n.online).length }} 在线</span>
         <a-button size="small" @click="load">刷新</a-button>
       </template>
       <WmTable :data="nodes" v-loading="loading" empty-title="还没有接入节点" empty-description="复制上方接入命令，在目标服务器启动 Agent 后即可在此看到节点。">
@@ -39,7 +39,7 @@
           <template #default="{ row }">
             <a-button type="link" size="small" @click="openMetrics(row)">指标</a-button>
             <a-dropdown>
-              <a-button type="link" size="small" :disabled="!row.online || auth.role === 'viewer'">远程<span class="wm-icon nd-dd-icon"><ArrowDown /></span></a-button>
+              <a-button type="link" size="small" :disabled="!row.online || auth.role === 'viewer'">远程<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
               <template #overlay>
                 <a-menu>
                   <a-menu-item key="cmd" @click="openExec(row)">命令</a-menu-item>
@@ -54,7 +54,7 @@
       </WmTable>
     </WmSectionCard>
 
-    <a-drawer v-model:open="mDlg" width="62%" :title="`节点指标 - ${mNode?.node?.name || ''}`">
+    <a-drawer v-model:open="mDlg" width="860px" :title="`节点指标 - ${mNode?.node?.name || ''}`">
       <WmToolbar>
         <a-radio-group v-model:value="mRange" size="small" @change="loadMetrics">
           <a-radio-button value="hour">近 1 小时</a-radio-button>
@@ -71,7 +71,7 @@
       </WmSectionCard>
     </a-drawer>
 
-    <a-drawer v-model:open="fDlg" width="62%" :title="`节点文件 - ${fNode?.name || ''}`">
+    <a-drawer v-model:open="fDlg" width="860px" :title="`节点文件 - ${fNode?.name || ''}`">
       <WmToolbar>
         <a-input v-model:value="fPath" placeholder="绝对路径，如 /root" style="width: 420px" @press-enter="loadFiles" />
         <a-button size="small" @click="loadFiles">前往</a-button>
@@ -98,11 +98,11 @@
       <WmNotice tone="warning" class="wm-mt-4">远程文件操作经 Agent 通道执行并审计；删除为递归删除，请谨慎。</WmNotice>
     </a-drawer>
 
-    <a-drawer v-model:open="tDlg" width="62%" :title="`节点终端 - ${tNode?.name || ''}`" @close="closeNodeTerm">
-      <div ref="ntBox" style="height: 460px; background: #14181f"></div>
+    <a-drawer v-model:open="tDlg" width="860px" :title="`节点终端 - ${tNode?.name || ''}`" @close="closeNodeTerm">
+      <div ref="ntBox" class="term-plain" style="height: 460px"></div>
     </a-drawer>
 
-    <a-modal v-model:open="eDlg" :title="`远程命令 - ${eNode?.node?.name || ''}`" width="720px">
+    <a-modal v-model:open="eDlg" :title="`远程命令 - ${eNode?.node?.name || ''}`" width="680px">
       <a-textarea v-model:value="eScript"  :rows="6" placeholder="bash 命令，如：df -h" />
       <WmNotice tone="warning" class="wm-mt-2 wm-mb-4">超时 {{ eTimeout }}s；命令经审计记录，请确认执行内容。</WmNotice>
       <WmCodeBlock v-if="eResult" :content="eResult" label="remote exec output" />
@@ -112,16 +112,16 @@
       </template>
     </a-modal>
 
-    <a-drawer v-model:open="sDlg" title="SSH 自动安装 Agent" :width="620">
+    <a-drawer v-model:open="sDlg" title="SSH 自动安装 Agent" :width="680">
       <a-form layout="vertical" class="ssh-form">
-        <div class="form-sec">
-          <div class="form-sec__title">连接信息</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">连接信息</div>
           <a-form-item label="目标主机"><a-input v-model:value="sshForm.host" placeholder="IP 或主机名" /></a-form-item>
           <a-form-item label="SSH 端口"><a-input-number v-model:value="sshForm.port" :min="1" :max="65535" style="width: 160px" /></a-form-item>
           <a-form-item label="用户名" style="margin-bottom: 0"><a-input v-model:value="sshForm.user" placeholder="root" /></a-form-item>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">认证</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">认证</div>
           <a-form-item label="认证方式">
             <a-radio-group v-model:value="sshForm.auth_type" button-style="solid">
               <a-radio-button value="password">密码</a-radio-button>
@@ -134,8 +134,8 @@
             <a-form-item label="私钥口令" style="margin-bottom: 0"><a-input-password v-model:value="sshForm.passphrase" placeholder="无口令留空" /></a-form-item>
           </template>
         </div>
-        <div class="form-sec">
-          <div class="form-sec__title">节点信息</div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">节点信息</div>
           <a-form-item label="节点名"><a-input v-model:value="sshForm.name" placeholder="留空默认取目标机主机名" /></a-form-item>
           <a-form-item label="面板地址" style="margin-bottom: 0"><a-input v-model:value="sshForm.server" placeholder="ws://IP:端口（目标机需可达）" /></a-form-item>
         </div>
@@ -160,7 +160,7 @@ echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, Canvas
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
-import { fmtBytes, fmtTime, chartPalette } from '../utils'
+import { fmtBytes, fmtTime, chartPalette , codeBg } from '../utils'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()
@@ -470,7 +470,7 @@ async function connectNodeTerm() {
   const XTerm = await import('@xterm/xterm').then((m) => m.Terminal)
   const XFit = await import('@xterm/addon-fit').then((m) => m.FitAddon)
   await import('@xterm/xterm/css/xterm.css').catch(() => {})
-  ntTerm = new XTerm({ cursorBlink: true, fontSize: 13, theme: { background: '#14181f' } })
+  ntTerm = new XTerm({ cursorBlink: true, fontSize: 13, theme: { background: codeBg() } })
   ntFit = new XFit()
   ntTerm.loadAddon(ntFit)
   if (ntBox.value) {
@@ -495,13 +495,3 @@ function closeNodeTerm() {
   ntTerm = null
 }
 </script>
-
-<style scoped>
-.nd-stats { font-size: 12px; }
-.nd-dd-icon { margin-left: 4px; font-size: 10px; }
-
-/* 抽屉表单分区 */
-.form-sec { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--wm-line); }
-.form-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
-.form-sec__title { font-size: 12px; font-weight: 600; color: var(--wm-ink-3); letter-spacing: 0.06em; margin-bottom: 14px; }
-</style>

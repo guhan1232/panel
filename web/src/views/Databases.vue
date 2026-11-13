@@ -1,8 +1,12 @@
 <template>
   <div class="wm-page">
     <WmSectionCard title="数据库连接" description="连接凭据由面板托管，同时供计划任务的数据库备份使用">
-      <a-tabs v-model:activeKey="engine">
-        <a-tab-pane tab="MySQL" key="mysql">
+      <a-segmented v-model:value="engine" class="wm-mb-4" :options="[
+        { value: 'mysql', label: 'MySQL' },
+        { value: 'pg', label: 'PostgreSQL' },
+        { value: 'backup', label: '备份管理' }
+      ]" />
+      <template v-if="engine === 'mysql'">
           <WmNotice v-if="mysqlMissing" tone="warning" title="MySQL/MariaDB 服务未运行">
             探测 {{ mysql.host }}:{{ mysql.port }} 无监听（服务未安装或未启动），数据库管理功能暂不可用。
             <div class="wm-mt-4">
@@ -25,7 +29,7 @@
             <a-button size="small" @click="grant('mysql')">授权用户到库</a-button>
             <template #end>
               <a-dropdown>
-                <a-button size="small">更多<span class="wm-icon db-dd-icon"><ArrowDown /></span></a-button>
+                <a-button size="small">更多<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
                 <template #overlay>
                   <a-menu>
                     <a-menu-item key="uninstall" :disabled="installingDb === 'uninstall'" @click="uninstallDb('mysql')">卸载 MySQL 服务</a-menu-item>
@@ -38,7 +42,7 @@
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
-              <template #actions><span class="wm-text-muted db-count">{{ mysqlData.dbs.length }} 个库</span></template>
+              <template #actions><span class="wm-text-muted wm-row-stats">{{ mysqlData.dbs.length }} 个库</span></template>
               <WmTable :data="mysqlData.dbs" size="small" max-height="360" empty-title="暂无数据库">
                 <WmColumn label="库名" prop="name" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row.name }}</span></template></WmColumn>
                 <WmColumn label="操作" width="72">
@@ -47,7 +51,7 @@
               </WmTable>
             </WmSectionCard>
             <WmSectionCard title="用户" dense quiet>
-              <template #actions><span class="wm-text-muted db-count">{{ mysqlData.users.length }} 个用户</span></template>
+              <template #actions><span class="wm-text-muted wm-row-stats">{{ mysqlData.users.length }} 个用户</span></template>
               <WmTable :data="mysqlData.users" size="small" max-height="360" empty-title="暂无用户">
                 <WmColumn label="用户" prop="user" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.user }}</span></template></WmColumn>
                 <WmColumn label="主机" prop="host" min-width="110"><template #default="{ row }"><span class="wm-mono">{{ row.host }}</span></template></WmColumn>
@@ -58,9 +62,8 @@
             </WmSectionCard>
           </div>
           </template>
-        </a-tab-pane>
-
-        <a-tab-pane tab="PostgreSQL" key="pg">
+      </template>
+      <template v-else-if="engine === 'pg'">
           <WmNotice v-if="pgMissing" tone="warning" title="PostgreSQL 服务未运行">
             探测 {{ pg.host }}:{{ pg.port }} 无监听（服务未安装或未启动）。可通过「软件商店」或系统包管理器安装 PostgreSQL 后，在此保存连接配置。
           </WmNotice>
@@ -78,7 +81,7 @@
             <a-button size="small" @click="grant('pg')">授权用户到库</a-button>
             <template #end>
               <a-dropdown>
-                <a-button size="small">更多<span class="wm-icon db-dd-icon"><ArrowDown /></span></a-button>
+                <a-button size="small">更多<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
                 <template #overlay>
                   <a-menu>
                     <a-menu-item key="uninstall" :disabled="installingDb === 'uninstall'" @click="uninstallDb('postgresql')">卸载 PostgreSQL</a-menu-item>
@@ -91,7 +94,7 @@
           </WmToolbar>
           <div class="wm-grid-2">
             <WmSectionCard title="数据库" dense quiet>
-              <template #actions><span class="wm-text-muted db-count">{{ pgData.dbs.length }} 个库</span></template>
+              <template #actions><span class="wm-text-muted wm-row-stats">{{ pgData.dbs.length }} 个库</span></template>
               <WmTable :data="pgData.dbs" size="small" max-height="360" empty-title="暂无数据库">
                 <WmColumn label="库名" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
                 <WmColumn label="操作" width="72">
@@ -100,7 +103,7 @@
               </WmTable>
             </WmSectionCard>
             <WmSectionCard title="角色" dense quiet>
-              <template #actions><span class="wm-text-muted db-count">{{ pgData.users.length }} 个角色</span></template>
+              <template #actions><span class="wm-text-muted wm-row-stats">{{ pgData.users.length }} 个角色</span></template>
               <WmTable :data="pgData.users" size="small" max-height="360" empty-title="暂无角色">
                 <WmColumn label="角色" min-width="160"><template #default="{ row }"><span class="wm-mono">{{ row }}</span></template></WmColumn>
                 <WmColumn label="操作" width="72">
@@ -110,9 +113,8 @@
             </WmSectionCard>
           </div>
           </template>
-        </a-tab-pane>
-
-        <a-tab-pane tab="备份管理" key="backup">
+      </template>
+      <template v-else>
           <WmToolbar>
             <a-select v-model:value="backupDb" size="small" placeholder="选择要备份的数据库" style="width: 220px">
               <a-select-opt-group v-if="mysqlData.dbs.length" label="MySQL">
@@ -139,8 +141,7 @@
             </WmColumn>
           </WmTable>
           <WmNotice tone="neutral" class="wm-mt-4">备份文件存于服务器 data/backups/ 目录，dump 经 gzip 压缩；计划任务可定时自动备份。</WmNotice>
-        </a-tab-pane>
-      </a-tabs>
+      </template>
     </WmSectionCard>
   </div>
 </template>
@@ -397,6 +398,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.db-count { font-size: 12px; }
-.db-dd-icon { margin-left: 4px; font-size: 10px; }
+.wm-row-stats { font-size: 12px; }
+.wm-dd-icon { margin-left: 4px; font-size: 10px; }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="wm-stat" :class="[`wm-stat--${tone}`]">
+  <div class="wm-stat" :class="[`wm-stat--${tone}`, { 'wm-stat--dense': dense }]">
     <div class="wm-stat__top">
       <span class="wm-stat__label">{{ label }}</span>
       <span v-if="$slots.icon || icon" class="wm-stat__icon">
@@ -37,7 +37,8 @@ withDefaults(
     text?: boolean
     loading?: boolean
     icon?: any
+    dense?: boolean
   }>(),
-  { value: '-', unit: '', sub: '', tone: 'info', progress: null, text: false, loading: false, icon: null }
+  { value: '-', unit: '', sub: '', tone: 'info', progress: null, text: false, loading: false, icon: null, dense: false }
 )
 </script>
