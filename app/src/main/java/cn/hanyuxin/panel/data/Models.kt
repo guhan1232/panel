@@ -202,8 +202,10 @@ data class QrData(val host: String, val entrance: String, val key: String, val v
             }.toMap()
             val host = map["host"]?.trim() ?: return null
             val entrance = map["entrance"]?.trim() ?: return null
-            val key = map["key"]?.trim() ?: return null
-            if (host.isEmpty() || entrance.isEmpty() || key.isEmpty()) return null
+            if (host.isEmpty() || entrance.isEmpty()) return null
+            // key 可选：Web 扫码登录码带 key，绑定码（系统设置/仪表盘生成的 hanyuxin://login）不带——
+            // 扫到绑定码时仅添加服务器，APP 登录后即完成绑定
+            val key = map["key"]?.trim() ?: ""
             return QrData(host = host, entrance = entrance, key = key, v2 = map["v2"] == "1")
         }
     }
