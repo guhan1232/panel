@@ -184,6 +184,137 @@ data class UpdateInfo(
     val notes: String = "",
 )
 
+// ---- 扩展模块（服务/运维全功能）----
+
+/** 通用分页（任务日志等）：{total, items}。 */
+@Serializable
+data class PageResp<T>(val total: Long = 0, val items: List<T> = emptyList())
+
+// 计划任务
+@Serializable
+data class Task(
+    val id: Long = 0,
+    val name: String = "",
+    val type: String = "",
+    val spec: String = "",
+    val command: String = "",
+    val node_id: Long = 0,
+    val timeout_sec: Int = 0,
+    val enabled: Boolean = false,
+    val last_run_at: String? = null,
+    val last_status: String = "",
+    val next_run: String? = null,
+)
+
+@Serializable
+data class TaskLog(
+    val id: Long = 0,
+    val task_id: Long = 0,
+    val trigger: String = "",
+    val status: String = "",
+    val start_at: String = "",
+    val end_at: String? = null,
+    val cost_ms: Long = 0,
+    val exit_code: Int = 0,
+    val output: String = "",
+)
+
+// 进程管理
+@Serializable
+data class ProcInfo(val pid: Int = 0, val name: String = "", val cpu: Double = 0.0, val mem_pct: Double = 0.0)
+
+@Serializable
+data class ServiceInfo(
+    val unit: String = "",
+    val active: String = "",
+    val sub: String = "",
+    val enabled: String = "",
+    val description: String = "",
+)
+
+// 防火墙
+@Serializable
+data class FirewallStatus(
+    val tool: String = "",
+    val enabled: Boolean = false,
+    val anti_scan: Boolean = false,
+    val message: String? = null,
+)
+
+@Serializable
+data class FirewallRule(
+    val id: Long = 0,
+    val protocol: String = "",
+    val ports: String = "",
+    val source: String = "",
+    val action: String = "",
+    val direction: String = "",
+    val remark: String = "",
+    val auto: Boolean = false,
+    val created_at: String = "",
+)
+
+// SSL 证书
+@Serializable
+data class CertInfo(
+    val domain: String = "",
+    val domains: List<String> = emptyList(),
+    val not_after: String = "",
+    val days_left: Int = 0,
+    val source: String = "",
+)
+
+// Docker
+@Serializable
+data class DockerOverview(
+    val installed: Boolean = false,
+    val version: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
+    val running: Int = 0,
+    val stopped: Int = 0,
+    val images: Int = 0,
+)
+
+@Serializable
+data class DockerStatus(val installed: Boolean = false, val version: String = "", val compose: Boolean = false)
+
+// 数据库
+@Serializable
+data class DbStatus(val mysql: DbEngineStatus = DbEngineStatus(), val pg: DbEngineStatus = DbEngineStatus())
+
+@Serializable
+data class DbEngineStatus(val installed: Boolean = false, val addr: String = "")
+
+@Serializable
+data class DbUser(val user: String = "", val host: String = "")
+
+// 告警规则
+@Serializable
+data class AlertRule(
+    val id: Long = 0,
+    val name: String = "",
+    val metric: String = "",
+    val op: String = "",
+    val threshold: Double = 0.0,
+    val node_id: Long = 0,
+    val duration_min: Int = 0,
+    val cooldown_min: Int = 0,
+    val enabled: Boolean = false,
+    val last_fired_at: String? = null,
+)
+
+// 终端主机收藏（SSH 快连）
+@Serializable
+data class TermHost(
+    val id: Long = 0,
+    val name: String = "",
+    val host: String = "",
+    val port: Int = 22,
+    val username: String = "",
+    val auth_type: String = "password",
+    val has_password: Boolean = false,
+    val has_key: Boolean = false,
+)
+
 // ---- 扫码登录 ----
 
 @Serializable

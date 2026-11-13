@@ -10,7 +10,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Storefront
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Icon
@@ -44,6 +44,17 @@ object Router {
         data class QrApprove(val server: ServerInfo, val key: String, val onDone: () -> Unit) : Route()
         data class Editor(val server: ServerInfo, val path: String, val onClose: () -> Unit) : Route()
         data class Alerts(val server: ServerInfo, val onClose: () -> Unit) : Route()
+        // 全功能页（服务/运维宫格入口）
+        data class Sites(val server: ServerInfo) : Route()
+        data class Databases(val server: ServerInfo) : Route()
+        data class AppStore(val server: ServerInfo) : Route()
+        data class Docker(val server: ServerInfo) : Route()
+        data class Terminal(val server: ServerInfo) : Route()
+        data class Cron(val server: ServerInfo) : Route()
+        data class Proc(val server: ServerInfo) : Route()
+        data class Nodes(val server: ServerInfo) : Route()
+        data class Firewall(val server: ServerInfo) : Route()
+        data class Certs(val server: ServerInfo) : Route()
     }
 
     private val _stack = MutableStateFlow<List<Route>>(emptyList())
@@ -132,6 +143,16 @@ fun RootApp() {
         is Router.Route.QrApprove -> QrApproveScreen(o.server, o.key, o.onDone)
         is Router.Route.Editor -> EditorScreen(o.server, o.path, o.onClose)
         is Router.Route.Alerts -> AlertsScreen(o.server, o.onClose)
+        is Router.Route.Sites -> SitesScreen(o.server)
+        is Router.Route.Databases -> DatabaseScreen(o.server)
+        is Router.Route.AppStore -> AppStoreScreen(o.server)
+        is Router.Route.Docker -> DockerScreen(o.server)
+        is Router.Route.Terminal -> TerminalScreen(o.server)
+        is Router.Route.Cron -> CronScreen(o.server)
+        is Router.Route.Proc -> ProcScreen(o.server)
+        is Router.Route.Nodes -> NodesScreen(o.server)
+        is Router.Route.Firewall -> FirewallScreen(o.server)
+        is Router.Route.Certs -> CertsScreen(o.server)
         null -> when {
             current != null -> MainScaffold()
             else -> ServersScreen(
@@ -158,10 +179,11 @@ fun RootApp() {
 fun MainScaffold() {
     val server = Session.current.collectAsState().value ?: return
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // 底部五 Tab 对应 Web 端侧边栏分组：概览 / 站点与服务 / 系统运维 / 文件 / 我的
     val tabs = listOf(
-        "仪表盘" to Icons.Outlined.Speed,
-        "网站" to Icons.Outlined.Language,
-        "商店" to Icons.Outlined.Storefront,
+        "概览" to Icons.Outlined.Speed,
+        "服务" to Icons.Outlined.Language,
+        "运维" to Icons.Outlined.Settings,
         "文件" to Icons.Outlined.Folder,
         "我的" to Icons.Outlined.Person,
     )
@@ -177,8 +199,8 @@ fun MainScaffold() {
         Column(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 0 -> DashboardScreen(server)
-                1 -> SitesScreen(server)
-                2 -> AppStoreScreen(server)
+                1 -> ServiceHubScreen(server)
+                2 -> OpsHubScreen(server)
                 3 -> FilesScreen(server)
                 else -> MeScreen(server)
             }
