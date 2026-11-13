@@ -56,10 +56,15 @@ object Router {
 object Session {
     val current = MutableStateFlow<ServerInfo?>(null)
     fun enter(s: ServerInfo) { android.util.Log.d("AZAPP", "enter "+s.host); current.value = s; ServerStore.setLastHost(s.host) }
-    fun leave() {
-        // 会话失效（401）时同步清除本地失效令牌，否则列表仍显示「已登录」，
-        // 用户点击进入后再次 401，形成「登录不进去」死循环
-        current.value?.let { ServerStore.setToken(it.host, null); Http.invalidate(it.host) }
+    /** 退出当前面板：clearToken=false（切换服务器）保留令牌，切回免密直进；
+     *  clearToken=true（401 失效/退出登录）清除令牌。 */
+    fun leave(clearToken: Boolean = false) {
+        if (clearToken) {
+            current.value?.let {
+                ServerStore.setToken(it.host, null)
+                Http.invalidate(it.host)
+            }
+        }
         current.value = null
         ServerStore.setLastHost(null)
     }
@@ -70,7 +75,7 @@ suspend fun <T> apiGuard(onError: (Exception) -> Unit = {}, block: suspend () ->
     try {
         block()
     } catch (e: cn.hanyuxin.panel.data.UnauthorizedException) {
-        Session.leave()
+        Session.leave(clearToken = true)
         null
     } catch (e: Exception) {
         onError(e)
