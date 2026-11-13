@@ -84,9 +84,10 @@ suspend fun <T> apiGuard(onError: (Exception) -> Unit = {}, block: suspend () ->
 
 /** 扫码分发：已有该服务器的有效会话 → 直接授权；否则先落库再走登录（登录后自动继续授权）。 */
 fun handleScan(qr: QrData) {
-    // 绑定码（Web 生成的绑定密钥）：保存服务器 → 免密 bind-login → 自动进入主界面
+    // 绑定码（Web 生成的绑定密钥）：保存服务器+持久化密钥 → 免密 bind-login → 自动进入主界面。
+    // 密钥落库（bindKey）：此后令牌失效（过期/面板侧吊销）点卡片即免密重连，无需账号密码。
     if (qr.bindKey.isNotBlank()) {
-        ServerStore.upsert(qr.host, qr.entrance)
+        ServerStore.upsert(qr.host, qr.entrance, bindKey = qr.bindKey)
         val s = ServerStore.byHost(qr.host) ?: return
         Router.pop() // 关闭扫码页
         Router.push(Router.Route.BindLogin(s, qr.bindKey, onClose = { Router.pop() }))
@@ -111,8 +112,14 @@ fun RootApp() {
 
     LaunchedEffect(Unit) {
         val last = ServerStore.lastHost()
-        if (Session.current.value == null && last != null && ServerStore.token(last) != null) {
-            ServerStore.byHost(last)?.let { Session.enter(it) }
+        if (Session.current.value == null && last != null) {
+            val s = ServerStore.byHost(last)
+            if (s != null && ServerStore.token(last) != null) {
+                Session.enter(s) // 有效令牌：直接进入
+            } else if (s != null && s.bindKey.isNotBlank()) {
+                // 令牌失效但有绑定密钥：启动即免密 bind-login 重连，无感直进
+                Router.push(Router.Route.BindLogin(s, s.bindKey, onClose = { Router.pop() }))
+            }
         }
     }
     BackHandler(enabled = overlay != null) { Router.pop() }
@@ -130,9 +137,15 @@ fun RootApp() {
             else -> ServersScreen(
                 onEnter = { s ->
                     android.util.Log.d("AZAPP", "card click token="+(ServerStore.token(s.host)!=null)+" host="+s.host)
-                    // 未登录的服务器先进登录页（预填地址与入口码），登录成功后再进入主界面
-                    if (ServerStore.token(s.host) != null) Session.enter(s)
-                    else Router.push(Router.Route.Login(s, "", onLoggedIn = { Session.enter(it) }, onClose = { Router.pop() }))
+                    if (ServerStore.token(s.host) != null) {
+                        Session.enter(s)
+                    } else if (s.bindKey.isNotBlank()) {
+                        // 令牌失效但有绑定密钥：免密 bind-login 直接进（不要求账号密码）
+                        Router.push(Router.Route.BindLogin(s, s.bindKey, onClose = { Router.pop() }))
+                    } else {
+                        // 无令牌无密钥的服务器先进登录页（预填地址与入口码），登录成功后再进入主界面
+                        Router.push(Router.Route.Login(s, "", onLoggedIn = { Session.enter(it) }, onClose = { Router.pop() }))
+                    }
                 },
                 onAdd = { Router.push(Router.Route.AddServer {}) },
                 onScan = { Router.push(Router.Route.Scanner(onQr = { handleScan(it) }, onClose = { Router.pop() })) },
