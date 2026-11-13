@@ -66,6 +66,11 @@ private class TofuTrustManager(
     override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
 }
 
+/** 已读取完成的原始响应：code + 全文（body 在 IO 线程读毕）。 */
+class RawResp(val code: Int, val text: String) {
+    val isSuccessful: Boolean get() = code in 200..299
+}
+
 /** 从流式输入上传的 RequestBody（避免整文件读入内存）。 */
 class StreamBody(private val size: Long, private val opener: () -> InputStream) : RequestBody() {
     override fun contentType() = "application/octet-stream".toMediaType()
@@ -110,7 +115,10 @@ object Http {
                     b.header("Cookie", "wm_entrance=${server.entrance}")
                 }
                 b.header("Accept", "application/json")
-                chain.proceed(b.build())
+                android.util.Log.d("AZHTTP", "REQ " + chain.request().method + " " + chain.request().url + " token=" + (token?.take(10) ?: "null") + " entrance=" + server.entrance)
+                val resp = chain.proceed(b.build())
+                android.util.Log.d("AZHTTP", "RESP " + resp.code + " " + chain.request().url)
+                resp
             }
         val c = builder.build()
         clients[key] = c
@@ -131,34 +139,40 @@ class PanelClient(private val server: ServerInfo, private val token: String?) {
         return "$base$path$q"
     }
 
-    suspend fun requestRaw(method: String, path: String, body: RequestBody? = null, query: List<Pair<String, String>> = emptyList()): Response =
+    /** 原始响应（body 已在 IO 线程读取完成，避免主线程网络）。 */
+    suspend fun requestRaw(method: String, path: String, body: RequestBody? = null, query: List<Pair<String, String>> = emptyList()): RawResp =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url(url(path, query))
                 .method(method, body)
+                .build()
+            http().newCall(req).execute().use { r ->
+                RawResp(r.code, r.body?.string().orEmpty())
+            }
+        }
+
+    /** 流式原始响应（大文件下载用）：调用方必须在 IO 线程读 body。 */
+    suspend fun streamRaw(method: String, path: String, query: List<Pair<String, String>> = emptyList()): Response =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url(url(path, query))
+                .method(method, null)
                 .build()
             http().newCall(req).execute()
         }
 
     /** JSON 请求 + 解包 {code,msg,data}；失败抛 ApiException / UnauthorizedException / PinMismatchException。 */
     suspend inline fun <reified T> request(method: String, path: String, bodyJson: String? = null, query: List<Pair<String, String>> = emptyList()): T? {
-        val resp = requestRaw(
-            method, path,
-            bodyJson?.toRequestBody("application/json; charset=utf-8".toMediaType()),
-            query,
-        )
-        resp.use { r ->
-            val text = r.body?.string().orEmpty()
-            if (!r.isSuccessful) {
-                if (r.code == 401) throw UnauthorizedException()
-                val msg = runCatching { Http.json.decodeFromString<Resp<Unit>>(text).msg }.getOrNull()
-                throw ApiException(r.code, msg ?: "HTTP ${r.code}")
-            }
-            val parsed = runCatching { Http.json.decodeFromString<Resp<T>>(text) }
-                .getOrElse { throw ApiException(-1, "响应解析失败: ${it.message}") }
-            if (parsed.code == 401) throw UnauthorizedException()
-            if (parsed.code != 0) throw ApiException(parsed.code, parsed.msg ?: "请求失败")
-            return parsed.data
+        val raw = requestRaw(method, path, bodyJson?.toRequestBody("application/json; charset=utf-8".toMediaType()), query)
+        if (!raw.isSuccessful) {
+            if (raw.code == 401) throw UnauthorizedException()
+            val msg = runCatching { Http.json.decodeFromString<Resp<Unit>>(raw.text).msg }.getOrNull()
+            throw ApiException(raw.code, msg ?: "HTTP ${raw.code}")
         }
+        val parsed = runCatching { Http.json.decodeFromString<Resp<T>>(raw.text) }
+            .getOrElse { throw ApiException(-1, "响应解析失败: ${it.message}") }
+        if (parsed.code == 401) throw UnauthorizedException()
+        if (parsed.code != 0) throw ApiException(parsed.code, parsed.msg ?: "请求失败")
+        return parsed.data
     }
 }
