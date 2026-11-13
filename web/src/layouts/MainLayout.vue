@@ -33,7 +33,7 @@
               :key="item.path"
               @click="go(item.path)"
             >
-              <template #icon><span class="wm-nav-ico" :style="{ background: item.c.soft, color: item.c.color }"><component :is="item.icon" /></span></template>
+              <template #icon><span class="wm-nav-ico" :style="{ background: item.c.color, color: '#fff' }"><component :is="item.icon" /></span></template>
               <span>{{ item.label }}</span>
             </a-menu-item>
           </a-menu-item-group>
@@ -54,7 +54,7 @@
       <a-menu theme="light" mode="inline" :selected-keys="[route.path]" class="wm-nav">
         <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
           <a-menu-item v-for="item in group.items" :key="item.path" @click="go(item.path)">
-            <template #icon><span class="wm-nav-ico" :style="{ background: item.c.soft, color: item.c.color }"><component :is="item.icon" /></span></template>
+            <template #icon><span class="wm-nav-ico" :style="{ background: item.c.color, color: '#fff' }"><component :is="item.icon" /></span></template>
             <span>{{ item.label }}</span>
           </a-menu-item>
         </a-menu-item-group>
