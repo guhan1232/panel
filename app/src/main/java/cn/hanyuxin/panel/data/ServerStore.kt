@@ -19,6 +19,7 @@ data class ServerInfo(
     val name: String = "",
     val addedAt: Long = 0,
     val certPin: String = "", // TOFU：首次连接记录的服务器公钥指纹（SPKI SHA-256 Base64）
+    val bindKey: String = "", // 绑定密钥（扫码绑定时持久化）：令牌失效后用它免密重连，无需账号密码
 )
 
 object ServerStore {
@@ -60,8 +61,8 @@ object ServerStore {
     fun list(): List<ServerInfo> = _servers.value
     fun byHost(host: String): ServerInfo? = _servers.value.firstOrNull { it.host == host }
 
-    /** 添加或更新服务器（保留已有指纹）；host 归一去尾斜杠。 */
-    fun upsert(host: String, entrance: String, name: String = ""): ServerInfo {
+    /** 添加或更新服务器（保留已有指纹与绑定密钥）；host 归一去尾斜杠。 */
+    fun upsert(host: String, entrance: String, name: String = "", bindKey: String = ""): ServerInfo {
         val h = host.trim().trimEnd('/')
         val existing = byHost(h)
         val rec = ServerInfo(
@@ -70,6 +71,7 @@ object ServerStore {
             name = name.ifBlank { existing?.name ?: h },
             addedAt = existing?.addedAt ?: System.currentTimeMillis(),
             certPin = existing?.certPin ?: "",
+            bindKey = bindKey.ifBlank { existing?.bindKey ?: "" },
         )
         persist(listOf(rec) + _servers.value.filterNot { it.host == h })
         return rec
