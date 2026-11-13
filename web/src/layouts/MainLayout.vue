@@ -33,7 +33,7 @@
               :key="item.path"
               @click="go(item.path)"
             >
-              <template #icon><span class="wm-nav-ico" :style="{ background: item.c.color, color: '#fff' }"><component :is="item.icon" /></span></template>
+              <template #icon><component :is="item.icon" /></template>
               <span>{{ item.label }}</span>
             </a-menu-item>
           </a-menu-item-group>
@@ -54,7 +54,7 @@
       <a-menu theme="light" mode="inline" :selected-keys="[route.path]" class="wm-nav">
         <a-menu-item-group v-for="group in navGroups" :key="group.label" :title="group.label">
           <a-menu-item v-for="item in group.items" :key="item.path" @click="go(item.path)">
-            <template #icon><span class="wm-nav-ico" :style="{ background: item.c.color, color: '#fff' }"><component :is="item.icon" /></span></template>
+            <template #icon><component :is="item.icon" /></template>
             <span>{{ item.label }}</span>
           </a-menu-item>
         </a-menu-item-group>
@@ -144,9 +144,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  OdometerFill, ConnectionFill, CoinFill, ShopFill, BoxFill, MonitorFill, TimerFill, WarningFill,
-  FolderFill, CpuFill, ShareFill, AvatarFill, LockFill2, StampFill, DocumentFill, BellFill, SettingFill2,
-  Expand, Fold, Sunny, Moon,
+  Odometer, Connection, Coin, Shop, Box, Monitor, Timer, Warning, Folder, Cpu,
+  Share, Lock, Stamp, Document, Bell, Avatar, Setting, Expand, Fold, Sunny, Moon,
   ArrowDown, SwitchButton, Menu, MoreFilled
 } from '../antd-compat'
 import { useAuth } from '../stores/auth'
@@ -182,45 +181,45 @@ const C = {
 }
 
 const navGroups = computed(() => [
-  { label: tr('概览'), items: [{ path: '/dashboard', label: tr('仪表盘'), icon: OdometerFill, c: C.blue }] },
+  { label: tr('概览'), items: [{ path: '/dashboard', label: tr('仪表盘'), icon: Odometer, c: C.blue }] },
   {
     label: tr('站点与服务'),
     items: [
-      { path: '/website', label: tr('网站'), icon: ConnectionFill, c: C.green },
-      { path: '/databases', label: tr('数据库'), icon: CoinFill, c: C.orange },
-      { path: '/softstore', label: tr('软件商店'), icon: ShopFill, c: C.violet },
-      { path: '/dockerstore', label: tr('Docker 容器管理'), icon: BoxFill, c: C.cyan },
-      ...(auth.role !== 'viewer' ? [{ path: '/terminal', label: tr('终端'), icon: MonitorFill, c: C.indigo }] : [])
+      { path: '/website', label: tr('网站'), icon: Connection, c: C.green },
+      { path: '/databases', label: tr('数据库'), icon: Coin, c: C.orange },
+      { path: '/softstore', label: tr('软件商店'), icon: Shop, c: C.violet },
+      { path: '/dockerstore', label: tr('Docker 容器管理'), icon: Box, c: C.cyan },
+      ...(auth.role !== 'viewer' ? [{ path: '/terminal', label: tr('终端'), icon: Monitor, c: C.indigo }] : [])
     ]
   },
   {
     label: tr('系统运维'),
     items: [
-      { path: '/cron', label: tr('计划任务'), icon: TimerFill, c: C.teal },
-      { path: '/alerts', label: tr('告警策略'), icon: WarningFill, c: C.red },
-      { path: '/files', label: tr('文件管理'), icon: FolderFill, c: C.amber },
-      { path: '/proc', label: tr('进程管理'), icon: CpuFill, c: C.pink },
-      { path: '/nodes', label: tr('节点管理'), icon: ShareFill, c: C.blue },
-      { path: '/firewall', label: tr('防火墙'), icon: LockFill2, c: C.orange },
-      { path: '/certs', label: tr('SSL 证书'), icon: StampFill, c: C.violet }
+      { path: '/cron', label: tr('计划任务'), icon: Timer, c: C.teal },
+      { path: '/alerts', label: tr('告警策略'), icon: Warning, c: C.red },
+      { path: '/files', label: tr('文件管理'), icon: Folder, c: C.amber },
+      { path: '/proc', label: tr('进程管理'), icon: Cpu, c: C.pink },
+      { path: '/nodes', label: tr('节点管理'), icon: Share, c: C.blue },
+      { path: '/firewall', label: tr('防火墙'), icon: Lock, c: C.orange },
+      { path: '/certs', label: tr('SSL 证书'), icon: Stamp, c: C.violet }
     ]
   },
   {
     label: tr('面板'),
     items: [
-      { path: '/audit', label: tr('审计日志'), icon: DocumentFill, c: C.indigo },
-      { path: '/notify', label: tr('通知与存储'), icon: BellFill, c: C.cyan },
-      ...(auth.role === 'admin' ? [{ path: '/users', label: tr('用户管理'), icon: AvatarFill, c: C.green }] : []),
-      { path: '/setting', label: tr('系统设置'), icon: SettingFill2, c: C.amber }
+      { path: '/audit', label: tr('审计日志'), icon: Document, c: C.indigo },
+      { path: '/notify', label: tr('通知与存储'), icon: Bell, c: C.cyan },
+      ...(auth.role === 'admin' ? [{ path: '/users', label: tr('用户管理'), icon: Avatar, c: C.green }] : []),
+      { path: '/setting', label: tr('系统设置'), icon: Setting, c: C.amber }
     ]
   }
 ])
 
 const mobileItems = [
-  { path: '/dashboard', label: tr('仪表盘'), icon: OdometerFill },
-  { path: '/website', label: tr('网站'), icon: ConnectionFill },
-  { path: '/cron', label: tr('计划任务'), icon: TimerFill },
-  { path: '/files', label: tr('文件'), icon: FolderFill }
+  { path: '/dashboard', label: tr('仪表盘'), icon: Odometer },
+  { path: '/website', label: tr('网站'), icon: Connection },
+  { path: '/cron', label: tr('计划任务'), icon: Timer },
+  { path: '/files', label: tr('文件'), icon: Folder }
 ]
 
 function go(path: string) {
