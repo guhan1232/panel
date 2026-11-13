@@ -189,11 +189,15 @@ data class UpdateInfo(
 @Serializable
 data class QrCreateResp(val key: String = "", val qr_text: String = "", val expires_in: Int = 120)
 
-/** 扫码结果（qr_text 解析，契约见 docs/APP.md §5.2）。 */
-data class QrData(val host: String, val entrance: String, val key: String, val v2: Boolean) {
+/** 扫码结果（qr_text 解析）：
+ *  - hanyuxin://login?…&key=…  扫码登录码（Web 登录页，扫码确认 Web 免密登录）
+ *  - hanyuxin://bind?…&key=…   绑定码（Web 系统设置/仪表盘生成，绑定=添加服务器+免密登录）
+ *  bind 码无独立 key 语义（key 字段承载绑定密钥），bindKey 非空时走绑定登录。 */
+data class QrData(val host: String, val entrance: String, val key: String, val bindKey: String = "", val v2: Boolean) {
     companion object {
         fun parse(text: String): QrData? {
-            if (!text.startsWith("hanyuxin://login?")) return null
+            val isBind = text.startsWith("hanyuxin://bind?")
+            if (!text.startsWith("hanyuxin://login?") && !isBind) return null
             val q = text.substringAfter("?")
             val map = q.split("&").mapNotNull {
                 val i = it.indexOf('=')
@@ -205,8 +209,9 @@ data class QrData(val host: String, val entrance: String, val key: String, val v
             if (host.isEmpty() || entrance.isEmpty()) return null
             // key 可选：Web 扫码登录码带 key，绑定码（系统设置/仪表盘生成的 hanyuxin://login）不带——
             // 扫到绑定码时仅添加服务器，APP 登录后即完成绑定
-            val key = map["key"]?.trim() ?: ""
-            return QrData(host = host, entrance = entrance, key = key, v2 = map["v2"] == "1")
+            val key = if (isBind) "" else map["key"]?.trim() ?: ""
+            val bindKey = if (isBind) map["key"]?.trim() ?: "" else ""
+            return QrData(host = host, entrance = entrance, key = key, bindKey = bindKey, v2 = map["v2"] == "1")
         }
     }
 }

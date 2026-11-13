@@ -47,6 +47,24 @@ object Api {
         Http.invalidate(host)
     }
 
+    // ---- 绑定（docs/APP.md）：绑定密钥免密登录 ----
+
+    /** 绑定登录：绑定密钥换取 30 天会话（免账号密码），成功后自动保存 token。 */
+    suspend fun bindLogin(server: ServerInfo, bindKey: String, deviceName: String): LoginResp {
+        val anon = PanelClient(server, null)
+        val body = Http.json.encodeToString(
+            mapOf("bind_key" to bindKey, "device_name" to deviceName),
+        )
+        val resp = anon.request<LoginResp>("POST", "/api/auth/bind/login", body)
+            ?: throw ApiException(-1, "绑定登录响应为空")
+        if (resp.token.isNullOrBlank()) throw ApiException(-1, "绑定成功但未返回会话令牌")
+        ServerStore.setToken(server.host, resp.token)
+        ServerStore.upsert(server.host, server.entrance, server.name)
+        ServerStore.setLastHost(server.host)
+        Http.invalidate(server.host)
+        return resp
+    }
+
     // ---- 扫码登录（docs/APP.md §5）----
 
     suspend fun qrConfirm(c: PanelClient, key: String) { c.request<Unit>("POST", "/api/auth/qr/confirm", Http.json.encodeToString(mapOf("key" to key))) }
