@@ -7,6 +7,7 @@
           <a-select-option value="local">本机（面板所在服务器）</a-select-option>
           <a-select-option v-for="n in remoteNodes" :key="n.node.id" :value="String(n.node.id)">{{ `${n.node.name}${n.online ? '' : '（离线）'}` }}</a-select-option>
         </a-select>
+        <template #end><a-button size="small" @click="bindDlg = true">绑定 APP</a-button></template>
         <template #note>本机指标每 3 秒采样；远程节点由 Agent 每 15 秒上报一次。</template>
       </WmToolbar>
     </WmSectionCard>
@@ -99,7 +100,7 @@
     <WmNotice v-else tone="info" title="远程节点仅采集基础指标">
       当前展示 CPU / 内存 / 网络 / 负载；磁盘与进程信息请通过「节点管理 → 命令」或终端获取。
     </WmNotice>
-  </div>
+  </div>    <AppBindDialog v-model:open="bindDlg" />
 </template>
 
 <script setup lang="ts">
@@ -111,6 +112,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent, CanvasRenderer])
 import { Cpu, Memo, TrendCharts, Platform } from '../antd-compat'
+import AppBindDialog from '../components/AppBindDialog.vue'
 import api from '../api'
 import { fmtBytes, fmtDuration, fmtTime, chartPalette } from '../utils'
 
@@ -126,6 +128,7 @@ const remoteNodes = computed(() =>
   nodes.value.filter((n) => n.node.ip !== '127.0.0.1' && n.node.ip !== '::1')
 )
 const nodeSel = ref('local')
+const bindDlg = ref(false)
 
 const cpuEl = ref<HTMLElement>()
 const netEl = ref<HTMLElement>()

@@ -186,6 +186,7 @@
           </a-form-item>
         </a-form>
         <template #footer>
+          <a-button size="small" @click="bindDlg = true">生成绑定二维码</a-button>
           <a-button type="primary" size="small" :loading="appSaving" @click="saveAppConfig">保存 APP 配置</a-button>
         </template>
       </WmSectionCard>
@@ -368,7 +369,7 @@
         <WmNotice tone="warning">CA 私钥仅保存在面板服务器本地（data/certs/ca，权限 600）。若已上传过，此处留空直接确认即可复用。</WmNotice>
       </a-form>
     </a-modal>
-  </div>
+  </div>    <AppBindDialog v-model:open="bindDlg" />
 </template>
 
 <script setup lang="ts">
@@ -382,6 +383,7 @@ import {
 } from '@ant-design/icons-vue'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
+import AppBindDialog from '../components/AppBindDialog.vue'
 import api from '../api'
 import { useAuth } from '../stores/auth'
 
@@ -440,6 +442,7 @@ async function loadSessions() {
 // ---- 移动 APP 配置（docs/APP.md §7 F3）----
 const appForm = reactive<any>({ public_url: '', apk_url: '', latest_version: '', release_notes: '' })
 const appSaving = ref(false)
+const bindDlg = ref(false)
 
 async function loadAppConfig() {
   try {

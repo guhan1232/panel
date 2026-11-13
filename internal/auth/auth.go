@@ -123,6 +123,7 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.DELETE("/auth/sessions/:id", s.revokeSession)
 	authed.POST("/sessions/revoke-others", s.revokeOtherSessions)
 	authed.POST("/auth/sessions/revoke-others", s.revokeOtherSessions) // 别名
+	authed.GET("/auth/app-bind", s.appBindInfo)
 	authed.POST("/auth/qr/confirm", s.qrConfirm)
 	authed.POST("/auth/qr/approve", s.qrApprove)
 }

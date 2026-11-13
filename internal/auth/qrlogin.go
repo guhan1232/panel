@@ -192,6 +192,20 @@ func (s *Service) qrText(c *gin.Context, key string) string {
 // ---- 端点 ----
 
 // qrCreate Web 登录页创建扫码记录（匿名可，入口校验之后；按 IP 限频 10 次/分钟）。
+// appBindInfo 已登录 Web 端生成「绑定 APP」二维码信息（无 key：APP 扫码=添加服务器+账密登录，
+// 与扫码登录码不同——绑定码不需要 Web 侧确认流程）。
+func (s *Service) appBindInfo(c *gin.Context) {
+	host := s.publicHost(c)
+	qr := fmt.Sprintf("hanyuxin://login?v=1&host=%s&entrance=%s&v2=%d",
+		url.QueryEscape(host), url.QueryEscape(s.cfg.Server.Entrance), s.qrV2Flag())
+	core.OK(c, gin.H{
+		"host":     host,
+		"entrance": s.cfg.Server.Entrance,
+		"v2":       s.qrV2Flag(),
+		"qr_text":  qr,
+	})
+}
+
 func (s *Service) qrCreate(c *gin.Context) {
 	ip := c.ClientIP()
 	if !s.qr.allow("create:"+ip, 10, time.Minute) {
