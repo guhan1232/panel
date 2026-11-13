@@ -184,16 +184,151 @@ data class UpdateInfo(
     val notes: String = "",
 )
 
+// ---- 扩展模块（服务/运维全功能）----
+
+/** 通用分页（任务日志等）：{total, items}。 */
+@Serializable
+data class PageResp<T>(val total: Long = 0, val items: List<T> = emptyList())
+
+// 计划任务
+@Serializable
+data class Task(
+    val id: Long = 0,
+    val name: String = "",
+    val type: String = "",
+    val spec: String = "",
+    val command: String = "",
+    val node_id: Long = 0,
+    val timeout_sec: Int = 0,
+    val enabled: Boolean = false,
+    val last_run_at: String? = null,
+    val last_status: String = "",
+    val next_run: String? = null,
+)
+
+@Serializable
+data class TaskLog(
+    val id: Long = 0,
+    val task_id: Long = 0,
+    val trigger: String = "",
+    val status: String = "",
+    val start_at: String = "",
+    val end_at: String? = null,
+    val cost_ms: Long = 0,
+    val exit_code: Int = 0,
+    val output: String = "",
+)
+
+// 进程管理
+@Serializable
+data class ProcInfo(val pid: Int = 0, val name: String = "", val cpu: Double = 0.0, val mem_pct: Double = 0.0)
+
+@Serializable
+data class ServiceInfo(
+    val unit: String = "",
+    val active: String = "",
+    val sub: String = "",
+    val enabled: String = "",
+    val description: String = "",
+)
+
+// 防火墙
+@Serializable
+data class FirewallStatus(
+    val tool: String = "",
+    val enabled: Boolean = false,
+    val anti_scan: Boolean = false,
+    val message: String? = null,
+)
+
+@Serializable
+data class FirewallRule(
+    val id: Long = 0,
+    val protocol: String = "",
+    val ports: String = "",
+    val source: String = "",
+    val action: String = "",
+    val direction: String = "",
+    val remark: String = "",
+    val auto: Boolean = false,
+    val created_at: String = "",
+)
+
+// SSL 证书
+@Serializable
+data class CertInfo(
+    val domain: String = "",
+    val domains: List<String> = emptyList(),
+    val not_after: String = "",
+    val days_left: Int = 0,
+    val source: String = "",
+)
+
+// Docker
+@Serializable
+data class DockerOverview(
+    val installed: Boolean = false,
+    val version: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
+    val running: Int = 0,
+    val stopped: Int = 0,
+    val images: Int = 0,
+)
+
+@Serializable
+data class DockerStatus(val installed: Boolean = false, val version: String = "", val compose: Boolean = false)
+
+// 数据库
+@Serializable
+data class DbStatus(val mysql: DbEngineStatus = DbEngineStatus(), val pg: DbEngineStatus = DbEngineStatus())
+
+@Serializable
+data class DbEngineStatus(val installed: Boolean = false, val addr: String = "")
+
+@Serializable
+data class DbUser(val user: String = "", val host: String = "")
+
+// 告警规则
+@Serializable
+data class AlertRule(
+    val id: Long = 0,
+    val name: String = "",
+    val metric: String = "",
+    val op: String = "",
+    val threshold: Double = 0.0,
+    val node_id: Long = 0,
+    val duration_min: Int = 0,
+    val cooldown_min: Int = 0,
+    val enabled: Boolean = false,
+    val last_fired_at: String? = null,
+)
+
+// 终端主机收藏（SSH 快连）
+@Serializable
+data class TermHost(
+    val id: Long = 0,
+    val name: String = "",
+    val host: String = "",
+    val port: Int = 22,
+    val username: String = "",
+    val auth_type: String = "password",
+    val has_password: Boolean = false,
+    val has_key: Boolean = false,
+)
+
 // ---- 扫码登录 ----
 
 @Serializable
 data class QrCreateResp(val key: String = "", val qr_text: String = "", val expires_in: Int = 120)
 
-/** 扫码结果（qr_text 解析，契约见 docs/APP.md §5.2）。 */
-data class QrData(val host: String, val entrance: String, val key: String, val v2: Boolean) {
+/** 扫码结果（qr_text 解析）：
+ *  - hanyuxin://login?…&key=…  扫码登录码（Web 登录页，扫码确认 Web 免密登录）
+ *  - hanyuxin://bind?…&key=…   绑定码（Web 系统设置/仪表盘生成，绑定=添加服务器+免密登录）
+ *  bind 码无独立 key 语义（key 字段承载绑定密钥），bindKey 非空时走绑定登录。 */
+data class QrData(val host: String, val entrance: String, val key: String, val bindKey: String = "", val v2: Boolean) {
     companion object {
         fun parse(text: String): QrData? {
-            if (!text.startsWith("hanyuxin://login?")) return null
+            val isBind = text.startsWith("hanyuxin://bind?")
+            if (!text.startsWith("hanyuxin://login?") && !isBind) return null
             val q = text.substringAfter("?")
             val map = q.split("&").mapNotNull {
                 val i = it.indexOf('=')
@@ -202,9 +337,12 @@ data class QrData(val host: String, val entrance: String, val key: String, val v
             }.toMap()
             val host = map["host"]?.trim() ?: return null
             val entrance = map["entrance"]?.trim() ?: return null
-            val key = map["key"]?.trim() ?: return null
-            if (host.isEmpty() || entrance.isEmpty() || key.isEmpty()) return null
-            return QrData(host = host, entrance = entrance, key = key, v2 = map["v2"] == "1")
+            if (host.isEmpty() || entrance.isEmpty()) return null
+            // key 可选：Web 扫码登录码带 key，绑定码（系统设置/仪表盘生成的 hanyuxin://login）不带——
+            // 扫到绑定码时仅添加服务器，APP 登录后即完成绑定
+            val key = if (isBind) "" else map["key"]?.trim() ?: ""
+            val bindKey = if (isBind) map["key"]?.trim() ?: "" else ""
+            return QrData(host = host, entrance = entrance, key = key, bindKey = bindKey, v2 = map["v2"] == "1")
         }
     }
 }

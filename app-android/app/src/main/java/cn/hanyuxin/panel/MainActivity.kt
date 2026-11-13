@@ -1,6 +1,7 @@
 // MainActivity.kt —— 单 Activity 入口 + 生物识别锁门（docs/APP.md §4.3）。
 package cn.hanyuxin.panel
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
@@ -30,7 +31,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import cn.hanyuxin.panel.data.QrData
 import cn.hanyuxin.panel.data.ServerStore
+import cn.hanyuxin.panel.ui.handleScan
 import cn.hanyuxin.panel.ui.AppTheme
 import cn.hanyuxin.panel.ui.RootApp
 
@@ -38,6 +41,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ServerStore.init(this)
+        handleDeepLink(intent)
         setContent {
             AppTheme {
                 LockGate {
@@ -45,6 +49,18 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    /** hanyuxin://login|bind 深链：与扫码同构分发（Web 一键唤起绑定）。 */
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data?.toString() ?: return
+        val qr = QrData.parse(data) ?: return
+        runOnUiThread { handleScan(qr) }
     }
 }
 

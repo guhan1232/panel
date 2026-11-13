@@ -47,6 +47,24 @@ object Api {
         Http.invalidate(host)
     }
 
+    // ---- 绑定（docs/APP.md）：绑定密钥免密登录 ----
+
+    /** 绑定登录：绑定密钥换取 30 天会话（免账号密码），成功后自动保存 token。 */
+    suspend fun bindLogin(server: ServerInfo, bindKey: String, deviceName: String): LoginResp {
+        val anon = PanelClient(server, null)
+        val body = Http.json.encodeToString(
+            mapOf("bind_key" to bindKey, "device_name" to deviceName),
+        )
+        val resp = anon.request<LoginResp>("POST", "/api/auth/bind/login", body)
+            ?: throw ApiException(-1, "绑定登录响应为空")
+        if (resp.token.isNullOrBlank()) throw ApiException(-1, "绑定成功但未返回会话令牌")
+        ServerStore.setToken(server.host, resp.token)
+        ServerStore.upsert(server.host, server.entrance, server.name)
+        ServerStore.setLastHost(server.host)
+        Http.invalidate(server.host)
+        return resp
+    }
+
     // ---- 扫码登录（docs/APP.md §5）----
 
     suspend fun qrConfirm(c: PanelClient, key: String) { c.request<Unit>("POST", "/api/auth/qr/confirm", Http.json.encodeToString(mapOf("key" to key))) }
@@ -168,6 +186,160 @@ object Api {
     suspend fun appConfig(c: PanelClient): AppCfg = c.request<AppCfg>("GET", "/api/setting/app-config") ?: AppCfg()
     suspend fun checkUpdate(server: ServerInfo): UpdateInfo {
         val anon = PanelClient(server, null)
-        return anon.request<UpdateInfo>("GET", "/api/app/check-update", query = listOf("platform" to "android", "v" to "1.0.0")) ?: UpdateInfo()
+        return anon.request<UpdateInfo>("GET", "/api/app/check-update", query = listOf("platform" to "android", "v" to BuildVersion.CURRENT)) ?: UpdateInfo()
     }
+
+    // ---- Docker（/api/apps/docker/*）----
+
+    suspend fun dockerOverview(c: PanelClient): DockerOverview =
+        c.request<DockerOverview>("GET", "/api/apps/docker/overview") ?: DockerOverview()
+
+    /** 容器列表：docker ps -a 原生 JSON（ID/Names/Image/State/Status/Ports 大写字段）。 */
+    suspend fun dockerContainers(c: PanelClient): List<Map<String, kotlinx.serialization.json.JsonElement>> =
+        c.request("GET", "/api/apps/docker/containers") ?: emptyList()
+
+    suspend fun dockerContainerAction(c: PanelClient, name: String, action: String, force: Boolean = false) {
+        val q = if (force) listOf("force" to "1") else emptyList()
+        c.request<Unit>("POST", "/api/apps/docker/containers/$name/$action", "{}", query = q)
+    }
+
+    suspend fun dockerLogs(c: PanelClient, name: String, tail: Int = 200): String =
+        c.request<Map<String, String>>("GET", "/api/apps/docker/containers/$name/logs", query = listOf("tail" to tail.toString()))?.get("logs") ?: ""
+
+    suspend fun dockerImages(c: PanelClient): List<Map<String, kotlinx.serialization.json.JsonElement>> =
+        c.request("GET", "/api/apps/docker/images") ?: emptyList()
+
+    suspend fun dockerPull(c: PanelClient, image: String): Pair<Boolean, String> {
+        val d = c.request<Map<String, kotlinx.serialization.json.JsonElement>>("POST", "/api/apps/docker/pull",
+            Http.json.encodeToString(mapOf("image" to image))) ?: return false to "无响应"
+        val ok = (d["ok"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+        val out = (d["output"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+        return ok to out
+    }
+
+    suspend fun dockerPrune(c: PanelClient): String {
+        val d = c.request<Map<String, kotlinx.serialization.json.JsonElement>>("POST", "/api/apps/docker/images/prune", "{}", query = listOf("force" to "1"))
+        return (d?.get("output") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+    }
+
+    // ---- 数据库（/api/dbmgr/*）----
+
+    suspend fun dbStatus(c: PanelClient): DbStatus = c.request<DbStatus>("GET", "/api/dbmgr/status") ?: DbStatus()
+    suspend fun dbDatabases(c: PanelClient, engine: String): List<String> =
+        c.request<List<String>>("GET", "/api/dbmgr/$engine/databases") ?: emptyList()
+    suspend fun dbCreateDatabase(c: PanelClient, engine: String, name: String) {
+        c.request<Unit>("POST", "/api/dbmgr/$engine/databases", Http.json.encodeToString(mapOf("name" to name)))
+    }
+    suspend fun dbDeleteDatabase(c: PanelClient, engine: String, name: String) {
+        c.request<Unit>("DELETE", "/api/dbmgr/$engine/databases/$name")
+    }
+    suspend fun dbUsers(c: PanelClient, engine: String): List<Any> =
+        if (engine == "mysql") c.request<List<DbUser>>("GET", "/api/dbmgr/mysql/users") ?: emptyList()
+        else c.request<List<String>>("GET", "/api/dbmgr/pg/users") ?: emptyList()
+    suspend fun dbCreateUser(c: PanelClient, engine: String, name: String, host: String, password: String) {
+        val body = if (engine == "mysql") mapOf("name" to name, "host" to host, "password" to password)
+        else mapOf("name" to name, "password" to password)
+        c.request<Unit>("POST", "/api/dbmgr/$engine/users", Http.json.encodeToString(body))
+    }
+    suspend fun dbGrant(c: PanelClient, engine: String, user: String, host: String, db: String) {
+        val body = if (engine == "mysql") mapOf("user" to user, "host" to host, "db" to db)
+        else mapOf("user" to user, "db" to db)
+        c.request<Unit>("POST", "/api/dbmgr/$engine/grant", Http.json.encodeToString(body))
+    }
+    suspend fun dbDeleteUserMysql(c: PanelClient, userAtHost: String) {
+        val user = userAtHost.substringBefore("@")
+        val host = userAtHost.substringAfter("@", "%")
+        c.request<Unit>("DELETE", "/api/dbmgr/mysql/users/$user/$host")
+    }
+    suspend fun dbDeleteUserPg(c: PanelClient, name: String) {
+        c.request<Unit>("DELETE", "/api/dbmgr/pg/users/$name")
+    }
+
+    // ---- 计划任务（/api/tasks）----
+
+    suspend fun tasks(c: PanelClient): List<Task> = c.request<List<Task>>("GET", "/api/tasks") ?: emptyList()
+    suspend fun taskToggle(c: PanelClient, id: Long) { c.request<Unit>("POST", "/api/tasks/$id/toggle", "{}") }
+    suspend fun taskRun(c: PanelClient, id: Long) { c.request<Unit>("POST", "/api/tasks/$id/run", "{}") }
+    suspend fun taskDelete(c: PanelClient, id: Long) { c.request<Unit>("DELETE", "/api/tasks/$id") }
+    suspend fun taskCreate(c: PanelClient, name: String, spec: String, command: String): Task? {
+        val body = Http.json.encodeToString(mapOf("name" to name, "type" to "shell", "spec" to spec, "command" to command))
+        return c.request<Task>("POST", "/api/tasks", body)
+    }
+    suspend fun taskLogs(c: PanelClient, id: Long, page: Int = 1, size: Int = 20): PageResp<TaskLog> =
+        c.request<PageResp<TaskLog>>("GET", "/api/tasks/$id/logs", query = listOf("page" to page.toString(), "size" to size.toString()))
+            ?: PageResp()
+    suspend fun taskLogDetail(c: PanelClient, logId: Long): TaskLog? =
+        c.request<TaskLog>("GET", "/api/task-logs/$logId")
+
+    // ---- 进程管理（/api/proc）----
+
+    suspend fun procList(c: PanelClient, sort: String = "cpu"): List<ProcInfo> =
+        c.request<List<ProcInfo>>("GET", "/api/proc/list", query = listOf("sort" to sort)) ?: emptyList()
+    suspend fun procKill(c: PanelClient, pid: Int, force: Boolean) {
+        c.request<Unit>("POST", "/api/proc/kill", Http.json.encodeToString(mapOf("pid" to pid, "force" to force)))
+    }
+    suspend fun procServices(c: PanelClient): List<ServiceInfo> = c.request<List<ServiceInfo>>("GET", "/api/proc/services") ?: emptyList()
+    suspend fun procServiceAction(c: PanelClient, unit: String, action: String) {
+        c.request<Unit>("POST", "/api/proc/service", Http.json.encodeToString(mapOf("name" to unit, "action" to action)))
+    }
+
+    // ---- 节点（/api/nodes）----
+
+    suspend fun nodeExec(c: PanelClient, id: Long, script: String): String {
+        val d = c.request<Map<String, kotlinx.serialization.json.JsonElement>>("POST", "/api/nodes/$id/exec",
+            Http.json.encodeToString(mapOf("script" to script))) ?: return "无响应"
+        return (d["output"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+    }
+
+    // ---- 防火墙（/api/firewall）----
+
+    suspend fun fwStatus(c: PanelClient): FirewallStatus = c.request<FirewallStatus>("GET", "/api/firewall/status") ?: FirewallStatus()
+    suspend fun fwRules(c: PanelClient): List<FirewallRule> = c.request<List<FirewallRule>>("GET", "/api/firewall/rules") ?: emptyList()
+    suspend fun fwAddRule(c: PanelClient, protocol: String, ports: String, action: String, source: String, remark: String): FirewallRule? {
+        val body = Http.json.encodeToString(mapOf(
+            "protocol" to protocol, "ports" to ports, "action" to action,
+            "direction" to "in", "source" to source, "remark" to remark,
+        ))
+        return c.request<FirewallRule>("POST", "/api/firewall/rule", body)
+    }
+    suspend fun fwDeleteRule(c: PanelClient, id: Long) { c.request<Unit>("DELETE", "/api/firewall/rule/$id") }
+    suspend fun fwSync(c: PanelClient) { c.request<Unit>("POST", "/api/firewall/sync", "{}") }
+    suspend fun fwAntiScan(c: PanelClient, enabled: Boolean) {
+        c.request<Unit>("POST", "/api/firewall/anti-scan", Http.json.encodeToString(mapOf("enabled" to enabled)))
+    }
+
+    // ---- SSL 证书（/api/certs）----
+
+    suspend fun certs(c: PanelClient): List<CertInfo> = c.request<List<CertInfo>>("GET", "/api/certs") ?: emptyList()
+    suspend fun certDelete(c: PanelClient, domain: String) { c.request<Unit>("DELETE", "/api/certs/$domain") }
+    suspend fun certUpload(c: PanelClient, certPem: String, keyPem: String) {
+        c.request<Unit>("POST", "/api/certs/upload", Http.json.encodeToString(mapOf("cert_pem" to certPem, "key_pem" to keyPem)))
+    }
+    suspend fun certIssue(c: PanelClient, domains: List<String>, email: String): Map<String, String> {
+        val body = Http.json.encodeToString(mapOf(
+            "domains" to domains, "email" to email, "challenge" to "http01",
+        ))
+        val d = c.request<Map<String, String>>("POST", "/api/certs/issue", body) ?: emptyMap()
+        return d
+    }
+
+    // ---- 告警规则（/api/alerts）----
+
+    suspend fun alertRules(c: PanelClient): List<AlertRule> = c.request<List<AlertRule>>("GET", "/api/alerts/rules") ?: emptyList()
+    suspend fun alertRuleToggle(c: PanelClient, id: Long) { c.request<Unit>("POST", "/api/alerts/rules/$id/toggle", "{}") }
+    suspend fun alertRuleDelete(c: PanelClient, id: Long) { c.request<Unit>("DELETE", "/api/alerts/rules/$id") }
+    suspend fun alertRuleCreate(c: PanelClient, name: String, metric: String, op: String, threshold: Double): AlertRule? {
+        val body = Http.json.encodeToString(mapOf(
+            "name" to name, "metric" to metric, "op" to op, "threshold" to threshold,
+            "duration_min" to 1, "cooldown_min" to 10, "enabled" to true,
+        ))
+        return c.request<AlertRule>("POST", "/api/alerts/rules", body)
+    }
+
+    // ---- 终端主机收藏 ----
+
+    suspend fun termHosts(c: PanelClient): List<TermHost> = c.request<List<TermHost>>("GET", "/api/term/hosts") ?: emptyList()
 }
+
+/** APP 当前版本号（与 build.gradle.kts versionName 同步）。 */
+object BuildVersion { const val CURRENT = "1.1.0" }

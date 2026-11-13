@@ -25,6 +25,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- hanyuxin:// 深链：Web 浏览器一键唤起 APP（扫码登录/绑定码同构） -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hanyuxin" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>
