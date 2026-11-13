@@ -342,4 +342,4 @@ object Api {
 }
 
 /** APP 当前版本号（与 build.gradle.kts versionName 同步）。 */
-object BuildVersion { const val CURRENT = "1.1.0" }
+object BuildVersion { const val CURRENT = "1.1.1" }
