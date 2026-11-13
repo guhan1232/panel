@@ -615,11 +615,14 @@ volumes:
 			sourceNote := "阿里云镜像"
 			switch srcID {
 			case "", "auto", "aliyun":
+			case "tencent-in":
+				repo = "http://mirrors.tencentyun.com/mariadb/repo/" + ver
+				sourceNote = "腾讯云内网镜像"
 			case "official":
 				repo = "https://deb.mariadb.org/" + ver
 				sourceNote = "MariaDB 官方源"
 			default:
-				return nil, nil, nil, "", "", fmt.Errorf("MariaDB 指定版本仅支持阿里云镜像或官方源，请更换下载源")
+				return nil, nil, nil, "", "", fmt.Errorf("MariaDB 指定版本仅支持阿里云/腾讯云内网镜像或官方源，请更换下载源")
 			}
 			pre = []string{
 				"install -d /etc/apt/keyrings",

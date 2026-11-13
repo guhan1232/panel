@@ -173,6 +173,7 @@ type SoftwareSource struct {
 	AptDebian string `json:"-"`
 	PgdgApt   string `json:"-"`
 	PgdgYum   string `json:"-"`
+	Scope       string `json:"scope,omitempty"`
 
 	Desc string `json:"desc"`
 }
@@ -194,6 +195,15 @@ var softwareSources = []SoftwareSource{
 	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn",
 		AptUbuntu: "https://mirrors.ustc.edu.cn/ubuntu", AptDebian: "https://mirrors.ustc.edu.cn/debian",
 		Desc: "mirrors.ustc.edu.cn"},
+	{ID: "tencent-in", Name: "腾讯云内网 · 仅腾讯云服务器", Scope: "internal",
+		AptUbuntu: "http://mirrors.tencentyun.com/ubuntu", AptDebian: "http://mirrors.tencentyun.com/debian",
+		Desc: "mirrors.tencentyun.com（内网免流量）"},
+	{ID: "aliyun-in", Name: "阿里云内网 · 仅阿里云 ECS", Scope: "internal",
+		AptUbuntu: "http://mirrors.cloud.aliyuncs.com/ubuntu", AptDebian: "http://mirrors.cloud.aliyuncs.com/debian",
+		Desc: "mirrors.cloud.aliyuncs.com（内网免流量）"},
+	{ID: "huawei", Name: "华为云镜像站", Scope: "public",
+		AptUbuntu: "https://mirrors.huaweicloud.com/ubuntu", AptDebian: "https://mirrors.huaweicloud.com/debian",
+		Desc: "mirrors.huaweicloud.com"},
 	{ID: "minio-cn", Name: "MinIO 中国镜像", Base: "https://dl.minio.org.cn",
 		Desc: "dl.minio.org.cn"},
 }

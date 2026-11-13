@@ -41,9 +41,10 @@ type RuntimeInst struct {
 }
 
 type sourceDef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Base string `json:"base"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Base  string `json:"base"`
+	Scope string `json:"scope,omitempty"` // public（默认）| internal（云厂商内网）
 }
 
 type binLink struct {
@@ -123,7 +124,8 @@ func parseHrefs(html string) []string {
 
 var nodeSources = []sourceDef{
 	{ID: "aliyun", Name: "阿里云镜像站（默认）", Base: "https://mirrors.aliyun.com/nodejs-release"},
-	{ID: "tencent", Name: "腾讯云镜像站", Base: "https://mirrors.cloud.tencent.com/nodejs-release"},
+	{ID: "tencent", Name: "腾讯云镜像站（公网）", Base: "https://mirrors.cloud.tencent.com/nodejs-release"},
+	{ID: "tencent-in", Name: "腾讯云内网 · 仅腾讯云服务器", Base: "https://mirrors.tencentyun.com/nodejs-release", Scope: "internal"},
 	{ID: "official", Name: "官方 nodejs.org", Base: "https://nodejs.org/dist"},
 	{ID: "tuna", Name: "清华大学镜像站", Base: "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release"},
 	{ID: "ustc", Name: "中科大镜像站", Base: "https://mirrors.ustc.edu.cn/nodejs-release"},

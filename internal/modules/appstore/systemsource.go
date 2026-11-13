@@ -4,10 +4,12 @@
 package appstore
 
 import (
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,7 +26,7 @@ func sysTargets() []map[string]string {
 		if s.ID == "auto" || s.AptUbuntu == "" {
 			continue
 		}
-		out = append(out, map[string]string{"id": s.ID, "name": s.Name})
+		out = append(out, map[string]string{"id": s.ID, "name": s.Name, "scope": s.Scope})
 	}
 	return out
 }
@@ -82,12 +84,18 @@ func detectCurrentDomain(content string) string {
 // aptKnownDomains 源文件中可能出现的域名（官方/各镜像/云内网），域名级重写时全部清除。
 var aptKnownDomains = []string{
 	"security.ubuntu.com", "archive.ubuntu.com", "deb.debian.org",
-	"mirrors.tencentyun.com", "mirrors.cloud.tencent.com", "mirrors.aliyun.com",
+	"mirrors.tencentyun.com", "mirrors.cloud.tencent.com", "mirrors.cloud.aliyuncs.com", "mirrors.aliyun.com",
 	"mirrors.tuna.tsinghua.edu.cn", "mirrors.ustc.edu.cn",
 }
 
 // mirrorRoot 目标镜像站的根地址。
 func mirrorRoot(target string) (ubuntuRoot, debianRoot string, ok bool) {
+	switch target {
+	case "tencent-in":
+		return "http://mirrors.tencentyun.com/ubuntu", "http://mirrors.tencentyun.com/debian", true
+	case "aliyun-in":
+		return "http://mirrors.cloud.aliyuncs.com/ubuntu", "http://mirrors.cloud.aliyuncs.com/debian", true
+	}
 	switch target {
 	case "aliyun":
 		return "http://mirrors.aliyun.com/ubuntu", "http://mirrors.aliyun.com/debian", true
@@ -239,6 +247,23 @@ func sysSourceSet(c *gin.Context) {
 			return
 		}
 		for _, f := range files {
+			// 探测防呆：内网源仅对应云服务器内网可用，公网源需可出网
+			if target != "official" {
+				probeURL := map[string]string{
+					"aliyun": "http://mirrors.aliyun.com/ubuntu/", "aliyun-in": "http://mirrors.cloud.aliyuncs.com/ubuntu/",
+					"tencent": "https://mirrors.cloud.tencent.com/debian/", "tencent-in": "http://mirrors.tencentyun.com/debian/",
+					"tuna": "https://mirrors.tuna.tsinghua.edu.cn/debian/", "ustc": "https://mirrors.ustc.edu.cn/debian/",
+				}[target]
+				if probeURL != "" {
+					probeClient := &http.Client{Timeout: 6 * time.Second}
+					resp, perr := probeClient.Get(probeURL)
+					if perr != nil {
+						core.Err(c, 400, "目标镜像站不可达（内网源仅对应云服务器内网可用，公网源需可出网）："+probeURL)
+						return
+					}
+					resp.Body.Close()
+				}
+			}   // 探测通过，继续备份与改写
 			if err := backupOnce(f); err != nil {
 				core.Err(c, 500, "备份失败: "+err.Error())
 				return
@@ -256,7 +281,7 @@ func sysSourceSet(c *gin.Context) {
 			}
 		}
 		out, _ := exec.Command("/bin/bash", "-c", "timeout 150 apt-get update 2>&1 | tail -6").CombinedOutput()
-		name := map[string]string{"aliyun": "阿里云", "tencent": "腾讯云", "tuna": "清华大学", "ustc": "中科大", "official": "官方"}[target]
+		name := map[string]string{"aliyun": "阿里云", "aliyun-in": "阿里云内网", "tencent": "腾讯云", "tencent-in": "腾讯云内网", "tuna": "清华大学", "ustc": "中科大", "official": "官方"}[target]
 		core.OK(c, gin.H{"ok": true, "target": target, "name": name, "update": strings.TrimSpace(string(out))})
 		return
 	}
