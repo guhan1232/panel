@@ -145,10 +145,13 @@ fun SettingsScreen(server: ServerInfo) {
                     onClick = {
                         scope.launch {
                             changingPwd = true
-                            apiGuard(onError = { toast(it.message) }) { Api.changePassword(client, oldPwd, newPwd) }
+                            var ok = false
+                            apiGuard(onError = { toast(it.message) }) { Api.changePassword(client, oldPwd, newPwd); ok = true }
+                            if (ok) {
+                                oldPwd = ""; newPwd = ""; confirmPwd = ""
+                                toast("密码已修改")
+                            }
                             changingPwd = false
-                            oldPwd = ""; newPwd = ""; confirmPwd = ""
-                            toast("密码已修改")
                         }
                     },
                 ) { Text("修改密码") }
@@ -194,9 +197,12 @@ fun SettingsScreen(server: ServerInfo) {
                         TextButton(enabled = !tokenBusy, onClick = {
                             scope.launch {
                                 tokenBusy = true
-                                apiGuard(onError = { toast(it.message) }) { Api.mcpTokenDisable(client) }
-                                tokenEnabled = false; tokenValue = ""; tokenShown = false
-                                toast("已禁用")
+                                var ok = false
+                                apiGuard(onError = { toast(it.message) }) { Api.mcpTokenDisable(client); ok = true }
+                                if (ok) {
+                                    tokenEnabled = false; tokenValue = ""; tokenShown = false
+                                    toast("已禁用")
+                                }
                                 tokenBusy = false
                             }
                         }) { Text("禁用", color = MaterialTheme.colorScheme.error) }

@@ -299,11 +299,12 @@ fun NotifyScreen(server: ServerInfo) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ActionChip("发送测试邮件", busy = false) {
                             scope.launch {
-                                apiGuard(onError = { toast = it.message }) { Api.emailSave(client, email, toStr.split(",").map { x -> x.trim() }.filter { x -> x.isNotEmpty() }); Api.notifyTest(client, "email") }
-                                toast = "已发送，请查收"
+                                var ok = false
+                                apiGuard(onError = { toast = it.message }) { Api.emailSave(client, email, toStr.split(",").map { x -> x.trim() }.filter { x -> x.isNotEmpty() }); Api.notifyTest(client, "email"); ok = true }
+                                if (ok) toast = "已发送，请查收"
                             }
                         }
-                        ActionChip("保存", busy = false) { scope.launch { apiGuard(onError = { toast = it.message }) { Api.emailSave(client, email, toStr.split(",").map { x -> x.trim() }.filter { x -> x.isNotEmpty() }) }; toast = "已保存" } }
+                        ActionChip("保存", busy = false) { scope.launch { var ok = false; apiGuard(onError = { toast = it.message }) { Api.emailSave(client, email, toStr.split(",").map { x -> x.trim() }.filter { x -> x.isNotEmpty() }); ok = true }; if (ok) toast = "已保存" } }
                     }
                 }
             }
@@ -324,11 +325,12 @@ fun NotifyScreen(server: ServerInfo) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ActionChip("发送测试消息", busy = false) {
                             scope.launch {
-                                apiGuard(onError = { toast = it.message }) { Api.webhookSave(client, hook); Api.notifyTest(client, "webhook") }
-                                toast = "已发送"
+                                var ok = false
+                                apiGuard(onError = { toast = it.message }) { Api.webhookSave(client, hook); Api.notifyTest(client, "webhook"); ok = true }
+                                if (ok) toast = "已发送"
                             }
                         }
-                        ActionChip("保存", busy = false) { scope.launch { apiGuard(onError = { toast = it.message }) { Api.webhookSave(client, hook) }; toast = "已保存" } }
+                        ActionChip("保存", busy = false) { scope.launch { var ok = false; apiGuard(onError = { toast = it.message }) { Api.webhookSave(client, hook); ok = true }; if (ok) toast = "已保存" } }
                     }
                 }
             }
@@ -356,11 +358,12 @@ fun NotifyScreen(server: ServerInfo) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ActionChip("测试连通性", busy = false) {
                             scope.launch {
-                                apiGuard(onError = { toast = it.message }) { Api.s3Save(client, s3); Api.s3Test(client) }
-                                toast = "桶连接正常"
+                                var ok = false
+                                apiGuard(onError = { toast = it.message }) { Api.s3Save(client, s3); Api.s3Test(client); ok = true }
+                                if (ok) toast = "桶连接正常"
                             }
                         }
-                        ActionChip("保存", busy = false) { scope.launch { apiGuard(onError = { toast = it.message }) { Api.s3Save(client, s3) }; toast = "已保存" } }
+                        ActionChip("保存", busy = false) { scope.launch { var ok = false; apiGuard(onError = { toast = it.message }) { Api.s3Save(client, s3); ok = true }; if (ok) toast = "已保存" } }
                     }
                 }
             }
@@ -488,16 +491,20 @@ fun UsersScreen(server: ServerInfo) {
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
+                        var ok = false
                         apiGuard(onError = { toast = it.message }) {
                             if (editing != null) {
                                 Api.userUpdate(client, editing.id, role.takeIf { it != editing.role }, password.takeIf { it.isNotBlank() }, disabled.takeIf { it != editing.disabled })
                             } else {
                                 Api.userCreate(client, username.trim(), password, role)
                             }
+                            ok = true
                         }
-                        toast = if (editing != null) "已保存" else "已创建"
-                        createOpen = false; editTarget = null
-                        load()
+                        if (ok) {
+                            toast = if (editing != null) "已保存" else "已创建"
+                            createOpen = false; editTarget = null
+                            load()
+                        }
                     }
                 }) { Text(if (editing != null) "保存" else "创建") }
             },
@@ -515,8 +522,10 @@ fun UsersScreen(server: ServerInfo) {
                 TextButton(onClick = {
                     busyId = u.id; delTarget = null
                     scope.launch {
-                        apiGuard(onError = { toast = it.message }) { Api.userDelete(client, u.id) }
-                        toast = "已删除"; busyId = null; load()
+                        var ok = false
+                        apiGuard(onError = { toast = it.message }) { Api.userDelete(client, u.id); ok = true }
+                        if (ok) toast = "已删除"
+                        busyId = null; load()
                     }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
