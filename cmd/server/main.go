@@ -117,6 +117,8 @@ func main() {
 	certMod := cert.New(db, cfg.DataDir)
 	settingMod := setting.New(db, cfg, certMod)
 	settingMod.Register(protected)
+	// 开放 API Token 管理（独立于 MCP Token，见 docs/API.md）
+	settingMod.RegisterTokenAdmin(protectedAdmin)
 	// 面板品牌名：登录页/布局壳匿名可读（仍受安全入口防护）
 	api.GET("/setting/brand", settingMod.BrandPublic)
 	certMod.Register(protected)

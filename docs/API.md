@@ -64,7 +64,7 @@ curl -sk -b "wm_session=<会话>" -H "Cookie: wm_entrance=<入口>" \
 # 之后：GET /api/sites 放行（200）；POST /api/sites 拒绝（403）
 
 # 仅调整权限（Token 不变）
-curl -sk -X PUT https://面板/api/mcp/token -H 'Content-Type: application/json' \
+curl -sk -X PUT https://面板/api/setting/api-token -H 'Content-Type: application/json' \
   -d '{"mode":"full"}'
 ```
 

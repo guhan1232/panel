@@ -34,7 +34,7 @@
         <WmColumn label="时间" width="170"><template #default="{ row }"><span class="wm-mono">{{ fmtTime(row.created_at) }}</span></template></WmColumn>
       </WmTable>
       <div class="wm-pagination-pad">
-        <a-pagination :total="eTotal" :page-size="eSize" v-model:current="ePage" @change="loadEvents" />
+        <a-pagination :hide-on-single-page="true" :total="eTotal" :page-size="eSize" v-model:current="ePage" @change="loadEvents" />
       </div>
     </WmSectionCard>
 

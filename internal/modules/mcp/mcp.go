@@ -61,7 +61,7 @@ func (m *Module) Register(protected gin.IRouter, admin gin.IRouter) {
 // ---- 开放 API Token 管理 ----
 
 func (m *Module) getToken(c *gin.Context) {
-	rec := m.authSvc.APITokenRec()
+	rec := m.authSvc.MCPTokenRec()
 	if rec == nil {
 		core.OK(c, gin.H{"enabled": false, "token": "", "mode": "full", "scopes": []string{}, "readonly": false, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
 		return
@@ -73,15 +73,11 @@ func (m *Module) getToken(c *gin.Context) {
 	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
-// genToken 生成/重置开放 API Token（可携带权限配置：mode/scopes/readonly）。
+// genToken 生成/重置 MCP Token（可携带权限配置：mode/scopes/readonly；与开放 API Token 相互独立）。
 func (m *Module) genToken(c *gin.Context) {
-	var p struct {
-		Mode     string   `json:"mode"`
-		Scopes   []string `json:"scopes"`
-		ReadOnly bool     `json:"readonly"`
-	}
+	var p auth.PermInput
 	_ = c.ShouldBindJSON(&p) // 空请求体 = 默认 full
-	rec, err := m.buildPerm(&p)
+	rec, err := auth.BuildPerm(&p)
 	if err != nil {
 		core.Err(c, 400, err.Error())
 		return
@@ -92,81 +88,48 @@ func (m *Module) genToken(c *gin.Context) {
 		return
 	}
 	rec.Token = hex.EncodeToString(b)
-	if err := auth.SaveTokenRecord(m.db, rec); err != nil {
+	if err := auth.SaveMCPTokenRecord(m.db, rec); err != nil {
 		core.Err(c, 500, "保存 Token 失败")
 		return
 	}
-	slog.Info("开放 API Token 已生成", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
+	slog.Info("MCP Token 已生成", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
 	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
-// updateTokenPerm 仅更新权限（Token 值不变，客户端无需重新配置）。
+// updateTokenPerm 仅更新 MCP Token 权限（Token 值不变，客户端无需重新配置）。
 func (m *Module) updateTokenPerm(c *gin.Context) {
-	rec := m.authSvc.APITokenRec()
+	rec := m.authSvc.MCPTokenRec()
 	if rec == nil {
-		core.Err(c, 400, "尚未启用开放 API Token")
+		core.Err(c, 400, "尚未启用 MCP Token")
 		return
 	}
-	var p struct {
-		Mode     string   `json:"mode"`
-		Scopes   []string `json:"scopes"`
-		ReadOnly bool     `json:"readonly"`
-	}
+	var p auth.PermInput
 	if err := c.ShouldBindJSON(&p); err != nil {
 		core.BindErr(c, err)
 		return
 	}
-	perm, err := m.buildPerm(&p)
+	perm, err := auth.BuildPerm(&p)
 	if err != nil {
 		core.Err(c, 400, err.Error())
 		return
 	}
 	rec.Mode, rec.Scopes, rec.ReadOnly = perm.Mode, perm.Scopes, perm.ReadOnly
-	if err := auth.SaveTokenRecord(m.db, rec); err != nil {
+	if err := auth.SaveMCPTokenRecord(m.db, rec); err != nil {
 		core.Err(c, 500, "保存权限失败")
 		return
 	}
-	slog.Info("开放 API Token 权限已更新", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
+	slog.Info("MCP Token 权限已更新", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
 	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
-// buildPerm 校验并归一化权限配置。
-func (m *Module) buildPerm(p *struct {
-	Mode     string   `json:"mode"`
-	Scopes   []string `json:"scopes"`
-	ReadOnly bool     `json:"readonly"`
-}) (*auth.APITokenRec, error) {
-	rec := &auth.APITokenRec{Mode: p.Mode, Scopes: p.Scopes, ReadOnly: p.ReadOnly}
-	if rec.Mode == "" {
-		rec.Mode = "full"
-	}
-	if rec.Mode != "full" && rec.Mode != "custom" {
-		return nil, fmt.Errorf("mode 仅支持 full / custom")
-	}
-	if rec.Mode == "full" {
-		rec.Scopes = nil
-		rec.ReadOnly = false // full 即全权，忽略只读开关（避免残留标志误导展示）
-		return rec, nil
-	}
-	known := map[string]bool{}
-	for _, s := range auth.ScopesKnown {
-		known[s] = true
-	}
-	for _, s := range rec.Scopes {
-		if !known[s] {
-			return nil, fmt.Errorf("未知模块 scope: %s", s)
-		}
-	}
-	return rec, nil
-}
 
-// clearToken 禁用开放 API（清空 Token，已有客户端立即失效）。
+// clearToken 禁用 MCP Token（清空记录，已配置的 MCP 客户端立即失效）。
 func (m *Module) clearToken(c *gin.Context) {
-	if err := core.SetSetting(m.db, core.KApiToken, ""); err != nil {
+	if err := core.SetSetting(m.db, core.KMcpToken, ""); err != nil {
 		core.Err(c, 500, "禁用失败")
 		return
 	}
-	slog.Info("开放 API Token 已禁用", "by", c.GetString("user"))
+	slog.Info("MCP Token 已禁用", "by", c.GetString("user"))
 	core.OK(c, gin.H{"enabled": false})
 }
 
@@ -299,7 +262,7 @@ func (m *Module) handle(c *gin.Context) {
 	}
 	cookie := c.GetHeader("Cookie")
 	authHdr := auth
-	permRec, isToken := m.authSvc.APIPerm(c)
+	permRec, isToken := m.authSvc.MCPTokenPerm(c)
 	var req rpcReq
 	body, err := c.GetRawData()
 	if err != nil || json.Unmarshal(body, &req) != nil {
@@ -508,6 +471,8 @@ func (m *Module) loop(auth, cookie, method, path string, body any) (int, string,
 		return 0, "", err
 	}
 	req.Header.Set("Authorization", auth)
+	// 标记 MCP 工具内部调用：鉴权中间件仅对本机回环 + 此标记放行 MCP Token 直调面板 API
+	req.Header.Set("X-MCP-Loopback", "1")
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}

@@ -107,56 +107,103 @@
           <div><span class="setting-group__kicker">INTEGRATIONS</span><h3>接入与扩展</h3><p>面向脚本、AI 客户端与移动端的连接配置。</p></div>
           <WmStatusPill :label="apiToken.enabled ? 'API 已启用' : 'API 未启用'" :tone="apiToken.enabled ? 'success' : 'neutral'" :dot="false" outline />
         </div>
-      <WmSectionCard class="setting-card" title="开放 API 与 MCP" description="API Token 供外部脚本直调面板 API；MCP Server 供 AI 客户端（Trae / Claude / Cursor 等）管理面板">
+      <WmSectionCard class="setting-card" title="开放 API Token" description="供外部脚本直调面板 API（Authorization: Bearer），与 MCP Token 相互独立、密钥与权限各自配置">
         <template #actions>
-          <a-button size="small" @click="loadApiToken">刷新</a-button>
+          <a-button size="small" @click="loadTokens">刷新</a-button>
         </template>
         <a-descriptions :column="1" bordered size="small">
           <a-descriptions-item label="状态">
             <WmStatusPill :label="apiToken.enabled ? '已启用' : '未启用'" :tone="apiToken.enabled ? 'success' : 'warning'" :dot="false" />
           </a-descriptions-item>
           <a-descriptions-item label="Token">
-            <span class="wm-mono">{{ apiToken.token ? (tokenRevealed ? apiToken.token : apiToken.token.slice(0, 8) + '••••••••') : '—' }}</span>
-            <a-button v-if="apiToken.token" size="small" type="link" @click="tokenRevealed = !tokenRevealed">{{ tokenRevealed ? '隐藏' : '显示' }}</a-button>
+            <span class="wm-mono">{{ apiToken.token ? (apiRevealed ? apiToken.token : apiToken.token.slice(0, 8) + '••••••••') : '—' }}</span>
+            <a-button v-if="apiToken.token" size="small" type="link" @click="apiRevealed = !apiRevealed">{{ apiRevealed ? '隐藏' : '显示' }}</a-button>
           </a-descriptions-item>
           <a-descriptions-item label="权限">
-            <WmStatusPill :label="permLabel" :tone="apiToken.readonly ? 'warning' : 'neutral'" :dot="false" outline />
+            <WmStatusPill :label="apiPermLabel" :tone="apiToken.readonly ? 'warning' : 'neutral'" :dot="false" outline />
           </a-descriptions-item>
-          <a-descriptions-item label="MCP 端点"><span class="wm-mono">{{ panelOrigin }}/api/mcp</span></a-descriptions-item>
         </a-descriptions>
         <div class="wm-mt-4">
           <a-space wrap>
-            <a-button type="primary" :loading="tokenBusy" @click="genApiToken">{{ apiToken.enabled ? '重置 Token' : '生成 Token 启用' }}</a-button>
-            <a-button v-if="apiToken.enabled" danger :loading="tokenBusy" @click="clearApiToken">禁用开放 API</a-button>
+            <a-button type="primary" :loading="tokenBusy" @click="genToken('api')">{{ apiToken.enabled ? '重置 Token' : '生成 Token 启用' }}</a-button>
+            <a-button v-if="apiToken.enabled" danger :loading="tokenBusy" @click="clearToken('api')">禁用开放 API</a-button>
           </a-space>
         </div>
         <template v-if="apiToken.enabled">
           <div class="wm-mt-4" style="max-width: 720px">
             <a-form layout="vertical">
               <a-form-item label="权限模式">
-                <a-radio-group v-model:value="permForm.mode">
+                <a-radio-group v-model:value="apiPermForm.mode">
                   <a-radio-button value="full">完整权限（等效管理员）</a-radio-button>
                   <a-radio-button value="custom">按模块授权</a-radio-button>
                 </a-radio-group>
               </a-form-item>
-              <template v-if="permForm.mode === 'custom'">
+              <template v-if="apiPermForm.mode === 'custom'">
                 <a-form-item>
-                  <a-checkbox-group v-model:value="permForm.scopes" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 12px">
+                  <a-checkbox-group v-model:value="apiPermForm.scopes" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 12px">
                     <a-checkbox v-for="s in apiToken.scopes_known || []" :key="s" :value="s">{{ scopeLabel(s) }}</a-checkbox>
                   </a-checkbox-group>
                 </a-form-item>
               </template>
               <a-form-item style="margin-bottom: 0">
-                <a-checkbox v-model:checked="permForm.readonly">只读模式（仅允许查询类请求，所有写操作将被拒绝）</a-checkbox>
+                <a-checkbox v-model:checked="apiPermForm.readonly">只读模式（仅允许查询类请求，所有写操作将被拒绝）</a-checkbox>
               </a-form-item>
             </a-form>
           </div>
         </template>
-        <WmCodeBlock v-if="apiToken.enabled && tokenRevealed" :content="mcpCfg" label="MCP 客户端配置（Trae / Claude Code / Cursor 通用）" class="wm-mt-4" />
         <WmNotice tone="warning" class="wm-mt-4">Token 等效管理员权限：仅经 HTTPS 调用，泄露后立即重置。REST 示例：curl -H "Authorization: Bearer &lt;token&gt;" {{ panelOrigin }}/api/sites</WmNotice>
         <template v-if="apiToken.enabled" #footer>
           <span class="wm-text-muted st-foot-note">保存立即生效，Token 值不变，客户端无需重新配置</span>
-          <a-button size="small" type="primary" :loading="permSaving" @click="savePerm">保存权限</a-button>
+          <a-button size="small" type="primary" :loading="permSaving" @click="savePerm('api')">保存权限</a-button>
+        </template>
+      </WmSectionCard>
+      <WmSectionCard class="setting-card" title="MCP Server Token" description="供 AI 客户端（Trae / Claude / Cursor 等）经 MCP 管理面板；与开放 API Token 相互独立，密钥与权限各自配置">
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="状态">
+            <WmStatusPill :label="mcpToken.enabled ? '已启用' : '未启用'" :tone="mcpToken.enabled ? 'success' : 'warning'" :dot="false" />
+          </a-descriptions-item>
+          <a-descriptions-item label="Token">
+            <span class="wm-mono">{{ mcpToken.token ? (mcpRevealed ? mcpToken.token : mcpToken.token.slice(0, 8) + '••••••••') : '—' }}</span>
+            <a-button v-if="mcpToken.token" size="small" type="link" @click="mcpRevealed = !mcpRevealed">{{ mcpRevealed ? '隐藏' : '显示' }}</a-button>
+          </a-descriptions-item>
+          <a-descriptions-item label="权限">
+            <WmStatusPill :label="mcpPermLabel" :tone="mcpToken.readonly ? 'warning' : 'neutral'" :dot="false" outline />
+          </a-descriptions-item>
+          <a-descriptions-item label="MCP 端点"><span class="wm-mono">{{ panelOrigin }}/api/mcp</span></a-descriptions-item>
+        </a-descriptions>
+        <div class="wm-mt-4">
+          <a-space wrap>
+            <a-button type="primary" :loading="tokenBusy" @click="genToken('mcp')">{{ mcpToken.enabled ? '重置 Token' : '生成 Token 启用' }}</a-button>
+            <a-button v-if="mcpToken.enabled" danger :loading="tokenBusy" @click="clearToken('mcp')">禁用 MCP Server</a-button>
+          </a-space>
+        </div>
+        <template v-if="mcpToken.enabled">
+          <div class="wm-mt-4" style="max-width: 720px">
+            <a-form layout="vertical">
+              <a-form-item label="权限模式">
+                <a-radio-group v-model:value="mcpPermForm.mode">
+                  <a-radio-button value="full">完整权限（等效管理员）</a-radio-button>
+                  <a-radio-button value="custom">按模块授权</a-radio-button>
+                </a-radio-group>
+              </a-form-item>
+              <template v-if="mcpPermForm.mode === 'custom'">
+                <a-form-item>
+                  <a-checkbox-group v-model:value="mcpPermForm.scopes" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 12px">
+                    <a-checkbox v-for="s in mcpToken.scopes_known || []" :key="s" :value="s">{{ scopeLabel(s) }}</a-checkbox>
+                  </a-checkbox-group>
+                </a-form-item>
+              </template>
+              <a-form-item style="margin-bottom: 0">
+                <a-checkbox v-model:checked="mcpPermForm.readonly">只读模式（MCP 工具内仅执行查询类操作）</a-checkbox>
+              </a-form-item>
+            </a-form>
+          </div>
+        </template>
+        <WmCodeBlock v-if="mcpToken.enabled && mcpRevealed" :content="mcpCfg" label="MCP 客户端配置（Trae / Claude Code / Cursor 通用）" class="wm-mt-4" />
+        <WmNotice tone="warning" class="wm-mt-4">MCP Token 仅可用于 MCP 端点（/api/mcp），不能直调开放 API；等效管理员权限，泄露后立即重置。</WmNotice>
+        <template v-if="mcpToken.enabled" #footer>
+          <span class="wm-text-muted st-foot-note">保存立即生效，Token 值不变，客户端无需重新配置</span>
+          <a-button size="small" type="primary" :loading="permSaving" @click="savePerm('mcp')">保存权限</a-button>
         </template>
       </WmSectionCard>
       <WmSectionCard class="setting-card" title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
@@ -851,7 +898,7 @@ onMounted(async () => {
   loadProxy()
   loadAppConfig()
   loadSysSrc()
-  if (auth.role === 'admin') loadApiToken()
+  if (auth.role === 'admin') loadTokens()
   checkUpgrade().catch(() => {})
   try {
     await brand.load()
@@ -859,10 +906,12 @@ onMounted(async () => {
   } catch { /* 保持本地缓存 */ }
 })
 
-// ---- 开放 API 与 MCP ----
+// ---- 开放 API Token 与 MCP Token（相互独立：密钥、权限、生命周期各自配置）----
 const panelOrigin = location.origin
 const apiToken = ref<any>({ enabled: false, token: '', mode: 'full', scopes: [], readonly: false, scopes_known: [] })
-const tokenRevealed = ref(false)
+const mcpToken = ref<any>({ enabled: false, token: '', mode: 'full', scopes: [], readonly: false, scopes_known: [] })
+const apiRevealed = ref(false)
+const mcpRevealed = ref(false)
 const tokenBusy = ref(false)
 const permSaving = ref(false)
 
@@ -874,36 +923,39 @@ const scopeNames: Record<string, string> = {
 }
 const scopeLabel = (s: string) => scopeNames[s] || s
 
-const permForm = reactive({ mode: 'full', scopes: [] as string[], readonly: false })
+const apiPermForm = reactive({ mode: 'full', scopes: [] as string[], readonly: false })
+const mcpPermForm = reactive({ mode: 'full', scopes: [] as string[], readonly: false })
 
-const permLabel = computed(() => {
-  if (!apiToken.value.enabled) return '—'
-  const mode = apiToken.value.mode === 'custom'
-    ? `自定义 ${apiToken.value.scopes.length} 个模块`
-    : '完整权限'
-  return apiToken.value.readonly ? `${mode} · 只读` : mode
-})
+const permLabelOf = (t: any) => {
+  if (!t.enabled) return '—'
+  const mode = t.mode === 'custom' ? `自定义 ${t.scopes.length} 个模块` : '完整权限'
+  return t.readonly ? `${mode} · 只读` : mode
+}
+const apiPermLabel = computed(() => permLabelOf(apiToken.value))
+const mcpPermLabel = computed(() => permLabelOf(mcpToken.value))
 
-function syncPermForm() {
-  permForm.mode = apiToken.value.mode || 'full'
-  permForm.scopes = [...(apiToken.value.scopes || [])]
-  permForm.readonly = !!apiToken.value.readonly
+function syncForm(form: { mode: string; scopes: string[]; readonly: boolean }, t: any) {
+  form.mode = t.mode || 'full'
+  form.scopes = [...(t.scopes || [])]
+  form.readonly = !!t.readonly
 }
 
-async function loadApiToken() {
+async function loadTokens() {
   try {
-    apiToken.value = (await api.get('/mcp/token')) as any
-    syncPermForm()
-  } catch {
-    /* 非 admin 忽略 */
-  }
+    apiToken.value = (await api.get('/setting/api-token')) as any
+    syncForm(apiPermForm, apiToken.value)
+  } catch { /* 非 admin 忽略 */ }
+  try {
+    mcpToken.value = (await api.get('/mcp/token')) as any
+    syncForm(mcpPermForm, mcpToken.value)
+  } catch { /* 非 admin 忽略 */ }
 }
 
 const mcpCfg = computed(() =>
   JSON.stringify(
     {
       mcpServers: {
-        'hanyuxin-panel': { url: `${panelOrigin}/api/mcp`, headers: { Authorization: `Bearer ${apiToken.value.token}` } }
+        'hanyuxin-panel': { url: `${panelOrigin}/api/mcp`, headers: { Authorization: `Bearer ${mcpToken.value.token}` } }
       }
     },
     null,
@@ -911,50 +963,59 @@ const mcpCfg = computed(() =>
   )
 )
 
-async function genApiToken() {
-  if (apiToken.value.enabled) {
+async function genToken(target: 'api' | 'mcp') {
+  const st = target === 'api' ? apiToken : mcpToken
+  const form = target === 'api' ? apiPermForm : mcpPermForm
+  if (st.value.enabled) {
     try {
-      await ElMessageBox.confirm('重置后已配置的 API/MCP 客户端将立即失效，需更新 Token，继续？', '重置 API Token', { type: 'warning' })
+      await ElMessageBox.confirm(`重置后已配置的 ${target === 'api' ? 'API' : 'MCP'} 客户端将立即失效，需更新 Token，继续？`, '重置 Token', { type: 'warning' })
     } catch {
       return
     }
   }
   tokenBusy.value = true
   try {
-    apiToken.value = (await api.post('/mcp/token', { mode: permForm.mode, scopes: permForm.scopes, readonly: permForm.readonly })) as any
-    syncPermForm()
-    tokenRevealed.value = true
+    const path = target === 'api' ? '/setting/api-token' : '/mcp/token'
+    const r: any = await api.post(path, { mode: form.mode, scopes: form.scopes, readonly: form.readonly })
+    if (target === 'api') { apiToken.value = r; apiRevealed.value = true } else { mcpToken.value = r; mcpRevealed.value = true }
+    syncForm(form, st.value)
     ElMessage.success('Token 已生成')
   } finally {
     tokenBusy.value = false
   }
 }
 
-async function savePerm() {
-  if (permForm.mode === 'custom' && permForm.scopes.length === 0) {
+async function savePerm(target: 'api' | 'mcp') {
+  const st = target === 'api' ? apiToken : mcpToken
+  const form = target === 'api' ? apiPermForm : mcpPermForm
+  if (form.mode === 'custom' && form.scopes.length === 0) {
     ElMessage.warning('请至少勾选一个模块，或改用完整权限')
     return
   }
   permSaving.value = true
   try {
-    apiToken.value = (await api.put('/mcp/token', { mode: permForm.mode, scopes: permForm.scopes, readonly: permForm.readonly })) as any
-    syncPermForm()
+    const path = target === 'api' ? '/setting/api-token' : '/mcp/token'
+    const r: any = await api.put(path, { mode: form.mode, scopes: form.scopes, readonly: form.readonly })
+    if (target === 'api') apiToken.value = r; else mcpToken.value = r
+    syncForm(form, st.value)
     ElMessage.success('权限已更新并立即生效')
   } finally {
     permSaving.value = false
   }
 }
 
-async function clearApiToken() {
+async function clearToken(target: 'api' | 'mcp') {
+  const isApi = target === 'api'
   try {
-    await ElMessageBox.confirm('禁用后所有 API/MCP 客户端立即失效，继续？', '禁用开放 API', { type: 'warning' })
+    await ElMessageBox.confirm(isApi ? '禁用后所有 API 客户端立即失效，继续？' : '禁用后所有已配置的 MCP 客户端立即失效，继续？', isApi ? '禁用开放 API' : '禁用 MCP Server', { type: 'warning' })
   } catch {
     return
   }
   tokenBusy.value = true
   try {
-    apiToken.value = (await api.delete('/mcp/token')) as any
-    tokenRevealed.value = false
+    const path = isApi ? '/setting/api-token' : '/mcp/token'
+    const r: any = await api.delete(path)
+    if (isApi) { apiToken.value = r; apiRevealed.value = false } else { mcpToken.value = r; mcpRevealed.value = false }
     ElMessage.success('已禁用')
   } finally {
     tokenBusy.value = false

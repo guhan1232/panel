@@ -422,7 +422,7 @@ object Api {
         return c.request<AlertRule>("PUT", "/api/alerts/rules/$id", body)
     }
 
-    // ---- 1.3.0 系统设置：改密 / 开放 API Token ----
+    // ---- 1.3.0 系统设置：改密 / 开放 API Token（独立于 MCP Token，见 docs/API.md）----
 
     suspend fun changePassword(c: PanelClient, old: String, newPassword: String) {
         val body = Http.json.encodeToString(mapOf("old" to old, "new" to newPassword))
@@ -430,16 +430,16 @@ object Api {
     }
     /** 返回 (enabled, token)。 */
     suspend fun mcpTokenStatus(c: PanelClient): Pair<Boolean, String> {
-        val d = c.request<Map<String, String>>("GET", "/api/mcp/token") ?: return Pair(false, "")
+        val d = c.request<Map<String, String>>("GET", "/api/setting/api-token") ?: return Pair(false, "")
         val en = (d["enabled"] ?: "false") == "true"
         return Pair(en, d["token"] ?: "")
     }
     suspend fun mcpTokenGenerate(c: PanelClient): String {
         val body = Http.json.encodeToString(buildJsonObject { put("mode", "full"); putJsonArray("scopes") { }; put("readonly", false) })
-        val d = c.request<Map<String, String>>("POST", "/api/mcp/token", body) ?: return ""
+        val d = c.request<Map<String, String>>("POST", "/api/setting/api-token", body) ?: return ""
         return d["token"] ?: ""
     }
-    suspend fun mcpTokenDisable(c: PanelClient) { c.request<Unit>("DELETE", "/api/mcp/token") }
+    suspend fun mcpTokenDisable(c: PanelClient) { c.request<Unit>("DELETE", "/api/setting/api-token") }
 
     // ---- 终端主机收藏 ----
 

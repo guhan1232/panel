@@ -317,8 +317,8 @@ func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 开放 API Token：等效 admin 会话 + scope 权限校验（外部脚本 / MCP 客户端）
 		if bearer := apiTokenFrom(c); bearer != "" {
-			rec := s.APITokenRec()
-			if rec != nil && s.apiTokenMatch(c, rec) {
+			// 第一级：开放 API Token（等效 admin，按自身 scope 授权；不可调用 MCP 端点）
+			if rec := s.APITokenRec(); rec != nil && s.apiTokenMatch(c, rec) {
 				if !s.apiTokenDenied(c, rec) {
 					c.Set("user", "api")
 					c.Set("uid", uint(0))
@@ -326,10 +326,32 @@ func (s *Service) Middleware() gin.HandlerFunc {
 					c.Next()
 					return
 				}
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "API Token 权限不足（模块未授权或只读模式）"})
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "API Token 权限不足（模块未授权、只读模式，或该端点不开放给 API Token）"})
 				return
 			}
-			// 两级匹配第二级：APP 会话令牌
+			// 第二级：MCP Token——仅 MCP 端点与本机回环（MCP 工具执行）放行，权限独立于 API Token
+			if mrec := s.MCPTokenRec(); mrec != nil && s.apiTokenMatch(c, mrec) {
+				path := c.Request.URL.Path
+				mcpEndpoint := path == "/api/mcp" || strings.HasPrefix(path, "/api/mcp/")
+				if mcpEndpoint && !s.mcpTokenDenied(c, mrec) {
+					c.Set("user", "mcp")
+					c.Set("uid", uint(0))
+					c.Set("role", string(RoleAdmin))
+					c.Next()
+					return
+				}
+				// 工具内部调用必须同时满足：本机回环 + MCP Server 专属标记（外部即使从本机发起也不带此标记）
+				if !mcpEndpoint && isLoopback(c) && c.GetHeader("X-MCP-Loopback") == "1" && !s.mcpTokenDenied(c, mrec) {
+					c.Set("user", "mcp")
+					c.Set("uid", uint(0))
+					c.Set("role", string(RoleAdmin))
+					c.Next()
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "MCP Token 仅可用于 MCP 端点（/api/mcp）；开放 API 请使用 API Token"})
+				return
+			}
+			// 第三级：APP 会话令牌（docs/APP.md §4.2）
 			if sess, ok := s.bearerSession(c, bearer); ok {
 				s.applySession(c, sess)
 				return

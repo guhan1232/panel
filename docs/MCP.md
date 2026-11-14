@@ -10,15 +10,15 @@
 |---|---|
 | 端点 | `https://面板地址:端口/api/mcp` |
 | 协议 | MCP Streamable HTTP（JSON-RPC 2.0），协议版本 `2025-03-26` |
-| 鉴权 | `Authorization: Bearer <token>`（开放 API Token，与 REST API 同一枚） |
+| 鉴权 | `Authorization: Bearer <token>`（**MCP Token**，与开放 API Token 相互独立） |
 | 方法 | `initialize` / `notifications/initialized` / `tools/list` / `tools/call`（支持批量请求数组） |
 
-- Token 与开放 API 共用：系统设置 →「开放 API 与 MCP」→ 生成 Token（可配置权限模式与只读）
+- **MCP Token 独立**：系统设置 →「接入与扩展」→「MCP Server Token」→ 生成（可配置权限模式与只读）；与开放 API Token 相互独立——MCP Token 仅可用于 `/api/mcp`，不能直调 REST API；开放 API Token 也不能调 MCP 端点
 - 工具执行通过面板内部回环调用自身 REST API 实现，**权限与审计与会话操作完全一致**（审计日志操作者为 `api`）
-- **Token 需授权 `mcp` 模块（scope）才能调用 MCP 端点**：自定义权限未勾选「MCP 工具」时，`/api/mcp` 整体返回 403
+- **Token 需授权 `mcp` 模块（scope）才能调用 MCP 端点**：MCP Token 自定义权限未勾选「MCP 工具」时，`/api/mcp` 整体返回 403
 - Token 自定义权限下 `tools/list` 只返回已授权模块对应的工具；越权调用返回 `isError: true`（内容为 403 说明）
 - 只读 Token：工具可见但不限于查询类；写操作工具调用将被 403 拒绝
-- 未启用 Token 时端点不可用；重置 Token 后旧客户端立即失效
+- 未启用 MCP Token 时端点不可用（返回 401 并提示生成）；重置后旧客户端立即失效
 
 ## 二、客户端接入
 

@@ -22,6 +22,7 @@ const (
 	KS3Cfg          = "objectstore_s3_json"
 	KNodeToken      = "nodes_token"
 	KApiToken       = "openapi_token" // 开放 API / MCP Token（空 = 未启用）
+	KMcpToken       = "mcp_token"    // MCP Server 专用 Token（与开放 API Token 相互独立）
 	KAppSourceURL   = "appstore_source_url"
 	KAppSourceCache = "appstore_source_cache"
 	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）

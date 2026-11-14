@@ -4,6 +4,7 @@ package setting
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -25,7 +26,8 @@ import (
 
 	"cnb.cool/hanyuxin/panel/internal/archive"
 	"cnb.cool/hanyuxin/panel/internal/config"
-	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/auth"
+"cnb.cool/hanyuxin/panel/internal/core"
 	"cnb.cool/hanyuxin/panel/internal/modules/cert"
 	"cnb.cool/hanyuxin/panel/internal/selfcert"
 )
@@ -59,6 +61,85 @@ func (m *Module) Register(api gin.IRouter) {
 	// 自定义面板名称（admin 可改；brand 为匿名可读的公开端点，见 main.go）
 	g.GET("/name", m.panelNameGet)
 	g.POST("/name", m.panelNameSet)
+}
+
+// RegisterTokenAdmin 开放 API Token 管理（与 MCP Token 相互独立，鉴权规则见 internal/auth/apitoken.go）。
+func (m *Module) RegisterTokenAdmin(admin gin.IRouter) {
+	admin.GET("/setting/api-token", m.apiTokenGet)
+	admin.POST("/setting/api-token", m.apiTokenGen)
+	admin.PUT("/setting/api-token", m.apiTokenPermUpdate)
+	admin.DELETE("/setting/api-token", m.apiTokenClear)
+}
+
+// ---- 开放 API Token 管理 ----
+
+func (m *Module) apiTokenGet(c *gin.Context) {
+	rec := auth.APITokenRecOf(m.db)
+	if rec == nil {
+		core.OK(c, gin.H{"enabled": false, "token": "", "mode": "full", "scopes": []string{}, "readonly": false, "scopes_known": auth.ScopesKnown})
+		return
+	}
+	scopes := rec.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown})
+}
+
+func (m *Module) apiTokenGen(c *gin.Context) {
+	var p auth.PermInput
+	_ = c.ShouldBindJSON(&p)
+	rec, err := auth.BuildPerm(&p)
+	if err != nil {
+		core.Err(c, 400, err.Error())
+		return
+	}
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		core.Err(c, 500, "生成 Token 失败")
+		return
+	}
+	rec.Token = hex.EncodeToString(b)
+	if err := auth.SaveTokenRecord(m.db, rec); err != nil {
+		core.Err(c, 500, "保存 Token 失败")
+		return
+	}
+	slog.Info("开放 API Token 已生成", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown})
+}
+
+func (m *Module) apiTokenPermUpdate(c *gin.Context) {
+	rec := auth.APITokenRecOf(m.db)
+	if rec == nil {
+		core.Err(c, 400, "尚未启用开放 API Token")
+		return
+	}
+	var p auth.PermInput
+	if err := c.ShouldBindJSON(&p); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	perm, err := auth.BuildPerm(&p)
+	if err != nil {
+		core.Err(c, 400, err.Error())
+		return
+	}
+	rec.Mode, rec.Scopes, rec.ReadOnly = perm.Mode, perm.Scopes, perm.ReadOnly
+	if err := auth.SaveTokenRecord(m.db, rec); err != nil {
+		core.Err(c, 500, "保存权限失败")
+		return
+	}
+	slog.Info("开放 API Token 权限已更新", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown})
+}
+
+func (m *Module) apiTokenClear(c *gin.Context) {
+	if err := core.SetSetting(m.db, core.KApiToken, ""); err != nil {
+		core.Err(c, 500, "禁用失败")
+		return
+	}
+	slog.Info("开放 API Token 已禁用", "by", c.GetString("user"))
+	core.OK(c, gin.H{"enabled": false})
 }
 
 // ---- HTTPS 证书管理 ----

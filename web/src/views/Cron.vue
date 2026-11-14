@@ -137,7 +137,7 @@
           <template #default="{ row }"><a-button size="small" @click="viewLog(row)">输出</a-button></template>
         </WmColumn>
       </WmTable>
-      <a-pagination :total="logTotal" :page-size="logSize" v-model:current="logPage" @change="loadLogs" />
+      <a-pagination :hide-on-single-page="true" :total="logTotal" :page-size="logSize" v-model:current="logPage" @change="loadLogs" />
     </a-drawer>
 
     <a-modal v-model:open="outDlg" title="任务输出" width="680px">
