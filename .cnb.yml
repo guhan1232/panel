@@ -1,7 +1,8 @@
 # CNB 流水线：
 # 1) main push：后端 vet/test/build + 前端构建（质量门）
-# 2) $ tag_push（panel-v* tag，如 panel-v0.41.1）：构建两架构服务端二进制（ldflags 注入版本）
-#    -> 发布 panel-release Release（含 upgrade-manifest.json）-> 面板「设置 -> 系统运维 -> 面板在线升级」自动检查/升级
+# 2) $ tag_push（panel-v* tag）：构建两架构服务端二进制（ldflags 注入版本）
+#    -> 产物 git push 回 main 的 release/ 目录 + upgrade-manifest.json
+#    -> 面板「设置 -> 系统运维 -> 面板在线升级」从 raw 清单检查/下载/校验/原子替换升级
 main:
   push:
     - name: backend-test
@@ -46,36 +47,25 @@ $:
             mkdir -p dist
             GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-linux-amd64 ./cmd/server
             GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-linux-arm64 ./cmd/server
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-agent-linux-amd64 ./cmd/agent
             A64=$(sha256sum dist/hanyuxin-linux-amd64 | awk '{print $1}')
             ARM=$(sha256sum dist/hanyuxin-linux-arm64 | awk '{print $1}')
-            printf '{\n  "version": "%s",\n  "notes": "%s",\n  "arch": {\n    "amd64": { "url": "https://cnb.cool/%s/-/releases/download/panel-release/hanyuxin-linux-amd64", "sha256": "%s" },\n    "arm64": { "url": "https://cnb.cool/%s/-/releases/download/panel-release/hanyuxin-linux-arm64", "sha256": "%s" }\n  }\n}\n' "$VER" "hanyuxin-panel $VER (CNB cloud build)" "$CNB_REPO_SLUG" "$A64" "$CNB_REPO_SLUG" "$ARM" > dist/upgrade-manifest.json
+            printf '{\n  "version": "%s",\n  "notes": "%s",\n  "arch": {\n    "amd64": { "url": "https://cnb.cool/%s/-/git/raw/main/release/hanyuxin-linux-amd64", "sha256": "%s" },\n    "arm64": { "url": "https://cnb.cool/%s/-/git/raw/main/release/hanyuxin-linux-arm64", "sha256": "%s" }\n  }\n}\n' "$VER" "hanyuxin-panel $VER (CNB cloud build)" "$CNB_REPO_SLUG" "$A64" "$CNB_REPO_SLUG" "$ARM" > dist/upgrade-manifest.json
             cat dist/upgrade-manifest.json
             ls -lh dist/
-        - name: create-release
-          type: git:release
-          options:
-            tag: panel-release
-            title: hanyuxin-panel server (official build by CNB)
-            description: panel server binaries (amd64/arm64) + agent + upgrade-manifest.json. Panel "Settings -> Panel Upgrade" checks and applies automatically.
-            latest: false
-        - name: upload-assets
+        - name: publish-to-repo
           script: |
-            # ensure panel-release Release exists (git:release under tag_push may attach to the event tag)
-            curl -s -o /dev/null -w "ensure:%{http_code}\n" -X POST \
-              -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" \
-              -d '{"tag_name":"panel-release","name":"hanyuxin-panel server","body":"server binaries"}' \
-              "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases" || true
-            cd dist
-            for F in hanyuxin-linux-amd64 hanyuxin-linux-arm64 hanyuxin-agent-linux-amd64 upgrade-manifest.json; do
-              SIZE=$(stat -c%s "$F")
-              REL=$(curl -sf -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/tags/panel-release")
-              REL_ID=$(echo "$REL" | grep -o '"id":"[0-9]*"' | head -1 | grep -o '[0-9]*')
-              UP=$(curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" \
-                -d "{\"asset_name\":\"$F\",\"size\":$SIZE,\"overwrite\":true}" \
-                "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/$REL_ID/asset-upload-url")
-              UPLOAD_URL=$(echo "$UP" | grep -o '"upload_url":"[^"]*"' | cut -d'"' -f4)
-              VERIFY_URL=$(echo "$UP" | grep -o '"verify_url":"[^"]*"' | cut -d'"' -f4)
-              curl -sf -X PUT -T "$F" "$UPLOAD_URL" && curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$VERIFY_URL" \
-                && echo "OK $F" || { echo "FAIL $F"; exit 1; }
-            done
+            VER=$(echo "$CNB_BRANCH" | sed -n 's/^panel-v//p')
+            cd "$CNB_BUILD_WORKSPACE"
+            REPO=$(find "$(pwd)" -maxdepth 3 -name go.mod | head -1 | xargs dirname)
+            cd "$REPO"
+            git config user.email "git@hanyuxin.cn"
+            git config user.name "hanyuxin"
+            git remote set-url origin "https://cnb:$CNB_TOKEN@cnb.cool/$CNB_REPO_SLUG.git"
+            git fetch origin main
+            git checkout -B main origin/main
+            mkdir -p release
+            cp dist/hanyuxin-linux-amd64 dist/hanyuxin-linux-arm64 dist/upgrade-manifest.json release/
+            git add release/
+            git commit -m "release: panel v$VER (CNB cloud build)" || { echo "no changes"; exit 0; }
+            git push origin main
+            echo "published v$VER to main/release/"
