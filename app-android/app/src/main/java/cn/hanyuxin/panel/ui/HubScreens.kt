@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Extension
@@ -67,6 +70,9 @@ fun OpsHubScreen(server: ServerInfo) {
         HubItem("节点管理", "多机监控与执行", Icons.Outlined.AccountTree, Router.Route.Nodes(server)),
         HubItem("防火墙", "端口规则与防扫描", Icons.Outlined.Security, Router.Route.Firewall(server)),
         HubItem("SSL 证书", "证书申请与续期", Icons.Outlined.VpnKey, Router.Route.Certs(server)),
+        HubItem("审计日志", "写操作与终端命令留痕", Icons.Outlined.Description, Router.Route.Audit(server)),
+        HubItem("通知与存储", "SMTP / IM / S3 配置", Icons.Outlined.Notifications, Router.Route.Notify(server)),
+        HubItem("用户管理", "三角角色与禁用", Icons.Outlined.People, Router.Route.Users(server)),
     )
     HubGrid("系统运维", items)
 }

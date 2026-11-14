@@ -346,3 +346,81 @@ data class QrData(val host: String, val entrance: String, val key: String, val b
         }
     }
 }
+
+
+// ---- 1.3.0 面板组（用户管理/审计/通知与存储）与品牌 ----
+
+@Serializable
+data class UserItem(
+    val id: Long = 0,
+    val username: String = "",
+    val role: String = "viewer",
+    val disabled: Boolean = false,
+    val created_at: String? = null,
+)
+
+@Serializable
+data class AuditItem(
+    val id: Long = 0,
+    val username: String? = null,
+    val role: String? = null,
+    val action: String? = null,
+    val method: String = "",
+    val path: String = "",
+    val ip: String? = null,
+    val status: Int = 0,
+    val cost_ms: Long = 0,
+    val created_at: String? = null,
+)
+
+@Serializable
+data class TermLogItem(
+    val id: Long = 0,
+    val username: String? = null,
+    val line: String = "",
+    val created_at: String? = null,
+)
+
+@Serializable
+data class NotifyEmailCfg(
+    var enabled: Boolean = false,
+    var host: String = "",
+    var port: Int = 465,
+    var ssl: Boolean = true,
+    var user: String = "",
+    var pass: String = "",
+    var from: String = "",
+    var to: List<String> = emptyList(),
+)
+
+@Serializable
+data class NotifyWebhookCfg(
+    var enabled: Boolean = false,
+    var type: String = "dingtalk",
+    var url: String = "",
+    var chat_id: String? = null,
+)
+
+@Serializable
+data class S3Cfg(
+    var enabled: Boolean = false,
+    var endpoint: String = "",
+    var access_key: String = "",
+    var secret_key: String = "",
+    var bucket: String = "",
+    var use_ssl: Boolean = true,
+    var prefix: String = "backups/",
+)
+
+@Serializable
+data class BrandInfo(val name: String = "", val version: String = "")
+
+
+@Serializable
+data class NotifyConfigAll(val email: NotifyEmailCfg = NotifyEmailCfg(), val webhook: NotifyWebhookCfg = NotifyWebhookCfg())
+
+@Serializable
+data class AuditOpsPage(val items: List<AuditItem> = emptyList(), val total: Long = 0)
+
+@Serializable
+data class AuditTtyPage(val items: List<TermLogItem> = emptyList(), val total: Long = 0)

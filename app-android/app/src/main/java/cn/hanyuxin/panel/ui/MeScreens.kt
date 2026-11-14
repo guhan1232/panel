@@ -21,6 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Dns
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -43,6 +49,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,9 +92,11 @@ fun MeScreen(server: ServerInfo) {
     var showDevices by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var panelName by remember { mutableStateOf("") }
 
     LaunchedEffect(server.host) {
         apiGuard { Api.panelInfo(clientFor(server)) }?.let { info = it }
+        apiGuard { Api.brandInfo(clientFor(server)) }?.let { panelName = it.name }
     }
 
     fun toast(s: String) = android.widget.Toast.makeText(ctx, s, android.widget.Toast.LENGTH_SHORT).show()
@@ -166,6 +175,10 @@ fun MeScreen(server: ServerInfo) {
         // 通用
         item {
             SectionLabel("通用")
+                GroupDivider()
+                SettingsRow(Icons.Outlined.Settings, Slate, "系统设置", "面板名称 / 密码 / API Token") {
+                    Router.push(Router.Route.Settings(server))
+                }
             GroupCard {
                 SettingsRow(Icons.Outlined.Notifications, Amber, "消息中心", "告警规则触发事件") {
                     Router.push(Router.Route.Alerts(server) { Router.pop() })
@@ -222,7 +235,7 @@ fun MeScreen(server: ServerInfo) {
 
         item {
             Text(
-                "寒语馨面板 APP · Kotlin / Compose",
+                (panelName.ifBlank { "寒语馨面板" }) + " APP · Kotlin / Compose",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
@@ -342,39 +355,182 @@ private fun DevicesDialog(server: ServerInfo, onDismiss: () -> Unit) {
 
 @Composable
 fun AlertsScreen(server: ServerInfo, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val client = clientFor(server)
+    var tab by remember { mutableIntStateOf(0) }
+    var rules by remember(server.host) { mutableStateOf<List<cn.hanyuxin.panel.data.AlertRule>?>(null) }
     var events by remember(server.host) { mutableStateOf<cn.hanyuxin.panel.data.AlertEventsPage?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
-    var reload by remember { mutableStateOf(0) }
+    var reload by remember { mutableIntStateOf(0) }
+    var createOpen by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<cn.hanyuxin.panel.data.AlertRule?>(null) }
+    var delTarget by remember { mutableStateOf<cn.hanyuxin.panel.data.AlertRule?>(null) }
+    var busyId by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(server.host, reload) {
-        apiGuard(onError = { err = it.message }) { Api.alertEvents(clientFor(server)) }?.let { events = it; err = null }
+        apiGuard(onError = { err = it.message }) {
+            rules = Api.alertRules(client)
+            events = Api.alertEvents(client)
+        }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("消息中心", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             IconButton(onClick = { reload++ }) { Icon(Icons.Outlined.Refresh, "刷新") }
             TextButton(onClick = onClose) { Text("关闭") }
         }
         ErrorBanner(err)
-        val p = events
-        when {
-            p == null -> LoadingView()
-            p.items.isEmpty() -> EmptyView("暂无告警事件")
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { Text("共 ${p.total} 条", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(p.items, key = { it.id }) { e ->
-                    PanelCard {
-                        Text(e.rule_name, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            listOfNotNull(e.metric.takeIf { it.isNotBlank() }, e.value.takeIf { it.isNotBlank() }).joinToString(" = "),
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (e.message.isNotBlank()) Text(e.message, fontSize = 12.sp)
-                        Text(e.created_at.take(19).replace('T', ' '), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TabRow(selectedTabIndex = tab) {
+            Tab(tab == 0, onClick = { tab = 0 }, text = { Text("告警规则") })
+            Tab(tab == 1, onClick = { tab = 1 }, text = { Text("触发历史") })
+        }
+        if (tab == 0) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "阈值规则每 30 秒评估一次",
+                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { createOpen = true }) { Icon(Icons.Outlined.Add, "新建规则", tint = MaterialTheme.colorScheme.primary) }
+            }
+            val rl = rules
+            when {
+                rl == null -> LoadingView()
+                rl.isEmpty() -> EmptyView("还没有告警规则，点右上角 + 新建")
+                else -> LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(rl, key = { it.id }) { r ->
+                        PanelCard {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(r.name, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        (METRIC_LABEL[r.metric] ?: r.metric) + " " + r.op + " " + r.threshold + " · 持续 " + r.duration_min + " 分 · 冷却 " + r.cooldown_min + " 分",
+                                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(
+                                    r.enabled,
+                                    onCheckedChange = { _ ->
+                                        busyId = r.id
+                                        scope.launch {
+                                            apiGuard(onError = { err = it.message }) { Api.alertRuleToggle(client, r.id) }
+                                            busyId = null
+                                            reload++
+                                        }
+                                    },
+                                    enabled = busyId != r.id,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            val p2 = events
+            when {
+                p2 == null -> LoadingView()
+                p2.items.isEmpty() -> EmptyView("暂无告警事件")
+                else -> LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                ) {
+                    item { Text("共 " + p2.total + " 条", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    items(p2.items, key = { it.id }) { e ->
+                        PanelCard {
+                            Text(e.rule_name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                listOfNotNull(e.metric.takeIf { it.isNotBlank() }, e.value.takeIf { it.isNotBlank() }).joinToString(" = "),
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (e.message.isNotBlank()) Text(e.message, fontSize = 12.sp)
+                            Text(e.created_at.take(19).replace('T', ' '), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
         }
     }
+
+    if (createOpen || editTarget != null) {
+        val editing = editTarget
+        var name by remember { mutableStateOf(editing?.name ?: "") }
+        var metric by remember { mutableStateOf(editing?.metric ?: "cpu") }
+        var op by remember { mutableStateOf(editing?.op ?: ">") }
+        var threshold by remember { mutableStateOf((editing?.threshold ?: 90.0).toString()) }
+        var duration by remember { mutableStateOf((editing?.duration_min ?: 3).toString()) }
+        var cooldown by remember { mutableStateOf((editing?.cooldown_min ?: 30).toString()) }
+        AlertDialog(
+            onDismissRequest = { createOpen = false; editTarget = null },
+            title = { Text(if (editing != null) "编辑规则" else "新建告警规则") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(name, { name = it }, label = { Text("规则名称") }, singleLine = true)
+                    Text("监控指标", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(metric == "cpu", { metric = "cpu" }, label = { Text("CPU") })
+                        FilterChip(metric == "mem", { metric = "mem" }, label = { Text("内存") })
+                        FilterChip(metric == "disk", { metric = "disk" }, label = { Text("磁盘") })
+                        FilterChip(metric == "load1", { metric = "load1" }, label = { Text("负载") })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(op == ">", { op = ">" }, label = { Text("大于") })
+                        FilterChip(op == "<", { op = "<" }, label = { Text("小于") })
+                        OutlinedTextField(threshold, { threshold = it }, label = { Text("阈值") }, singleLine = true, modifier = Modifier.weight(1f))
+                    }
+                    OutlinedTextField(duration, { duration = it }, label = { Text("持续(分钟)，0=立即") }, singleLine = true)
+                    OutlinedTextField(cooldown, { cooldown = it }, label = { Text("冷却(分钟)") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val f = cn.hanyuxin.panel.data.AlertRule(
+                        id = editing?.id ?: 0, name = name.trim(), metric = metric, op = op,
+                        threshold = threshold.toDoubleOrNull() ?: 90.0,
+                        duration_min = duration.toIntOrNull() ?: 3,
+                        cooldown_min = cooldown.toIntOrNull() ?: 30,
+                        node_id = editing?.node_id ?: 0,
+                    )
+                    if (f.name.isBlank()) { err = "请填写规则名称"; return@TextButton }
+                    scope.launch {
+                        apiGuard(onError = { err = it.message }) {
+                            if (editing != null) Api.alertRuleUpdate(client, editing.id, f)
+                            else Api.alertRuleCreateFull(client, f)
+                        }
+                        err = null
+                        createOpen = false
+                        editTarget = null
+                        reload++
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { createOpen = false; editTarget = null }) { Text("取消") } },
+        )
+    }
+
+    delTarget?.let { r2 ->
+        AlertDialog(
+            onDismissRequest = { delTarget = null },
+            title = { Text("删除规则 " + r2.name) },
+            text = { Text("确认删除该告警规则？执行历史将保留。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        apiGuard(onError = { err = it.message }) { Api.alertRuleDelete(client, r2.id) }
+                        delTarget = null
+                        reload++
+                    }
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { delTarget = null }) { Text("取消") } },
+        )
+    }
 }
+
+private val METRIC_LABEL = mapOf("cpu" to "CPU 使用率(%)", "mem" to "内存使用率(%)", "disk" to "磁盘使用率(%)", "load1" to "1分钟负载")
