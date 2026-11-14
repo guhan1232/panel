@@ -8,6 +8,8 @@
 azapp:
   push:
     - name: android-apk
+      imports:   # 密钥仓库注入：KEYSTORE_PASS（见 hanyuxin/panel-secrets 密钥仓库 env.yml）
+        - https://cnb.build/hanyuxin/panel-secrets/-/blob/main/env.yml
       runner:
         cpus: 4
       docker:
