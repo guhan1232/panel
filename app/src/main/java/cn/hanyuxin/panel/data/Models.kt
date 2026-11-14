@@ -334,6 +334,7 @@ data class QrCreateResp(val key: String = "", val qr_text: String = "", val expi
  *  - hanyuxin://login?…&key=…  扫码登录码（Web 登录页，扫码确认 Web 免密登录）
  *  - hanyuxin://bind?…&key=…   绑定码（Web 系统设置/仪表盘生成，绑定=添加服务器+免密登录）
  *  bind 码无独立 key 语义（key 字段承载绑定密钥），bindKey 非空时走绑定登录。 */
+@Serializable
 data class QrData(val host: String, val entrance: String, val key: String, val bindKey: String = "", val v2: Boolean, val isTotp: Boolean = false) {
     companion object {
         fun parse(text: String): QrData? {

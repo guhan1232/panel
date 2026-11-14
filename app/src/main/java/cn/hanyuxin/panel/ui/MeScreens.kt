@@ -689,8 +689,14 @@ fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Uni
 				when {
 					enabled == null -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
 					enabled == true -> {
-						Text("已启用。本机即验证器，动态码如下；登录面板时可直接使用。", fontSize = 13.sp)
-						TotpCodeView(secret)
+						Text(
+							if (secret.isNotBlank()) "已启用。本机即验证器，动态码如下；登录面板时可直接使用。"
+							else "已启用。动态码由绑定的验证器生成（本机未持有密钥）；如需在本机查看，请解除后重新绑定。",
+							fontSize = 13.sp,
+						)
+						if (secret.isNotBlank()) {
+							TotpCodeView(secret)
+						}
 						OutlinedTextField(password, { password = it }, label = { Text("输入登录密码以解除绑定") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
 						err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
 						Button(enabled = !busy && password.isNotBlank(), onClick = {
@@ -762,11 +768,11 @@ fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Uni
 /** 动态码视图：6 位码（30 秒轮换）+ 剩余时间条。 */
 @Composable
 fun TotpCodeView(secret: String, modifier: Modifier = Modifier) {
-	var code by remember(secret) { mutableStateOf(TotpCalculator.currentCode(secret)) }
+	var code by remember(secret) { mutableStateOf(if (secret.isBlank()) "" else TotpCalculator.currentCode(secret)) }
 	var remain by remember(secret) { mutableIntStateOf(30) }
 	LaunchedEffect(secret) {
 		while (true) {
-			code = TotpCalculator.currentCode(secret)
+			if (secret.isNotBlank()) code = TotpCalculator.currentCode(secret)
 			remain = 30 - (System.currentTimeMillis() / 1000 % 30).toInt()
 			delay(1000)
 		}
@@ -785,26 +791,70 @@ fun TotpCodeView(secret: String, modifier: Modifier = Modifier) {
 object TotpCalculator {
 	private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 	fun currentCode(secretBase32: String, timeSec: Long = System.currentTimeMillis() / 1000): String {
-		val clean = secretBase32.trim().replace(" ", "").uppercase()
-		var bits = ""
-		for (c in clean) {
-			val v = ALPHABET.indexOf(c)
-			if (v >= 0) bits += v.toString(2).padStart(5, '0')
+		return try {
+			val clean = secretBase32.trim().replace(" ", "").uppercase()
+			if (clean.length < 8) return "——————"
+			var bits = ""
+			for (c in clean) {
+				val v = ALPHABET.indexOf(c)
+				if (v < 0) return "——————" // 非法字符（非 Base32）
+				bits += v.toString(2).padStart(5, '0')
+			}
+			val bytes = mutableListOf<Byte>()
+			var i = 0
+			while (i + 8 <= bits.length) {
+				bytes.add(bits.substring(i, i + 8).toInt(2).toByte())
+				i += 8
+			}
+			if (bytes.isEmpty()) return "——————"
+			val counter = timeSec / 30
+			val buf = ByteArray(8)
+			for (k in 0 until 8) buf[k] = (counter shr ((7 - k) * 8)).toByte()
+			val mac = javax.crypto.Mac.getInstance("HmacSHA1")
+			mac.init(javax.crypto.spec.SecretKeySpec(bytes.toByteArray(), "HmacSHA1"))
+			val digest = mac.doFinal(buf)
+			val off = digest[digest.size - 1].toInt() and 0xf
+			val bin = ((digest[off].toInt() and 0x7f) shl 24) or ((digest[off + 1].toInt() and 0xff) shl 16) or ((digest[off + 2].toInt() and 0xff) shl 8) or (digest[off + 3].toInt() and 0xff)
+			(bin % 1_000_000).toString().padStart(6, '0')
+		} catch (e: Exception) {
+			"——————" // 任何异常一律显示占位符，绝不崩溃
 		}
-		val bytes = mutableListOf<Byte>()
-		var i = 0
-		while (i + 8 <= bits.length) {
-			bytes.add(bits.substring(i, i + 8).toInt(2).toByte())
-			i += 8
-		}
-		val counter = timeSec / 30
-		val buf = ByteArray(8)
-		for (k in 0 until 8) buf[k] = (counter shr ((7 - k) * 8)).toByte()
-		val mac = javax.crypto.Mac.getInstance("HmacSHA1")
-		mac.init(javax.crypto.spec.SecretKeySpec(bytes.toByteArray(), "HmacSHA1"))
-		val digest = mac.doFinal(buf)
-		val off = digest[digest.size - 1].toInt() and 0xf
-		val bin = ((digest[off].toInt() and 0x7f) shl 24) or ((digest[off + 1].toInt() and 0xff) shl 16) or ((digest[off + 2].toInt() and 0xff) shl 8) or (digest[off + 3].toInt() and 0xff)
-		return (bin % 1_000_000).toString().padStart(6, '0')
 	}
+
+/** 动态码视图：6 位码（30 秒轮换）+ 剩余时间条。空/无效密钥显示占位，绝不崩溃。 */
+@Composable
+fun TotpCodeView(secret: String, modifier: Modifier = Modifier) {
+	var code by remember(secret) { mutableStateOf(if (secret.isBlank()) "------" else TotpCalculator.currentCode(secret)) }
+	var remain by remember(secret) { mutableIntStateOf(30) }
+	LaunchedEffect(secret) {
+		while (true) {
+			if (secret.isNotBlank()) code = TotpCalculator.currentCode(secret)
+			remain = 30 - ((System.currentTimeMillis() / 1000) % 30).toInt()
+			delay(1000)
+		}
+	}
+	Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+		Text(code, fontSize = 34.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary, letterSpacing = 4.sp)
+		Text("${remain}s 后刷新", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		androidx.compose.material3.LinearProgressIndicator(
+			progress = remain / 30f,
+			modifier = Modifier.fillMaxWidth(0.7f).padding(top = 6.dp),
+		)
+	}
+}
+
+/** OTP 链接二维码（zxing 生成矩阵 + Canvas 自绘，白底深块）。 */
+@Composable
+fun QrCodeImage(content: String, modifier: Modifier = Modifier) {
+	val size = 240
+	val matrix = remember(content) {
+		com.google.zxing.qrcode.QRCodeWriter().encode(content, com.google.zxing.BarcodeFormat.QR_CODE, size, size)
+	}
+	Canvas(modifier.size(size.dp).background(Color.White, RoundedCornerShape(10.dp))) {
+		val cell = size.toFloat() / matrix.width
+		for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
+			if (matrix[x, y]) drawRect(Color(0xFF111827), topLeft = Offset(x * cell, y * cell), size = Size(cell, cell))
+		}
+	}
+}
 }
