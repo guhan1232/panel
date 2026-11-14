@@ -4,7 +4,9 @@ package cn.hanyuxin.panel.ui
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.FileProvider
 import android.os.Environment
+import android.widget.Toast
 import android.net.Uri
 import androidx.biometric.BiometricManager
 import androidx.compose.foundation.background
@@ -79,6 +81,7 @@ import cn.hanyuxin.panel.data.UpdateInfo
 import cn.hanyuxin.panel.data.clientFor
 import java.io.File
 import java.security.MessageDigest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -100,7 +103,6 @@ fun MeScreen(server: ServerInfo) {
     var showDevices by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var dlProgress by remember { mutableIntStateOf(-1) } // -1 未下载；0-99 下载中；100 校验中
-    var dlId by remember { mutableStateOf<Long?>(null) }
     var checking by remember { mutableStateOf(false) }
     var panelName by remember { mutableStateOf("") }
 
@@ -282,66 +284,18 @@ fun MeScreen(server: ServerInfo) {
                     }
                     dlProgress == 100 -> Text("校验中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     u.has_update && u.apk_url.isNotBlank() -> TextButton(onClick = {
-                        val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                        val req = DownloadManager.Request(Uri.parse(u.apk_url))
-                            .setTitle("寒语馨面板 " + u.latest)
-                            .setDescription("正在下载更新包")
-                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                            .setDestinationInExternalFilesDir(ctx, Environment.DIRECTORY_DOWNLOADS, "hanyuxin-panel-update.apk")
-                            .setMimeType("application/vnd.android.package-archive")
-                        dlProgress = 0
-                        dlId = dm.enqueue(req)
+                        scope.launch(Dispatchers.IO) {
+                            startAppUpdate(ctx, u.apk_url, u.latest, u.sha256, { dlProgress = it }, { ok ->
+                                dlProgress = -1
+                                if (ok) update = null
+                            })
+                        }
                     }) { Text("下载并安装") }
                     else -> TextButton(onClick = { update = null }) { Text("知道了") }
                 }
             },
             dismissButton = if (u.has_update) ({ TextButton(onClick = { update = null }) { Text("以后再说") } }) else null,
         )
-    }
-    // 更新包下载轮询：完成后 SHA256 校验（面板下发），通过则唤起系统安装器
-    LaunchedEffect(dlId) {
-        val id = dlId ?: return@LaunchedEffect
-        val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        while (true) {
-            val cur = dlId ?: break
-            val c = dm.query(DownloadManager.Query().setFilterById(cur))
-            var status = -1
-            if (c.moveToFirst()) status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-            c.close()
-            when (status) {
-                DownloadManager.STATUS_SUCCESSFUL -> {
-                    dlProgress = 100
-                    val uri = dm.getUriForDownloadedFile(cur)
-                    val got = uri?.let { u2 -> ctx.contentResolver.openInputStream(u2)?.use { sha256Of(it) } } ?: ""
-                    if (update?.sha256.isNullOrBlank() || got.equals(update?.sha256, ignoreCase = true)) {
-                        dlProgress = -1; dlId = null; update = null
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    } else {
-                        dm.remove(cur); dlProgress = -1; dlId = null
-                        toast("更新包校验失败（SHA256 不符），已取消安装")
-                    }
-                    break
-                }
-                DownloadManager.STATUS_FAILED -> {
-                    dm.remove(cur); dlProgress = -1; dlId = null
-                    toast("下载失败，请重试")
-                    break
-                }
-                else -> {
-                    val c2 = dm.query(DownloadManager.Query().setFilterById(cur))
-                    if (c2.moveToFirst()) {
-                        val bytes = c2.getLong(c2.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                        val total = c2.getLong(c2.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                        if (total > 0) dlProgress = ((bytes * 100) / total).toInt().coerceIn(0, 99)
-                    }
-                    c2.close()
-                    delay(500)
-                }
-            }
-        }
     }
 }
 
@@ -612,10 +566,67 @@ private val METRIC_LABEL = mapOf("cpu" to "CPU 使用率(%)", "mem" to "内存�
 
 
 /** 流式计算 SHA256（更新包完整性校验）。 */
-fun sha256Of(input: java.io.InputStream): String {
+/** 流式计算 SHA256（更新包完整性校验）。 */
+private fun sha256Of(input: java.io.InputStream): String {
 	val md = MessageDigest.getInstance("SHA-256")
 	val buf = ByteArray(8192)
 	var n: Int
 	while (input.read(buf).also { n = it } > 0) md.update(buf, 0, n)
 	return md.digest().joinToString("") { "%02x".format(it) }
-}
+}
+
+private val APK_MIME = "application/vnd.android.package-archive"
+
+private val updateHttp by lazy {
+	okhttp3.OkHttpClient.Builder()
+		.connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+		.readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+		.build()
+}
+
+private fun startAppUpdate(
+	ctx: android.content.Context, url: String, ver: String, expectSha: String,
+	onProgress: (Int) -> Unit, onDone: (Boolean) -> Unit,
+) {
+	try {
+		val dir = ctx.getExternalFilesDir("updates") ?: ctx.cacheDir
+		val f = java.io.File(dir, "hanyuxin-panel-update.apk")
+		f.parentFile?.mkdirs()
+		if (f.exists() && f.length() > 0) f.delete()
+		val resp = updateHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute()
+		resp.use { r ->
+			if (!r.isSuccessful) throw java.io.IOException("HTTP " + r.code)
+			val body = r.body ?: throw java.io.IOException("空响应")
+			val total = body.contentLength()
+			f.outputStream().use { out ->
+				body.byteStream().use { ins ->
+					val buf = ByteArray(8192)
+					var n: Int
+					var done = 0L
+					while (ins.read(buf).also { n = it } > 0) {
+						out.write(buf, 0, n)
+						done += n
+						if (total > 0) onProgress(((done * 100) / total).toInt().coerceIn(0, 99))
+					}
+				}
+			}
+		}
+		onProgress(100)
+		val got = f.inputStream().use { sha256Of(it) }
+		if (expectSha.isBlank() || got.equals(expectSha, ignoreCase = true)) {
+			val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
+			ctx.startActivity(Intent(Intent.ACTION_VIEW).apply {
+				setDataAndType(uri, APK_MIME)
+				addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+			})
+			onDone(true)
+		} else {
+			f.delete()
+			android.widget.Toast.makeText(ctx, "更新包校验失败（SHA256 不符），已取消安装", android.widget.Toast.LENGTH_SHORT).show() // 
+			onDone(false)
+		}
+	} catch (e: Exception) {
+		android.widget.Toast.makeText(ctx, "下载失败：" + (e.message ?: "未知错误"), android.widget.Toast.LENGTH_SHORT).show() // 
+		onDone(false)
+	}
+}
