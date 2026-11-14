@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 	"strings"
 	"time"
 
@@ -33,6 +34,10 @@ type Module struct {
 	cfg     *config.Config
 	authSvc *auth.Service
 	hc      *http.Client
+	// MCP 调用统计（内存态，按天归零；面板重启后从 0 开始）
+	statsMu    sync.Mutex
+	statsDay   string
+	statsCount int64
 }
 
 func New(db *gorm.DB, cfg *config.Config, authSvc *auth.Service) *Module {
@@ -63,14 +68,14 @@ func (m *Module) Register(protected gin.IRouter, admin gin.IRouter) {
 func (m *Module) getToken(c *gin.Context) {
 	rec := m.authSvc.MCPTokenRec()
 	if rec == nil {
-		core.OK(c, gin.H{"enabled": false, "token": "", "mode": "full", "scopes": []string{}, "readonly": false, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+		core.OK(c, gin.H{"enabled": false, "token": "", "mode": "full", "scopes": []string{}, "readonly": false, "scopes_known": auth.ScopesKnown, "today_calls": m.todayCalls(), "mcp_url": m.publicURL() + "/api/mcp"})
 		return
 	}
 	scopes := rec.Scopes
 	if scopes == nil {
 		scopes = []string{}
 	}
-	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "today_calls": m.todayCalls(), "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
 // genToken 生成/重置 MCP Token（可携带权限配置：mode/scopes/readonly；与开放 API Token 相互独立）。
@@ -93,7 +98,7 @@ func (m *Module) genToken(c *gin.Context) {
 		return
 	}
 	slog.Info("MCP Token 已生成", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
-	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "today_calls": m.todayCalls(), "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
 // updateTokenPerm 仅更新 MCP Token 权限（Token 值不变，客户端无需重新配置）。
@@ -119,7 +124,7 @@ func (m *Module) updateTokenPerm(c *gin.Context) {
 		return
 	}
 	slog.Info("MCP Token 权限已更新", "by", c.GetString("user"), "mode", rec.Mode, "readonly", rec.ReadOnly)
-	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "mcp_url": m.publicURL() + "/api/mcp"})
+	core.OK(c, gin.H{"enabled": true, "token": rec.Token, "mode": rec.Mode, "scopes": rec.Scopes, "readonly": rec.ReadOnly, "scopes_known": auth.ScopesKnown, "today_calls": m.todayCalls(), "mcp_url": m.publicURL() + "/api/mcp"})
 }
 
 
@@ -134,6 +139,16 @@ func (m *Module) clearToken(c *gin.Context) {
 }
 
 // publicURL 面板对外地址（配置的监听地址，供 MCP 客户端配置参考）。
+// todayCalls 当前今日调用次数（内存统计）。
+func (m *Module) todayCalls() int64 {
+	m.statsMu.Lock()
+	defer m.statsMu.Unlock()
+	if m.statsDay != time.Now().Format("2006-01-02") {
+		return 0
+	}
+	return m.statsCount
+}
+
 func (m *Module) publicURL() string {
 	scheme := "http"
 	if m.cfg.Server.TLS.Enabled {
@@ -262,6 +277,14 @@ func (m *Module) handle(c *gin.Context) {
 	}
 	cookie := c.GetHeader("Cookie")
 	authHdr := auth
+	// 今日调用计数（每次 MCP 端点请求 +1，按天归零）
+	m.statsMu.Lock()
+	today := time.Now().Format("2006-01-02")
+	if m.statsDay != today {
+		m.statsDay, m.statsCount = today, 0
+	}
+	m.statsCount++
+	m.statsMu.Unlock()
 	permRec, isToken := m.authSvc.MCPTokenPerm(c)
 	var req rpcReq
 	body, err := c.GetRawData()

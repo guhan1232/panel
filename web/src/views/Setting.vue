@@ -940,6 +940,38 @@ function syncForm(form: { mode: string; scopes: string[]; readonly: boolean }, t
   form.readonly = !!t.readonly
 }
 
+const fwStatus = ref<any>({ tool: 'none', enabled: false })
+const tlsEnabled = ref(false)
+const fwOk = computed(() => fwStatus.value.tool !== 'none' && fwStatus.value.enabled)
+const fwLabel = computed(() => (fwStatus.value.tool === 'none' ? '未检测（不拦截）' : fwOk.value ? '已放行' : '未放行'))
+const promptShown = ref(false)
+
+const mcpPrompt = computed(() => [
+  '请将以下 MCP 服务器添加到你的 MCP 客户端配置中，完成后连接并列出可用工具（tools/list）确认：',
+  '',
+  '- 端点：' + panelOrigin + '/api/mcp（协议：MCP Streamable HTTP，JSON-RPC 2.0）',
+  '- 认证头：Authorization: Bearer ' + mcpToken.value.token,
+  '',
+  '配置 JSON：',
+  mcpCfg.value,
+  '',
+  '注意：该 Token 等效管理员权限（当前权限模式：' + (mcpToken.value.mode === 'custom' ? '按模块授权' : '完整权限') + (mcpToken.value.readonly ? ' · 只读' : '') + '），仅限本人使用，请勿转发或泄露。',
+].join('\n'))
+
+async function copyPrompt() {
+  try {
+    await navigator.clipboard.writeText(mcpPrompt.value)
+    ElMessage.success('提示词已复制，请粘贴至 AI 工具执行')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择文本复制')
+  }
+}
+
+async function loadMcpEnv() {
+  try { fwStatus.value = await api.get('/firewall/status') } catch { /* 忽略 */ }
+  try { tlsEnabled.value = !!(await api.get('/setting/tls/status'))?.tls?.enabled } catch { /* 忽略 */ }
+}
+
 async function loadTokens() {
   try {
     apiToken.value = (await api.get('/setting/api-token')) as any
@@ -948,7 +980,9 @@ async function loadTokens() {
   try {
     mcpToken.value = (await api.get('/mcp/token')) as any
     syncForm(mcpPermForm, mcpToken.value)
+    promptShown.value = false
   } catch { /* 非 admin 忽略 */ }
+  loadMcpEnv()
 }
 
 const mcpCfg = computed(() =>
@@ -977,7 +1011,7 @@ async function genToken(target: 'api' | 'mcp') {
   try {
     const path = target === 'api' ? '/setting/api-token' : '/mcp/token'
     const r: any = await api.post(path, { mode: form.mode, scopes: form.scopes, readonly: form.readonly })
-    if (target === 'api') { apiToken.value = r; apiRevealed.value = true } else { mcpToken.value = r; mcpRevealed.value = true }
+    if (target === 'api') { apiToken.value = r; apiRevealed.value = true } else { mcpToken.value = r; promptShown.value = false }
     syncForm(form, st.value)
     ElMessage.success('Token 已生成')
   } finally {
@@ -1024,6 +1058,19 @@ async function clearToken(target: 'api' | 'mcp') {
 </script>
 
 <style scoped>
+.mcp-status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--wm-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--wm-soft, rgba(13, 148, 136, 0.04));
+}
+.mcp-status-item { display: inline-flex; align-items: center; gap: 6px; }
+.mcp-status-sep { width: 1px; height: 14px; background: var(--wm-border, #e5e7eb); margin: 0 14px; }
+.mcp-step { margin-top: 12px; }
 .st-foot-note { margin-right: auto; font-size: 12px; align-self: center; }
 
 /* 布局：水平锚点条 + 全宽单列卡片流（大屏不留半卡空缺） */
