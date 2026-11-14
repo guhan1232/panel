@@ -390,7 +390,7 @@ func (s *Service) appCheckUpdate(c *gin.Context) {
 	latest := strings.TrimSpace(core.GetSetting(s.db, core.KAppLatestVer))
 	out := gin.H{
 		"platform": platform,
-		"current":  core.Version,
+		"current":  func() string { v := strings.TrimSpace(c.Query("v")); if v != "" { return v }; return core.Version }(),
 		"latest":   latest,
 		"apk_url":  core.GetSetting(s.db, core.KAppApkURL),
 		"notes":    core.GetSetting(s.db, core.KAppReleaseNotes),
