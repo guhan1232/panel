@@ -74,8 +74,8 @@ azapp:
           type: git:release
           options:
             tag: app-release
-            title: 寒语馨面板 Android APP（正式签名 · CNB 云端构建）
-            description: CNB 云原生构建产物：正式签名 APK（CN=Hanyuxin Panel，与本地构建同签名）。同签名覆盖安装自动继承服务器列表/令牌/绑定数据；与旧 Debug 签名版（tag: app-debug）签名不同，覆盖安装前需先卸载。
+            title: '寒语馨面板 Android APP（正式签名 · CNB 云端构建）'
+            description: 'CNB 云原生构建产物：正式签名 APK（CN=Hanyuxin Panel，与本地构建同签名）。同签名覆盖安装自动继承服务器列表/令牌/绑定数据；与旧 Debug 签名版（tag app-debug）签名不同，覆盖安装前需先卸载。'
             latest: true
         - name: 上传附件（OpenAPI 直传）
           script: |
