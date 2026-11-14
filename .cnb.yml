@@ -1,6 +1,10 @@
 # azapp 分支 = 寒语馨面板 Android APP 专属源码工作区（APP 源码在仓库根）。
-# CNB 云原生构建：每次 push 自动出 Debug 签名 APK 并发布到仓库 Release 附件。
-# 正式 release 签名版不走云端（keystore 不入库），仍由本地 gradle assembleRelease 构建。
+# CNB 云原生构建：每次 push 自动出 **正式签名** APK（与本地 assembleRelease 同签名：CN=Hanyuxin Panel），
+# 发布到仓库 Release 附件（tag: app-release）。
+#
+# 正式签名密钥以加密形态入库：keystore/hanyuxin-panel.jks.enc（AES-256-CBC + PBKDF2）。
+# 解密与签名密码来自仓库私密环境变量 KEYSTORE_PASS（CNB 仓库设置 → 环境变量，勾选私密）。
+# 未配置 KEYSTORE_PASS 时构建失败并提示，避免悄悄产出 Debug 签名版。
 azapp:
   push:
     - name: android-apk
@@ -13,8 +17,15 @@ azapp:
         ANDROID_SDK_ROOT: /opt/android-sdk
       volumes:
         - /root/.gradle   # gradle 依赖与构建缓存（跨次构建复用）
-        - /root/.android  # debug.keystore 缓存
       stages:
+        - name: 检查签名环境变量
+          script: |
+            if [ -z "$KEYSTORE_PASS" ]; then
+              echo "❌ 未配置私密环境变量 KEYSTORE_PASS"
+              echo "   请到 CNB 仓库 → 设置 → 环境变量 添加（勾选私密）：KEYSTORE_PASS=<正式签名密码>"
+              exit 1
+            fi
+            echo "KEYSTORE_PASS 已配置（值不回显）"
         - name: 安装 Android SDK
           script: |
             apt-get update -qq >/dev/null && apt-get install -y -qq unzip >/dev/null
@@ -33,33 +44,54 @@ azapp:
             unzip -q /tmp/gradle.zip -d /opt
             ln -sf /opt/gradle-8.10.2/bin/gradle /usr/local/bin/gradle
             gradle --version | head -4
-        - name: 构建 Debug APK
+        - name: 恢复正式签名密钥
           script: |
-            gradle assembleDebug --no-daemon --console=plain
+            openssl version
+            openssl enc -d -aes-256-cbc -pbkdf2 -in keystore/hanyuxin-panel.jks.enc -out keystore/hanyuxin-panel.jks -pass pass:"$KEYSTORE_PASS" \
+              || { echo "❌ 密钥解密失败：KEYSTORE_PASS 不正确"; exit 1; }
+            cat > keystore.properties <<EOF
+            storeFile=keystore/hanyuxin-panel.jks
+            storePassword=$KEYSTORE_PASS
+            keyAlias=hanyuxin-panel
+            keyPassword=$KEYSTORE_PASS
+            EOF
+            # 校验密钥库完整性与别名（防密码正确但文件损坏）
+            keytool -list -keystore keystore/hanyuxin-panel.jks -storepass "$KEYSTORE_PASS" -alias hanyuxin-panel >/dev/null \
+              || { echo "❌ 密钥库校验失败"; exit 1; }
+            echo "✓ 正式签名密钥已就绪（hanyuxin-panel）"
+        - name: 构建 Release APK（正式签名）
+          script: |
+            gradle assembleRelease --no-daemon --console=plain
+            VER=$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | cut -d'"' -f2)
+            CODE=$(grep -o 'versionCode = [0-9]*' app/build.gradle.kts | grep -o '[0-9]*')
             mkdir -p /workspace/dist
-            cp app/build/outputs/apk/debug/app-debug.apk /workspace/dist/hanyuxin-panel-debug.apk
-            sha256sum /workspace/dist/hanyuxin-panel-debug.apk
+            cp app/build/outputs/apk/release/app-release.apk /workspace/dist/hanyuxin-panel-$VER.apk
+            echo "version: $VER (code $CODE)"
+            sha256sum /workspace/dist/hanyuxin-panel-$VER.apk
             ls -lh /workspace/dist/
+            echo "$VER" > /workspace/dist/VERSION
         - name: 创建 Release
           type: git:release
           options:
-            tag: app-debug
-            title: 寒语馨面板 Android APP（Debug 签名 · CNB 云端构建）
-            description: CNB 云原生构建产物：Debug 签名 APK（可直接安装试用）。与正式 release 签名版签名不同，覆盖安装前需先卸载旧版。
+            tag: app-release
+            title: 寒语馨面板 Android APP（正式签名 · CNB 云端构建）
+            description: CNB 云原生构建产物：正式签名 APK（CN=Hanyuxin Panel，与本地构建同签名）。同签名覆盖安装自动继承服务器列表/令牌/绑定数据；与旧 Debug 签名版（tag: app-debug）签名不同，覆盖安装前需先卸载。
             latest: true
         - name: 上传附件（OpenAPI 直传）
           script: |
-            APK=/workspace/dist/hanyuxin-panel-debug.apk
+            VER=$(cat /workspace/dist/VERSION)
+            APK=/workspace/dist/hanyuxin-panel-$VER.apk
+            NAME=hanyuxin-panel-$VER.apk
             SIZE=$(stat -c%s "$APK")
-            REL=$(curl -sf -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/tags/app-debug")
+            REL=$(curl -sf -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/tags/app-release")
             REL_ID=$(echo "$REL" | grep -o '"id":"[0-9]*"' | head -1 | grep -o '[0-9]*')
             echo "release id: $REL_ID"
             UP=$(curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" \
-              -d "{\"asset_name\":\"hanyuxin-panel-debug.apk\",\"size\":$SIZE,\"overwrite\":true}" \
+              -d "{\"asset_name\":\"$NAME\",\"size\":$SIZE,\"overwrite\":true}" \
               "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/$REL_ID/asset-upload-url")
             UPLOAD_URL=$(echo "$UP" | grep -o '"upload_url":"[^"]*"' | cut -d'"' -f4)
             VERIFY_URL=$(echo "$UP" | grep -o '"verify_url":"[^"]*"' | cut -d'"' -f4)
             echo "upload url acquired"
             curl -sf -X PUT -T "$APK" "$UPLOAD_URL"
             curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$VERIFY_URL"
-            echo "附件已上传并确认"
+            echo "附件已上传并确认：$NAME"
