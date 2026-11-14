@@ -274,7 +274,26 @@ fun MeScreen(server: ServerInfo) {
         DevicesDialog(server) { showDevices = false }
     }
     if (show2FA) {
-        TwoFADialog(client = clientFor(server), onDismiss = { show2FA = false; twoFAEnabled = null }, onChanged = { twoFAEnabled = it })
+        TwoFADialog(
+            client = clientFor(server),
+            onDismiss = { show2FA = false; twoFAEnabled = null },
+            onChanged = { twoFAEnabled = it },
+            onScan = {
+                // AlertDialog 会遮挡扫码页：先关对话框，扫码完成后再重开显示动态码
+                show2FA = false
+                Router.push(Router.Route.Scanner(
+                    onQr = { Router.pop() },
+                    onClose = { Router.pop(); show2FA = true },
+                    onText = { raw ->
+                        if (raw.startsWith("otpauth://totp/")) {
+                            ServerStore.setTotpSecret(raw.substringAfter("secret=").substringBefore("&").trim())
+                            Router.pop()
+                            show2FA = true
+                        }
+                    },
+                ))
+            },
+        )
     }
 
     update?.let { u ->
@@ -667,11 +686,10 @@ fun QrCodeImage(content: String, modifier: Modifier = Modifier) {
 
 // ---- 两因素验证（TOTP）宝塔式：Web 显示二维码 → APP 扫码/粘贴 secret → APP 即验证器（显示动态码）----
 @Composable
-fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Unit, onChanged: (Boolean?) -> Unit) {
+fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Unit, onChanged: (Boolean?) -> Unit, onScan: () -> Unit) {
 	val scope = rememberCoroutineScope()
 	var enabled by remember { mutableStateOf<Boolean?>(null) }
 	var secret by remember { mutableStateOf(ServerStore.totpSecret()) }
-	var showScan by remember { mutableStateOf(false) }
 	var pasteMode by remember { mutableStateOf(false) }
 	var pasteText by remember { mutableStateOf("") }
 	var code by remember { mutableStateOf("") }
@@ -733,7 +751,7 @@ fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Uni
 					}
 					else -> {
 						Text("绑定后本机即验证器：登录面板时的动态码直接在本 APP 查看。", fontSize = 13.sp)
-						Button(onClick = { showScan = true }, modifier = Modifier.fillMaxWidth()) { Text("扫码绑定（扫面板显示的二维码）") }
+						Button(onClick = onScan, modifier = Modifier.fillMaxWidth()) { Text("扫码绑定（扫面板显示的二维码）") }
 						TextButton(onClick = { pasteMode = true }, modifier = Modifier.fillMaxWidth()) { Text("手动粘贴密钥") }
 						if (pasteMode) {
 							OutlinedTextField(pasteText, { pasteText = it }, label = { Text("粘贴密钥（Base32）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -750,19 +768,6 @@ fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Uni
 		confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
 	)
 
-	if (showScan) {
-		Router.push(Router.Route.Scanner(
-			onQr = { /* 非 otpauth 内容忽略 */ },
-			onClose = { Router.pop() },
-			onText = { raw ->
-				if (raw.startsWith("otpauth://totp/")) {
-					secret = raw.substringAfter("secret=").substringBefore("&").trim()
-					showScan = false
-					Router.pop()
-				}
-			},
-		))
-	}
 }
 
 /** 动态码视图：6 位码（30 秒轮换）+ 剩余时间条。 */
