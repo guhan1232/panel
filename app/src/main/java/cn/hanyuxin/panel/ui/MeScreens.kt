@@ -649,78 +649,6 @@ private fun startAppUpdate(
 }
 
 // ---- 两因素验证（TOTP）：状态 / 绑定（二维码 + 密钥 + 动态码）/ 解除 ----
-@Composable
-fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Unit, onChanged: (Boolean?) -> Unit) {
-	val scope = rememberCoroutineScope()
-	var enabled by remember { mutableStateOf<Boolean?>(null) }
-	var setup by remember { mutableStateOf<cn.hanyuxin.panel.data.TwoFASetup?>(null) }
-	var code by remember { mutableStateOf("") }
-	var password by remember { mutableStateOf("") }
-	var busy by remember { mutableStateOf(false) }
-	var err by remember { mutableStateOf<String?>(null) }
-	LaunchedEffect(Unit) {
-		apiGuard(onError = { err = it.message }) { enabled = Api.twoFAStatus(client).enabled }
-	}
-	AlertDialog(
-		onDismissRequest = onDismiss,
-		title = { Text("两因素验证（TOTP）") },
-		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-				when (enabled) {
-					null -> Row { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) }
-					true -> {
-						Text("已启用。登录面板时需输入验证器 App 的 6 位动态码。")
-						OutlinedTextField(password, { password = it }, label = { Text("输入登录密码以解除绑定") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true)
-						err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-						Button(enabled = !busy && password.isNotBlank(), onClick = {
-							busy = true
-							scope.launch {
-								apiGuard(onError = { err = it.message }) {
-									Api.twoFADisable(client, password)
-									enabled = false
-									onChanged(false)
-									err = null
-								}
-								busy = false
-							}
-						}) { Text("解除绑定") }
-					}
-					false -> {
-						val st = setup
-						if (st == null) {
-							Text("生成绑定密钥…")
-						} else {
-							Text("用验证器 App（Google Authenticator / 腾讯 Token 等）扫码，或手动录入密钥，然后输入 6 位动态码确认：", fontSize = 13.sp)
-							QrCodeImage(st.url, Modifier.align(Alignment.CenterHorizontally))
-							Text(st.secret, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary)
-							OutlinedTextField(code, { code = it }, label = { Text("6 位动态码") }, singleLine = true)
-							err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-							Button(enabled = !busy && code.length >= 6, onClick = {
-								busy = true
-								scope.launch {
-									apiGuard(onError = { err = it.message }) {
-										Api.twoFAEnable(client, st.secret, code.trim())
-										enabled = true
-										onChanged(true)
-										err = null
-									}
-									busy = false
-								}
-							}) { Text("确认启用") }
-						}
-						LaunchedEffect(enabled) {
-							if (enabled == false && setup == null) {
-								apiGuard(onError = { err = it.message }) { setup = Api.twoFASetup(client) }
-							}
-						}
-					}
-				}
-			}
-				err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-		},
-		confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-	)
-}
 
 /** OTP 链接二维码（zxing 生成矩阵 + Canvas 自绘，白底深块）。 */
 @Composable
@@ -734,5 +662,149 @@ fun QrCodeImage(content: String, modifier: Modifier = Modifier) {
 		for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
 			if (matrix[x, y]) drawRect(Color(0xFF111827), topLeft = Offset(x * cell, y * cell), size = Size(cell, cell))
 		}
+	}
+}
+
+// ---- 两因素验证（TOTP）宝塔式：Web 显示二维码 → APP 扫码/粘贴 secret → APP 即验证器（显示动态码）----
+@Composable
+fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Unit, onChanged: (Boolean?) -> Unit) {
+	val scope = rememberCoroutineScope()
+	var enabled by remember { mutableStateOf<Boolean?>(null) }
+	var secret by remember { mutableStateOf(ServerStore.totpSecret()) }
+	var showScan by remember { mutableStateOf(false) }
+	var pasteMode by remember { mutableStateOf(false) }
+	var pasteText by remember { mutableStateOf("") }
+	var code by remember { mutableStateOf("") }
+	var password by remember { mutableStateOf("") }
+	var busy by remember { mutableStateOf(false) }
+	var err by remember { mutableStateOf<String?>(null) }
+	LaunchedEffect(Unit) {
+		apiGuard(onError = {}) { enabled = Api.twoFAStatus(client).enabled }
+	}
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("两因素验证（TOTP）") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+				when {
+					enabled == null -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+					enabled == true -> {
+						Text("已启用。本机即验证器，动态码如下；登录面板时可直接使用。", fontSize = 13.sp)
+						TotpCodeView(secret)
+						OutlinedTextField(password, { password = it }, label = { Text("输入登录密码以解除绑定") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+						err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+						Button(enabled = !busy && password.isNotBlank(), onClick = {
+							busy = true
+							scope.launch {
+								apiGuard(onError = { err = it.message }) {
+									Api.twoFADisable(client, password)
+									ServerStore.setTotpSecret("")
+									enabled = false
+									onChanged(false)
+									err = null
+								}
+								busy = false
+							}
+						}) { Text("解除绑定") }
+					}
+					secret.isNotBlank() -> {
+						Text("密钥已就绪。以下为本机动态码，确认启用后登录面板时使用：", fontSize = 13.sp)
+						TotpCodeView(secret)
+						err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+						Button(enabled = !busy, onClick = {
+							busy = true
+							scope.launch {
+								apiGuard(onError = { err = it.message }) {
+									Api.twoFAEnable(client, secret, TotpCalculator.currentCode(secret))
+									ServerStore.setTotpSecret(secret)
+									enabled = true
+									onChanged(true)
+									err = null
+								}
+								busy = false
+							}
+						}) { Text("确认启用") }
+					}
+					else -> {
+						Text("绑定后本机即验证器：登录面板时的动态码直接在本 APP 查看。", fontSize = 13.sp)
+						Button(onClick = { showScan = true }, modifier = Modifier.fillMaxWidth()) { Text("扫码绑定（扫面板显示的二维码）") }
+						TextButton(onClick = { pasteMode = true }, modifier = Modifier.fillMaxWidth()) { Text("手动粘贴密钥") }
+						if (pasteMode) {
+							OutlinedTextField(pasteText, { pasteText = it }, label = { Text("粘贴密钥（Base32）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+							Button(enabled = pasteText.isNotBlank(), onClick = {
+								secret = pasteText.trim().replace(" ", "").uppercase()
+								pasteMode = false
+							}, modifier = Modifier.fillMaxWidth()) { Text("确定") }
+						}
+						err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+					}
+				}
+			}
+		},
+		confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+	)
+
+	if (showScan) {
+		Router.push(Router.Route.Scanner(
+			onQr = { /* 非 otpauth 内容忽略 */ },
+			onClose = { Router.pop() },
+			onText = { raw ->
+				if (raw.startsWith("otpauth://totp/")) {
+					secret = raw.substringAfter("secret=").substringBefore("&").trim()
+					showScan = false
+					Router.pop()
+				}
+			},
+		))
+	}
+}
+
+/** 动态码视图：6 位码（30 秒轮换）+ 剩余时间条。 */
+@Composable
+fun TotpCodeView(secret: String, modifier: Modifier = Modifier) {
+	var code by remember(secret) { mutableStateOf(TotpCalculator.currentCode(secret)) }
+	var remain by remember(secret) { mutableIntStateOf(30) }
+	LaunchedEffect(secret) {
+		while (true) {
+			code = TotpCalculator.currentCode(secret)
+			remain = 30 - (System.currentTimeMillis() / 1000 % 30).toInt()
+			delay(1000)
+		}
+	}
+	Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+		Text(code, fontSize = 34.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary, letterSpacing = 4.sp)
+		Text("${remain}s 后刷新", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		androidx.compose.material3.LinearProgressIndicator(
+			progress = remain / 30f,
+			modifier = Modifier.fillMaxWidth(0.7f).padding(top = 6.dp),
+		)
+	}
+}
+
+/** TOTP（RFC 6238，SHA1/6 位/30s）计算器。 */
+object TotpCalculator {
+	private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+	fun currentCode(secretBase32: String, timeSec: Long = System.currentTimeMillis() / 1000): String {
+		val clean = secretBase32.trim().replace(" ", "").uppercase()
+		var bits = ""
+		for (c in clean) {
+			val v = ALPHABET.indexOf(c)
+			if (v >= 0) bits += v.toString(2).padStart(5, '0')
+		}
+		val bytes = mutableListOf<Byte>()
+		var i = 0
+		while (i + 8 <= bits.length) {
+			bytes.add(bits.substring(i, i + 8).toInt(2).toByte())
+			i += 8
+		}
+		val counter = timeSec / 30
+		val buf = ByteArray(8)
+		for (k in 0 until 8) buf[k] = (counter shr ((7 - k) * 8)).toByte()
+		val mac = javax.crypto.Mac.getInstance("HmacSHA1")
+		mac.init(javax.crypto.spec.SecretKeySpec(bytes.toByteArray(), "HmacSHA1"))
+		val digest = mac.doFinal(buf)
+		val off = digest[digest.size - 1].toInt() and 0xf
+		val bin = ((digest[off].toInt() and 0x7f) shl 24) or ((digest[off + 1].toInt() and 0xff) shl 16) or ((digest[off + 2].toInt() and 0xff) shl 8) or (digest[off + 3].toInt() and 0xff)
+		return (bin % 1_000_000).toString().padStart(6, '0')
 	}
 }

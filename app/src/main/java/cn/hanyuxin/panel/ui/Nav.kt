@@ -58,7 +58,7 @@ import kotlinx.coroutines.flow.StateFlow
 object Router {
     sealed class Route {
         data class AddServer(val onDone: () -> Unit) : Route()
-        data class Scanner(val onQr: (QrData) -> Unit, val onClose: () -> Unit) : Route()
+        data class Scanner(val onQr: (QrData) -> Unit, val onClose: () -> Unit, val onText: ((String) -> Unit)? = null) : Route()
         data class Login(val server: ServerInfo, val qrKey: String, val onLoggedIn: (ServerInfo) -> Unit, val onClose: () -> Unit) : Route()
         data class BindLogin(val server: ServerInfo, val bindKey: String, val onClose: () -> Unit) : Route()
         data class QrApprove(val server: ServerInfo, val key: String, val onDone: () -> Unit) : Route()
@@ -161,7 +161,7 @@ fun RootApp() {
 
     when (val o = overlay) {
         is Router.Route.AddServer -> AddServerScreen { Router.pop() }
-        is Router.Route.Scanner -> ScannerScreen(o.onQr, o.onClose)
+        is Router.Route.Scanner -> ScannerScreen(o.onQr, o.onClose, o.onText)
         is Router.Route.Login -> LoginScreen(o.server, o.qrKey, o.onLoggedIn, o.onClose)
         is Router.Route.BindLogin -> BindLoginScreen(o.server, o.bindKey, o.onClose)
         is Router.Route.QrApprove -> QrApproveScreen(o.server, o.key, o.onDone)

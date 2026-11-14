@@ -196,7 +196,7 @@ fun AddServerScreen(onDone: () -> Unit) {
 // ---- 扫码（CameraX + zxing，无 GMS 依赖）----
 
 @Composable
-fun ScannerScreen(onQr: (QrData) -> Unit, onClose: () -> Unit) {
+fun ScannerScreen(onQr: (QrData) -> Unit, onClose: () -> Unit, onText: ((String) -> Unit)? = null) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasPermission by remember {
@@ -236,7 +236,7 @@ fun ScannerScreen(onQr: (QrData) -> Unit, onClose: () -> Unit) {
                         decodeFrame(reader, proxy)?.let { text ->
                             QrData.parse(text)?.let { qr ->
                                 result = qr
-                                ContextCompat.getMainExecutor(ctx).execute { onQr(qr) }
+                                ContextCompat.getMainExecutor(ctx).execute { if (qr.isTotp && onText != null) onText(text) else onQr(qr) }
                             }
                         }
                     }
@@ -358,7 +358,11 @@ fun LoginScreen(server: ServerInfo, qrKey: String, onLoggedIn: (ServerInfo) -> U
                 scope.launch {
                     try {
                         val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
-                        val resp = Api.login(server, user.trim(), pass, code.trim(), device)
+                        // APP 即验证器：本机已绑定 2FA 时自动填充当前动态码（无感两因素）
+                        val autoCode = if (code.isBlank() && ServerStore.totpSecret().isNotBlank()) {
+                            TotpCalculator.currentCode(ServerStore.totpSecret())
+                        } else code
+                        val resp = Api.login(server, user.trim(), pass, autoCode, device)
                         if (resp.need_2fa) {
                             need2fa = true
                             err = "该账号已启用两因素验证，请输入验证码"

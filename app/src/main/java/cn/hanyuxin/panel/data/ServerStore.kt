@@ -26,6 +26,7 @@ object ServerStore {
     private const val KEY_SERVERS = "servers_json"
     private const val KEY_LAST = "last_host"
     private const val KEY_BIO = "bio_enabled"
+    private const val KEY_TOTP = "totp_secret" // 2FA 验证器密钥（APP 即验证器）
     private const val KEY_TOKEN = "token:"
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -100,7 +101,13 @@ object ServerStore {
         }
     }
 
-    fun token(host: String): String? = prefs?.getString(KEY_TOKEN + host, null)?.takeIf { it.isNotBlank() }
+    
+    /** 2FA 验证器密钥（APP 自身作为验证器；单账号面板场景全局一枚）。 */
+    fun totpSecret(): String = prefs?.getString(KEY_TOTP, null)?.takeIf { it.isNotBlank() } ?: ""
+    fun setTotpSecret(secret: String) {
+        prefs?.edit()?.putString(KEY_TOTP, secret.trim())?.apply()
+    }
+fun token(host: String): String? = prefs?.getString(KEY_TOKEN + host, null)?.takeIf { it.isNotBlank() }
     fun setToken(host: String, token: String?) {
         prefs?.edit()?.let { e ->
             if (token.isNullOrBlank()) e.remove(KEY_TOKEN + host) else e.putString(KEY_TOKEN + host, token)
