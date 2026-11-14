@@ -55,6 +55,10 @@ object Router {
         data class Nodes(val server: ServerInfo) : Route()
         data class Firewall(val server: ServerInfo) : Route()
         data class Certs(val server: ServerInfo) : Route()
+        data class Audit(val server: ServerInfo) : Route()
+        data class Notify(val server: ServerInfo) : Route()
+        data class Users(val server: ServerInfo) : Route()
+        data class Settings(val server: ServerInfo) : Route()
     }
 
     private val _stack = MutableStateFlow<List<Route>>(emptyList())
@@ -153,6 +157,10 @@ fun RootApp() {
         is Router.Route.Nodes -> NodesScreen(o.server)
         is Router.Route.Firewall -> FirewallScreen(o.server)
         is Router.Route.Certs -> CertsScreen(o.server)
+        is Router.Route.Audit -> AuditScreen(o.server)
+        is Router.Route.Notify -> NotifyScreen(o.server)
+        is Router.Route.Users -> UsersScreen(o.server)
+        is Router.Route.Settings -> SettingsScreen(o.server)
         null -> when {
             current != null -> MainScaffold()
             else -> ServersScreen(

@@ -336,10 +336,106 @@ object Api {
         return c.request<AlertRule>("POST", "/api/alerts/rules", body)
     }
 
+    // ---- 1.3.0 面板组：用户管理 / 审计 / 通知与存储 / 品牌名 ----
+
+    suspend fun userList(c: PanelClient): List<UserItem> = c.request<List<UserItem>>("GET", "/api/users") ?: emptyList()
+    suspend fun userCreate(c: PanelClient, username: String, password: String, role: String): UserItem? {
+        val body = Http.json.encodeToString(mapOf("username" to username, "password" to password, "role" to role))
+        return c.request<UserItem>("POST", "/api/users", body)
+    }
+    suspend fun userUpdate(c: PanelClient, id: Long, role: String?, password: String?, disabled: Boolean?): UserItem? {
+        val body = Http.json.encodeToString(buildMap {
+            role?.let { put("role", it) }
+            password?.takeIf { it.isNotBlank() }?.let { put("password", it) }
+            disabled?.let { put("disabled", it) }
+        })
+        return c.request<UserItem>("PUT", "/api/users/$id", body)
+    }
+    suspend fun userDelete(c: PanelClient, id: Long) { c.request<Unit>("DELETE", "/api/users/$id") }
+
+    suspend fun auditOps(c: PanelClient, page: Int, size: Int, method: String, path: String, username: String): AuditOpsPage =
+        c.request<AuditOpsPage>("GET", "/api/audit/list", query = buildList {
+            add("page" to page.toString()); add("size" to size.toString())
+            if (method.isNotBlank()) add("method" to method)
+            if (path.isNotBlank()) add("path" to path)
+            if (username.isNotBlank()) add("username" to username)
+        }) ?: AuditOpsPage()
+    suspend fun auditTty(c: PanelClient, page: Int, size: Int, username: String): AuditTtyPage =
+        c.request<AuditTtyPage>("GET", "/api/terminal-logs", query = buildList {
+            add("page" to page.toString()); add("size" to size.toString())
+            if (username.isNotBlank()) add("username" to username)
+        }) ?: AuditTtyPage()
+
+    suspend fun notifyConfig(c: PanelClient): NotifyConfigAll = c.request<NotifyConfigAll>("GET", "/api/notify/config") ?: NotifyConfigAll()
+    suspend fun emailSave(c: PanelClient, e: NotifyEmailCfg, toList: List<String>) {
+        val body = Http.json.encodeToString(mapOf(
+            "enabled" to e.enabled, "host" to e.host, "port" to e.port, "ssl" to e.ssl,
+            "user" to e.user, "pass" to e.pass, "from" to e.from, "to" to toList,
+        ))
+        c.request<Unit>("POST", "/api/notify/email", body)
+    }
+    suspend fun webhookSave(c: PanelClient, w: NotifyWebhookCfg) {
+        val body = Http.json.encodeToString(mapOf(
+            "enabled" to w.enabled, "type" to w.type, "url" to w.url, "chat_id" to w.chat_id,
+        ))
+        c.request<Unit>("POST", "/api/notify/webhook", body)
+    }
+    suspend fun notifyTest(c: PanelClient, channel: String) { c.request<Unit>("POST", "/api/notify/test", Http.json.encodeToString(mapOf("channel" to channel))) }
+    suspend fun s3Config(c: PanelClient): S3Cfg = c.request<S3Cfg>("GET", "/api/s3/config") ?: S3Cfg()
+    suspend fun s3Save(c: PanelClient, s3: S3Cfg) {
+        val body = Http.json.encodeToString(mapOf(
+            "enabled" to s3.enabled, "endpoint" to s3.endpoint, "access_key" to s3.access_key,
+            "secret_key" to s3.secret_key, "bucket" to s3.bucket, "use_ssl" to s3.use_ssl, "prefix" to s3.prefix,
+        ))
+        c.request<Unit>("POST", "/api/s3/config", body)
+    }
+    suspend fun s3Test(c: PanelClient) { c.request<Unit>("POST", "/api/s3/test", "{}") }
+
+    suspend fun brandInfo(c: PanelClient): BrandInfo = c.request<BrandInfo>("GET", "/api/setting/brand") ?: BrandInfo()
+    suspend fun panelNameSet(c: PanelClient, name: String): BrandInfo? {
+        val body = Http.json.encodeToString(mapOf("name" to name))
+        return c.request<BrandInfo>("POST", "/api/setting/name", body)
+    }
+
+    // 告警规则全字段创建/更新（覆盖早前固定阈值的简化版）
+    suspend fun alertRuleCreateFull(c: PanelClient, f: AlertRule): AlertRule? {
+        val body = Http.json.encodeToString(mapOf(
+            "name" to f.name, "metric" to f.metric, "op" to f.op, "threshold" to f.threshold,
+            "duration_min" to f.duration_min, "cooldown_min" to f.cooldown_min, "node_id" to f.node_id, "enabled" to true,
+        ))
+        return c.request<AlertRule>("POST", "/api/alerts/rules", body)
+    }
+    suspend fun alertRuleUpdate(c: PanelClient, id: Long, f: AlertRule): AlertRule? {
+        val body = Http.json.encodeToString(mapOf(
+            "name" to f.name, "metric" to f.metric, "op" to f.op, "threshold" to f.threshold,
+            "duration_min" to f.duration_min, "cooldown_min" to f.cooldown_min, "node_id" to f.node_id,
+        ))
+        return c.request<AlertRule>("PUT", "/api/alerts/rules/$id", body)
+    }
+
+    // ---- 1.3.0 系统设置：改密 / 开放 API Token ----
+
+    suspend fun changePassword(c: PanelClient, old: String, newPassword: String) {
+        val body = Http.json.encodeToString(mapOf("old" to old, "new" to newPassword))
+        c.request<Unit>("POST", "/api/setting/password", body)
+    }
+    /** 返回 (enabled, token)。 */
+    suspend fun mcpTokenStatus(c: PanelClient): Pair<Boolean, String> {
+        val d = c.request<Map<String, String>>("GET", "/api/mcp/token") ?: return Pair(false, "")
+        val en = (d["enabled"] ?: "false") == "true"
+        return Pair(en, d["token"] ?: "")
+    }
+    suspend fun mcpTokenGenerate(c: PanelClient): String {
+        val body = Http.json.encodeToString(mapOf("mode" to "full", "scopes" to emptyList<String>(), "readonly" to false))
+        val d = c.request<Map<String, String>>("POST", "/api/mcp/token", body) ?: return ""
+        return d["token"] ?: ""
+    }
+    suspend fun mcpTokenDisable(c: PanelClient) { c.request<Unit>("DELETE", "/api/mcp/token") }
+
     // ---- 终端主机收藏 ----
 
     suspend fun termHosts(c: PanelClient): List<TermHost> = c.request<List<TermHost>>("GET", "/api/term/hosts") ?: emptyList()
 }
 
 /** APP 当前版本号（与 build.gradle.kts versionName 同步）。 */
-object BuildVersion { const val CURRENT = "1.1.1" }
+object BuildVersion { const val CURRENT = "1.3.0" }
