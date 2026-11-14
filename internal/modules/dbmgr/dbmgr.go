@@ -343,7 +343,7 @@ func (m *Module) uninstall(c *gin.Context) {
 		} else {
 			script = "systemctl stop mysqld mariadb 2>/dev/null; dnf remove -y mysql-server mariadb-server 2>/dev/null"
 		}
-		rmData = "rm -rf /var/lib/mysql /etc/mysql /var/log/mysql"
+		rmData = "rm -rf /var/lib/mysql /etc/mysql /etc/my.cnf.d /var/log/mysql"
 	case "postgresql":
 		if _, _, e := execx.Run("db", 5*time.Second, "apt-get", "--version"); e == nil {
 			script = "systemctl stop postgresql 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get purge -y 'postgresql-*' 2>/dev/null; apt-get autoremove -y -qq"

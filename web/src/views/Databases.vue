@@ -12,7 +12,8 @@
             <div class="wm-mt-4">
               <a-button type="primary" :loading="installingDb === 'mysql'" @click="installDb('mysql')">一键安装 MySQL（推荐）</a-button>
               <a-button :loading="installingDb === 'mariadb'" @click="installDb('mariadb')" style="margin-left:12px">安装 MariaDB（备选）</a-button>
-              <p class="wm-text-muted" style="margin-top:8px">MySQL 优先（Ubuntu 走官方源；Debian 自动添加 MySQL 官方 APT 仓库），失败可改用 MariaDB。安装后自动修复 root 免密认证（Error 1698）并保存连接配置。</p>
+              <a-button danger :loading="installingDb === 'uninstall'" style="margin-left:12px" @click="uninstallDb('mysql')">卸载 / 清理残留</a-button>
+              <p class="wm-text-muted" style="margin-top:8px">MySQL 优先（Ubuntu 走官方源；Debian 自动添加 MySQL 官方 APT 仓库），失败可改用 MariaDB；安装异常或残留时可用「卸载 / 清理残留」清空后重装。安装后自动修复 root 免密认证（Error 1698）并保存连接配置。</p>
             </div>
           </WmNotice>
           <template v-else>
@@ -32,7 +33,7 @@
                 <a-button size="small">更多<span class="wm-icon wm-dd-icon"><ArrowDown /></span></a-button>
                 <template #overlay>
                   <a-menu>
-                    <a-menu-item key="uninstall" :disabled="installingDb === 'uninstall'" @click="uninstallDb('mysql')">卸载 MySQL 服务</a-menu-item>
+                    <a-menu-item key="uninstall" :disabled="installingDb === 'uninstall'" @click="uninstallDb('mysql')">卸载 MySQL/MariaDB</a-menu-item>
                   </a-menu>
                 </template>
               </a-dropdown>
@@ -66,6 +67,9 @@
       <template v-else-if="engine === 'pg'">
           <WmNotice v-if="pgMissing" tone="warning" title="PostgreSQL 服务未运行">
             探测 {{ pg.host }}:{{ pg.port }} 无监听（服务未安装或未启动）。可通过「软件商店」或系统包管理器安装 PostgreSQL 后，在此保存连接配置。
+            <div class="wm-mt-4">
+              <a-button danger :loading="installingDb === 'uninstall'" @click="uninstallDb('postgresql')">卸载 PostgreSQL / 清理残留</a-button>
+            </div>
           </WmNotice>
           <template v-else>
           <a-form layout="inline" class="cfg">
