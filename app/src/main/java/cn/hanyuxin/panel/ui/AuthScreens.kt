@@ -74,6 +74,7 @@ import cn.hanyuxin.panel.data.ApiException
 import cn.hanyuxin.panel.data.QrData
 import cn.hanyuxin.panel.data.ServerInfo
 import cn.hanyuxin.panel.data.ServerStore
+import cn.hanyuxin.panel.data.UnauthorizedException
 import cn.hanyuxin.panel.data.clientFor
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
@@ -380,6 +381,16 @@ fun LoginScreen(server: ServerInfo, qrKey: String, onLoggedIn: (ServerInfo) -> U
                         }
                     } catch (e: ApiException) {
                         err = e.message
+                    } catch (e: UnauthorizedException) {
+                        // 自动填充的动态码被拒（本机绑定的 secret 已过期/与服务器不一致）：
+                        // 清掉本地旧 secret，强制弹出验证码输入框让用户手动输入，避免永久循环
+                        if (code.isBlank() && ServerStore.totpSecret().isNotBlank()) {
+                            ServerStore.setTotpSecret("")
+                            need2fa = true
+                            err = "本机动态码校验失败（绑定可能已更新），请手动输入验证码"
+                        } else {
+                            err = e.message
+                        }
                     } catch (e: Exception) {
                         err = (e::class.simpleName ?: "Error") + ": " + (e.message ?: "无详情")
                     } finally {

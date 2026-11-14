@@ -171,7 +171,8 @@ class PanelClient(private val server: ServerInfo, private val token: String?) {
         }
         val parsed = runCatching { Http.json.decodeFromString<Resp<T>>(raw.text) }
             .getOrElse { throw ApiException(-1, "响应解析失败: ${it.message}") }
-        if (parsed.code == 401) throw UnauthorizedException()
+        // 401 优先透出服务端原文（如登录“两因素验证码错误”），无 msg 才用默认文案
+        if (parsed.code == 401) throw UnauthorizedException(parsed.msg?.takeIf { it.isNotBlank() } ?: "未登录或会话已过期")
         if (parsed.code != 0) throw ApiException(parsed.code, parsed.msg ?: "请求失败")
         return parsed.data
     }

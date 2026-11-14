@@ -85,7 +85,7 @@ azapp:
             NOTES="CNB 云端构建正式签名 v$VER"
             CODE=$(curl -sf -X POST "$PANEL_URL/api/setting/app-config" \
               -H "Authorization: Bearer $PANEL_API_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"latest_version\":\"$VER\",\"apk_url\":\"$DLURL\",\"release_notes\":\"$NOTES\",\"sha256\":\"$SHA\"}" \
+              -d "{\"latest_version\":\"$VER\",\"apk_url\":\"$DLURL\",\"public_url\":\"$PANEL_URL\",\"release_notes\":\"$NOTES\",\"sha256\":\"$SHA\"}" \
               -o /dev/null -w "%{http_code}") \
               || { echo "面板不可达，跳过发布（不影响构建）"; exit 0; }
             if [ "$CODE" = "200" ]; then echo "✓ 面板在线更新源已注册 v$VER"; else echo "面板返回 $CODE，跳过"; fi
