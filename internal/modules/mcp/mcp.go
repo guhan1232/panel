@@ -14,6 +14,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"strings"
 	"time"
@@ -61,6 +63,7 @@ func (m *Module) Register(protected gin.IRouter, admin gin.IRouter) {
 	admin.POST("/mcp/token", m.genToken)
 	admin.PUT("/mcp/token", m.updateTokenPerm)
 	admin.DELETE("/mcp/token", m.clearToken)
+	admin.GET("/mcp/agent-guide", m.agentGuide)
 }
 
 // ---- 开放 API Token 管理 ----
@@ -147,6 +150,90 @@ func (m *Module) todayCalls() int64 {
 		return 0
 	}
 	return m.statsCount
+}
+
+// agentGuide 生成《AI Agent 自配置 MCP 指令》Markdown（admin 专用）。
+// Agent 读取提示词后自行完成接入：读 mcp_info → 处理证书（如需）→ 写配置 → 验证；
+// 交互形态参照宝塔 MCP 安装提示词。Token/证书链等敏感信息按需生成，不常驻页面。
+func (m *Module) agentGuide(c *gin.Context) {
+	rec := m.authSvc.MCPTokenRec()
+	if rec == nil {
+		core.Err(c, 400, "尚未启用 MCP Token，请先在系统设置生成")
+		return
+	}
+	scheme := "http"
+	if m.cfg.Server.TLS.Enabled {
+		scheme = "https"
+	}
+	// 以请求 Host 生成访问地址（管理员当前可达地址），比占位符实用
+	base := scheme + "://" + c.Request.Host
+	url := base + "/api/mcp"
+	tlsRequired := m.cfg.Server.TLS.Enabled
+	certPEM := ""
+	if tlsRequired && m.cfg.Server.TLS.Cert != "" {
+		cp := m.cfg.Server.TLS.Cert
+		if b, err := os.ReadFile(cp); err == nil {
+			certPEM = string(b)
+		} else if !filepath.IsAbs(cp) {
+			for _, base2 := range []string{filepath.Join("..", m.cfg.DataDir), m.cfg.DataDir, "."} {
+				if b2, err2 := os.ReadFile(filepath.Join(base2, cp)); err2 == nil {
+					certPEM = string(b2)
+					break
+				}
+			}
+		}
+	}
+	if tlsRequired && certPEM == "" {
+		certPEM = "（证书文件读取失败，请手动从面板安装目录 " + m.cfg.Server.TLS.Cert + " 导出证书链）"
+	}
+	core.OK(c, gin.H{"markdown": buildAgentGuide(rec.Token, url, tlsRequired, certPEM), "mcp_url": url})
+}
+
+// buildAgentGuide 组装自配置指令 Markdown。
+func buildAgentGuide(token, url string, tlsRequired bool, certPEM string) string {
+	var b strings.Builder
+	b.WriteString("# 寒语馨面板 MCP · AI Agent 自配置指令\n\n")
+	b.WriteString("> 你是 AI Agent。你的任务：根据下方 mcp_info，为**自身**配置好寒语馨面板的 MCP 连接并验证可用。\n")
+	b.WriteString("> 你只做：读取信息 → 处理证书（如需）→ 把凭证写入自身配置 → 验证可用。\n\n")
+	b.WriteString("---\n\n## 输入：mcp_info\n\n| 字段 | 值 |\n|---|---|\n")
+	b.WriteString("| api_token | `" + token + "`（Bearer 凭证，按配置的权限模式生效，仅限本人使用） |\n")
+	b.WriteString("| url | `" + url + "`（MCP Streamable HTTP，JSON-RPC 2.0） |\n")
+	tlsVal := "false"
+	if tlsRequired {
+		tlsVal = "true（自签/私有 CA，需处理证书链）"
+	}
+	b.WriteString("| tls_required | " + tlsVal + " |\n")
+	if tlsRequired {
+		b.WriteString("\ntls_cert（证书链 PEM 全文，**原样**保存为 hanyuxin_panel.crt——含叶子+中间+根，勿只取第一张）：\n\n```text\n" + certPEM + "\n```\n")
+	}
+	b.WriteString("\n---\n\n## 第一步：确认自身身份（配置方式索引）\n\n")
+	b.WriteString("| Agent | 配置方式 |\n|---|---|\n")
+	b.WriteString("| Claude Code | 推荐 CLI：`claude mcp add --transport http hanyuxin-panel " + url + " --header \"Authorization: Bearer " + token + "\"`；或写项目 .mcp.json |\n")
+	b.WriteString("| Codex | ~/.codex/config.toml → [mcp_servers.hanyuxin-panel]：type=\"http\"、url、headers={Authorization=\"Bearer <token>\"} |\n")
+	b.WriteString("| Cursor | ~/.cursor/mcp.json（或项目 .cursor/mcp.json）→ mcpServers.hanyuxin-panel：{ url, headers } |\n")
+	b.WriteString("| Trae | 须在客户端 UI 添加（官方禁 AI 直写配置文件） |\n")
+	b.WriteString("| 其余 Agent | 查阅自身官方最新文档：写入 url + Authorization Bearer 头即可，**不要猜测**路径与格式 |\n")
+	if tlsRequired {
+		b.WriteString("\n## 第二步：证书处理\n\n将上方 tls_cert 原样保存为 hanyuxin_panel.crt（完整证书链），然后按下表选择信任方式（平铺无优先级，按客户端支持选择）：\n\n")
+		b.WriteString("| 方式 | 做法 | 适用 |\n|---|---|---|\n")
+		b.WriteString("| A 系统信任库 | Windows 管理员 PowerShell：Import-Certificate -FilePath hanyuxin_panel.crt -CertStoreLocation Cert:\\LocalMachine\\Root；Debian/Ubuntu：cp 到 /usr/local/share/ca-certificates/ 并 update-ca-certificates；macOS：security add-trusted-cert | 走系统信任链的客户端 |\n")
+		b.WriteString("| B 系统环境变量 | setx NODE_EXTRA_CA_CERTS <crt 绝对路径>（用户级，新进程生效） | Node 系客户端（实测可靠，免管理员） |\n")
+		b.WriteString("| C 配置内 env | MCP 配置的 env 中加 NODE_EXTRA_CA_CERTS 指向 crt | 支持 env 的 stdio 类客户端（http 类型通常无 env 字段） |\n")
+		b.WriteString("| D 跟随系统库 | env 中加 NODE_OPTIONS=--use-system-ca（Node ≥22） | 配合方式 A 使用 |\n")
+		b.WriteString("| E 跳过验证 | env 中加 NODE_TLS_REJECT_UNAUTHORIZED=0 | 仅临时测试，不安全 |\n")
+	}
+	stepNo := "二"
+	if tlsRequired {
+		stepNo = "三"
+	}
+	b.WriteString("\n## 第" + stepNo + "步：写入自身配置后验证\n\n- [ ] 配置中的 url 与 api_token 与本文一致\n")
+	if tlsRequired {
+		b.WriteString("- [ ] 证书信任方式已生效（无 self-signed / unable to verify 报错）\n")
+	}
+	b.WriteString("- [ ] 客户端能成功 tools/list 列出面板工具，无 401\n")
+	b.WriteString("\n**常见失败排查**：401 = Token 填错或失效；self-signed = 证书未信任（换一种信任方式）；hostname/IP mismatch = 地址不在证书 SAN 内（本文 url 以当前访问地址生成，一般不会出现）；ECONNREFUSED = 面板未运行或端口未放行。\n\n")
+	b.WriteString("---\n\n> **安全提醒**：本提示词包含 Token（等效管理员权限，按配置的权限模式生效），请勿转发或泄露；泄露后请在面板重置 MCP Token。\n")
+	return b.String()
 }
 
 func (m *Module) publicURL() string {

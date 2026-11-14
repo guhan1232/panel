@@ -157,54 +157,61 @@
           <a-button size="small" type="primary" :loading="permSaving" @click="savePerm('api')">保存权限</a-button>
         </template>
       </WmSectionCard>
-      <WmSectionCard class="setting-card" title="MCP Server Token" description="供 AI 客户端（Trae / Claude / Cursor 等）经 MCP 管理面板；与开放 API Token 相互独立，密钥与权限各自配置">
-        <a-descriptions :column="1" bordered size="small">
-          <a-descriptions-item label="状态">
-            <WmStatusPill :label="mcpToken.enabled ? '已启用' : '未启用'" :tone="mcpToken.enabled ? 'success' : 'warning'" :dot="false" />
-          </a-descriptions-item>
-          <a-descriptions-item label="Token">
-            <span class="wm-mono">{{ mcpToken.token ? (mcpRevealed ? mcpToken.token : mcpToken.token.slice(0, 8) + '••••••••') : '—' }}</span>
-            <a-button v-if="mcpToken.token" size="small" type="link" @click="mcpRevealed = !mcpRevealed">{{ mcpRevealed ? '隐藏' : '显示' }}</a-button>
-          </a-descriptions-item>
-          <a-descriptions-item label="权限">
-            <WmStatusPill :label="mcpPermLabel" :tone="mcpToken.readonly ? 'warning' : 'neutral'" :dot="false" outline />
-          </a-descriptions-item>
-          <a-descriptions-item label="MCP 端点"><span class="wm-mono">{{ panelOrigin }}/api/mcp</span></a-descriptions-item>
-        </a-descriptions>
-        <div class="wm-mt-4">
-          <a-space wrap>
-            <a-button type="primary" :loading="tokenBusy" @click="genToken('mcp')">{{ mcpToken.enabled ? '重置 Token' : '生成 Token 启用' }}</a-button>
-            <a-button v-if="mcpToken.enabled" danger :loading="tokenBusy" @click="clearToken('mcp')">禁用 MCP Server</a-button>
-          </a-space>
+      <WmSectionCard class="setting-card" title="MCP 服务" description="连接常用 AI 工具（Trae / Claude / Cursor 等），用自然语言管理面板">
+        <template #actions>
+          <a-button size="small" :loading="tokenBusy" @click="mcpToken.enabled ? clearToken('mcp') : genToken('mcp')">{{ mcpToken.enabled ? '停止服务' : '启用服务' }}</a-button>
+        </template>
+        <div class="mcp-status-row">
+          <span class="mcp-status-item">MCP 服务 <WmStatusPill :label="mcpToken.enabled ? '运行正常' : '未启用'" :tone="mcpToken.enabled ? 'success' : 'neutral'" :dot="true" /></span>
+          <span class="mcp-status-sep"></span>
+          <span class="mcp-status-item">防火墙 <WmStatusPill :label="fwLabel" :tone="fwOk ? 'success' : 'warning'" :dot="false" /></span>
+          <span class="mcp-status-sep"></span>
+          <span class="mcp-status-item">HTTPS <WmStatusPill :label="tlsEnabled ? '正常' : '未启用'" :tone="tlsEnabled ? 'success' : 'warning'" :dot="false" /></span>
+          <span class="mcp-status-sep"></span>
+          <span class="mcp-status-item">今日调用 <b class="wm-mono">{{ mcpToken.today_calls ?? 0 }}</b> 次</span>
         </div>
-        <template v-if="mcpToken.enabled">
-          <div class="wm-mt-4" style="max-width: 720px">
-            <a-form layout="vertical">
-              <a-form-item label="权限模式">
-                <a-radio-group v-model:value="mcpPermForm.mode">
-                  <a-radio-button value="full">完整权限（等效管理员）</a-radio-button>
-                  <a-radio-button value="custom">按模块授权</a-radio-button>
-                </a-radio-group>
-              </a-form-item>
-              <template v-if="mcpPermForm.mode === 'custom'">
-                <a-form-item>
-                  <a-checkbox-group v-model:value="mcpPermForm.scopes" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 12px">
-                    <a-checkbox v-for="s in mcpToken.scopes_known || []" :key="s" :value="s">{{ scopeLabel(s) }}</a-checkbox>
-                  </a-checkbox-group>
+        <WmSectionCard class="mcp-step" title="步骤一：设置当前 MCP 访问权限" dense quiet>
+          <template #actions>
+            <WmStatusPill :label="mcpPermLabel === '—' ? '未配置' : mcpPermLabel" :tone="mcpToken.readonly ? 'warning' : 'neutral'" :dot="false" outline />
+          </template>
+          <span class="wm-text-muted">为 MCP Token 配置权限模式与模块授权（与开放 API Token 相互独立；自定义权限需包含「MCP 工具」模块）。</span>
+          <template v-if="mcpToken.enabled">
+            <div class="wm-mt-4" style="max-width: 720px">
+              <a-form layout="vertical">
+                <a-form-item label="权限模式">
+                  <a-radio-group v-model:value="mcpPermForm.mode">
+                    <a-radio-button value="full">完整权限（等效管理员）</a-radio-button>
+                    <a-radio-button value="custom">按模块授权</a-radio-button>
+                  </a-radio-group>
                 </a-form-item>
-              </template>
-              <a-form-item style="margin-bottom: 0">
-                <a-checkbox v-model:checked="mcpPermForm.readonly">只读模式（MCP 工具内仅执行查询类操作）</a-checkbox>
-              </a-form-item>
-            </a-form>
+                <template v-if="mcpPermForm.mode === 'custom'">
+                  <a-form-item>
+                    <a-checkbox-group v-model:value="mcpPermForm.scopes" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 12px">
+                      <a-checkbox v-for="s in mcpToken.scopes_known || []" :key="s" :value="s">{{ scopeLabel(s) }}</a-checkbox>
+                    </a-checkbox-group>
+                  </a-form-item>
+                </template>
+                <a-form-item style="margin-bottom: 0">
+                  <a-checkbox v-model:checked="mcpPermForm.readonly">只读模式（MCP 工具内仅执行查询类操作）</a-checkbox>
+                </a-form-item>
+              </a-form>
+            </div>
+            <a-button size="small" type="primary" :loading="permSaving" @click="savePerm('mcp')">保存权限</a-button>
+          </template>
+        </WmSectionCard>
+        <WmSectionCard class="mcp-step" title="步骤二：复制 MCP 安装提示词文档" dense quiet>
+          <span class="wm-text-muted">获取安装提示词并粘贴至 AI 工具执行，Agent 将按文档自行完成接入（读取信息 → 处理证书 → 写入配置 → 验证）。提示词包含 Token 等敏感信息，请勿转发或泄露。</span>
+          <div class="wm-mt-4">
+            <a-button v-if="!promptShown" :disabled="!mcpToken.enabled" :loading="guideLoading" type="primary" ghost @click="loadAgentGuide">获取安装提示词</a-button>
+            <template v-else>
+              <WmCodeBlock :content="mcpPrompt" label="MCP 安装提示词（整篇复制，粘贴至 AI 工具执行）" />
+              <a-space class="wm-mt-4">
+                <a-button size="small" @click="copyPrompt">复制提示词</a-button>
+                <a-button size="small" type="link" danger @click="promptShown = false">隐藏</a-button>
+              </a-space>
+            </template>
           </div>
-        </template>
-        <WmCodeBlock v-if="mcpToken.enabled && mcpRevealed" :content="mcpCfg" label="MCP 客户端配置（Trae / Claude Code / Cursor 通用）" class="wm-mt-4" />
-        <WmNotice tone="warning" class="wm-mt-4">MCP Token 仅可用于 MCP 端点（/api/mcp），不能直调开放 API；等效管理员权限，泄露后立即重置。</WmNotice>
-        <template v-if="mcpToken.enabled" #footer>
-          <span class="wm-text-muted st-foot-note">保存立即生效，Token 值不变，客户端无需重新配置</span>
-          <a-button size="small" type="primary" :loading="permSaving" @click="savePerm('mcp')">保存权限</a-button>
-        </template>
+        </WmSectionCard>
       </WmSectionCard>
       <WmSectionCard class="setting-card" title="移动 APP" description="安卓 APP 连接与自更新：对外地址用于扫码登录二维码；APK 地址供 APP 检查更新与下载">
         <a-form layout="vertical" style="max-width: 560px">
@@ -946,22 +953,27 @@ const fwOk = computed(() => fwStatus.value.tool !== 'none' && fwStatus.value.ena
 const fwLabel = computed(() => (fwStatus.value.tool === 'none' ? '未检测（不拦截）' : fwOk.value ? '已放行' : '未放行'))
 const promptShown = ref(false)
 
-const mcpPrompt = computed(() => [
-  '请将以下 MCP 服务器添加到你的 MCP 客户端配置中，完成后连接并列出可用工具（tools/list）确认：',
-  '',
-  '- 端点：' + panelOrigin + '/api/mcp（协议：MCP Streamable HTTP，JSON-RPC 2.0）',
-  '- 认证头：Authorization: Bearer ' + mcpToken.value.token,
-  '',
-  '配置 JSON：',
-  mcpCfg.value,
-  '',
-  '注意：该 Token 等效管理员权限（当前权限模式：' + (mcpToken.value.mode === 'custom' ? '按模块授权' : '完整权限') + (mcpToken.value.readonly ? ' · 只读' : '') + '），仅限本人使用，请勿转发或泄露。',
-].join('\n'))
+const mcpPrompt = ref('')
+const guideLoading = ref(false)
+
+async function loadAgentGuide() {
+  guideLoading.value = true
+  try {
+    const r: any = await api.get('/mcp/agent-guide')
+    mcpPrompt.value = r?.markdown || ''
+    promptShown.value = true
+    if (!mcpPrompt.value) ElMessage.warning('提示词生成失败，请重试')
+  } catch {
+    ElMessage.error('获取安装提示词失败（需 admin 会话且已启用 MCP Token）')
+  } finally {
+    guideLoading.value = false
+  }
+}
 
 async function copyPrompt() {
   try {
     await navigator.clipboard.writeText(mcpPrompt.value)
-    ElMessage.success('提示词已复制，请粘贴至 AI 工具执行')
+    ElMessage.success('提示词已复制，请整篇粘贴至 AI 工具执行')
   } catch {
     ElMessage.warning('复制失败，请手动选择文本复制')
   }
