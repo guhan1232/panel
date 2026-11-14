@@ -72,6 +72,24 @@ azapp:
             sha256sum /workspace/dist/hanyuxin-panel-$VER.apk
             ls -lh /workspace/dist/
             echo "$VER" > /workspace/dist/VERSION
+        - name: 发布到面板（在线更新源注册）
+          script: |
+            VER=$(cat /workspace/dist/VERSION)
+            APK=/workspace/dist/hanyuxin-panel-$VER.apk
+            SHA=$(sha256sum $APK | awk '{print $1}')
+            DLURL="https://cnb.cool/$CNB_REPO_SLUG/-/releases/download/app-release/hanyuxin-panel-$VER.apk"
+            if [ -z "$PANEL_URL" ] || [ -z "$PANEL_API_TOKEN" ]; then
+              echo "未配置 PANEL_URL / PANEL_API_TOKEN（密钥仓库 env.yml），跳过面板发布（不影响构建）"
+              exit 0
+            fi
+            NOTES="CNB 云端构建正式签名 v$VER"
+            CODE=$(curl -sf -X POST "$PANEL_URL/api/setting/app-config" \
+              -H "Authorization: Bearer $PANEL_API_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"latest_version\":\"$VER\",\"apk_url\":\"$DLURL\",\"release_notes\":\"$NOTES\",\"sha256\":\"$SHA\"}" \
+              -o /dev/null -w "%{http_code}") \
+              || { echo "面板不可达，跳过发布（不影响构建）"; exit 0; }
+            if [ "$CODE" = "200" ]; then echo "✓ 面板在线更新源已注册 v$VER"; else echo "面板返回 $CODE，跳过"; fi
+
         - name: 创建 Release
           type: git:release
           options:

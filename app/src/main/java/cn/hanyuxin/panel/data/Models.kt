@@ -182,6 +182,7 @@ data class UpdateInfo(
     val latest: String = "",
     val apk_url: String = "",
     val notes: String = "",
+	val sha256: String = "",
 )
 
 // ---- 扩展模块（服务/运维全功能）----

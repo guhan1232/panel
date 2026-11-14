@@ -1,7 +1,10 @@
 // MeScreens.kt —— 「我的」（系统设置：服务器信息/设备管理/生物识别锁/检查更新/退出）与消息中心。
 package cn.hanyuxin.panel.ui
 
+import android.app.DownloadManager
+import android.content.Context
 import android.content.Intent
+import android.os.Environment
 import android.net.Uri
 import androidx.biometric.BiometricManager
 import androidx.compose.foundation.background
@@ -74,6 +77,9 @@ import cn.hanyuxin.panel.data.ServerStore
 import cn.hanyuxin.panel.data.SessionItem
 import cn.hanyuxin.panel.data.UpdateInfo
 import cn.hanyuxin.panel.data.clientFor
+import java.io.File
+import java.security.MessageDigest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // 语义色（与 Docker 页状态色共用一套）。
@@ -93,6 +99,8 @@ fun MeScreen(server: ServerInfo) {
     var bio by remember { mutableStateOf(ServerStore.bioEnabled()) }
     var showDevices by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    var dlProgress by remember { mutableIntStateOf(-1) } // -1 未下载；0-99 下载中；100 校验中
+    var dlId by remember { mutableStateOf<Long?>(null) }
     var checking by remember { mutableStateOf(false) }
     var panelName by remember { mutableStateOf("") }
 
@@ -264,17 +272,76 @@ fun MeScreen(server: ServerInfo) {
                 }
             },
             confirmButton = {
-                if (u.has_update && u.apk_url.isNotBlank()) {
-                    TextButton(onClick = {
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.apk_url)))
-                        update = null
-                    }) { Text("去下载") }
-                } else {
-                    TextButton(onClick = { update = null }) { Text("知道了") }
+                when {
+                    dlProgress >= 0 && dlProgress < 100 -> {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            androidx.compose.material3.LinearProgressIndicator(progress = dlProgress / 100f, modifier = Modifier.fillMaxWidth(0.6f))
+                            Spacer(Modifier.height(6.dp))
+                            Text("下载中 $dlProgress%", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    dlProgress == 100 -> Text("校验中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    u.has_update && u.apk_url.isNotBlank() -> TextButton(onClick = {
+                        val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                        val req = DownloadManager.Request(Uri.parse(u.apk_url))
+                            .setTitle("寒语馨面板 " + u.latest)
+                            .setDescription("正在下载更新包")
+                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                            .setDestinationInExternalFilesDir(ctx, Environment.DIRECTORY_DOWNLOADS, "hanyuxin-panel-update.apk")
+                            .setMimeType("application/vnd.android.package-archive")
+                        dlProgress = 0
+                        dlId = dm.enqueue(req)
+                    }) { Text("下载并安装") }
+                    else -> TextButton(onClick = { update = null }) { Text("知道了") }
                 }
             },
             dismissButton = if (u.has_update) ({ TextButton(onClick = { update = null }) { Text("以后再说") } }) else null,
         )
+    }
+    // 更新包下载轮询：完成后 SHA256 校验（面板下发），通过则唤起系统安装器
+    LaunchedEffect(dlId) {
+        val id = dlId ?: return@LaunchedEffect
+        val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        while (true) {
+            val cur = dlId ?: break
+            val c = dm.query(DownloadManager.Query().setFilterById(cur))
+            var status = -1
+            if (c.moveToFirst()) status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            c.close()
+            when (status) {
+                DownloadManager.STATUS_SUCCESSFUL -> {
+                    dlProgress = 100
+                    val uri = dm.getUriForDownloadedFile(cur)
+                    val got = uri?.let { u2 -> ctx.contentResolver.openInputStream(u2)?.use { sha256Of(it) } } ?: ""
+                    if (update?.sha256.isNullOrBlank() || got.equals(update?.sha256, ignoreCase = true)) {
+                        dlProgress = -1; dlId = null; update = null
+                        ctx.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                    } else {
+                        dm.remove(cur); dlProgress = -1; dlId = null
+                        toast("更新包校验失败（SHA256 不符），已取消安装")
+                    }
+                    break
+                }
+                DownloadManager.STATUS_FAILED -> {
+                    dm.remove(cur); dlProgress = -1; dlId = null
+                    toast("下载失败，请重试")
+                    break
+                }
+                else -> {
+                    val c2 = dm.query(DownloadManager.Query().setFilterById(cur))
+                    if (c2.moveToFirst()) {
+                        val bytes = c2.getLong(c2.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val total = c2.getLong(c2.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        if (total > 0) dlProgress = ((bytes * 100) / total).toInt().coerceIn(0, 99)
+                    }
+                    c2.close()
+                    delay(500)
+                }
+            }
+        }
     }
 }
 
@@ -542,3 +609,13 @@ fun AlertsScreen(server: ServerInfo, onClose: () -> Unit) {
 }
 
 private val METRIC_LABEL = mapOf("cpu" to "CPU 使用率(%)", "mem" to "内存使用率(%)", "disk" to "磁盘使用率(%)", "load1" to "1分钟负载")
+
+
+/** 流式计算 SHA256（更新包完整性校验）。 */
+fun sha256Of(input: java.io.InputStream): String {
+	val md = MessageDigest.getInstance("SHA-256")
+	val buf = ByteArray(8192)
+	var n: Int
+	while (input.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+	return md.digest().joinToString("") { "%02x".format(it) }
+}
