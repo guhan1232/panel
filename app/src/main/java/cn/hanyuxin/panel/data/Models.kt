@@ -184,6 +184,7 @@ data class TwoFAStatus(val enabled: Boolean = false)
 @Serializable
 data class TwoFASetup(val secret: String = "", val url: String = "")
 
+@Serializable
 data class UpdateInfo(
     val has_update: Boolean = false,
     val current: String = "",
