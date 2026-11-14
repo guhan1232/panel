@@ -70,8 +70,9 @@
           <a-button size="small" danger @click="disable2fa">解除绑定</a-button>
         </template>
         <div v-if="faSecret">
-          <p class="wm-text-muted">将以下密钥录入验证器（Google Authenticator / 微信小程序「腾讯 Token」等），然后输入动态码确认：</p>
+          <p class="wm-text-muted">用寒语馨面板 APP「扫码绑定」扫描以下二维码（APP 即验证器，动态码在 APP 内查看）；也可手动录入密钥到其他验证器后输入动态码确认：</p>
           <p class="wm-mono"><b>{{ faSecret }}</b></p>
+          <QrcodeVue :value="faURL" :size="170" level="M" render-as="svg" style="background:#fff;padding:8px;border-radius:8px" />
           <p class="hint wm-mono">{{ faURL }}</p>
           <a-input v-model:value="faCode" placeholder="6 位动态码" style="width: 220px" />
           <a-button type="primary" size="small" :loading="faSaving" @click="confirm2fa">确认启用</a-button>
@@ -427,6 +428,7 @@
 </template>
 
 <script setup lang="ts">
+import QrcodeVue from 'vue-qrcode'
 import {
   ApiOutlined, SettingOutlined,
   GlobalOutlined,
