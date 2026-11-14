@@ -23,8 +23,8 @@ android {
         applicationId = "cn.hanyuxin.panel"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.3.3"
+        versionCode = 12
+        versionName = "1.3.4"
     }
 
     if (ksFile.exists()) {
