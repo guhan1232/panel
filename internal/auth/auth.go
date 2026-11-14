@@ -117,6 +117,7 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.POST("/setting/2fa/setup", s.twoFASetup)
 	authed.POST("/setting/2fa/enable", s.twoFAEnable)
 	authed.POST("/setting/2fa/disable", s.twoFADisable)
+	authed.GET("/setting/2fa/status", s.twoFAStatus)
 	authed.GET("/sessions", s.listSessions)
 	authed.GET("/auth/sessions", s.listSessions) // 别名：与前端 Setting.vue 一致
 	authed.DELETE("/sessions/:id", s.revokeSession)
@@ -455,6 +456,17 @@ func totpGenerate() (string, error) {
 		return "", err
 	}
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b), nil
+}
+
+// twoFAStatus 当前账号是否已启用 2FA（APP/前端状态显示用）。
+func (s *Service) twoFAStatus(c *gin.Context) {
+	uid := c.GetUint("uid")
+	var u core.User
+	if err := s.db.First(&u, uid).Error; err != nil {
+		core.Err(c, 404, "用户不存在")
+		return
+	}
+	core.OK(c, gin.H{"enabled": u.TOTPSecret != ""})
 }
 
 // twoFASetup 生成待绑定的 TOTP secret 与 otpauth URL（不落库，enable 时才保存）。
