@@ -94,8 +94,10 @@ else
     cp -f "$INSTALL_DIR/hanyuxin" "$BAK"
     log "已备份旧版本 -> $BAK（回滚: cp $BAK $INSTALL_DIR/hanyuxin && systemctl restart $SERVICE）"
   fi
-  mv -f "$INSTALL_DIR/hanyuxin.tmp" "$INSTALL_DIR/hanyuxin"
 fi
+# 原子替换（--bin 与下载两条路径统一在此生效；此前 mv 误在 else 内导致 --bin 模式从未真正安装）
+chmod +x "$INSTALL_DIR/hanyuxin.tmp"
+mv -f "$INSTALL_DIR/hanyuxin.tmp" "$INSTALL_DIR/hanyuxin"
 chmod +x "$INSTALL_DIR/hanyuxin"
 
 # ---- 2. 生成基础配置（首装才生成；已有配置尊重现状） ----
@@ -163,6 +165,27 @@ open(p, 'w').write(s)
 PY
 fi
 
+# ---- 4.5 系统轻量化（幂等；仅小内存机生效；失败不阻断安装）----
+# journald 日志上限（省 ~70MB 常驻内存与磁盘；功能不变，删本文件并重启 journald 即恢复）
+if [ ! -f /etc/systemd/journald.conf.d/90-hanyuxin.conf ]; then
+  mkdir -p /etc/systemd/journald.conf.d 2>/dev/null || true
+  printf "[Journal]\nSystemMaxUse=30M\nRuntimeMaxUse=15M\n" > /etc/systemd/journald.conf.d/90-hanyuxin.conf 2>/dev/null \
+    && systemctl restart systemd-journald 2>/dev/null || true
+fi
+# swap：≤4GB 内存且尚无 swap 时创建 2G（OOM 兜底，防面板/数据库把小机挤崩）
+MEM_TOTAL_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+if [ "${MEM_TOTAL_KB:-0}" -gt 0 ] && [ "${MEM_TOTAL_KB}" -le 4194304 ] && ! swapon --show 2>/dev/null | grep -q .; then
+  if fallocate -l 2G /swapfile 2>/dev/null && chmod 600 /swapfile && mkswap -q /swapfile 2>/dev/null && swapon /swapfile 2>/dev/null; then
+    grep -q "^/swapfile" /etc/fstab 2>/dev/null || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    sysctl -qw vm.swappiness=10 2>/dev/null || true
+    grep -q "^vm.swappiness" /etc/sysctl.conf 2>/dev/null || echo "vm.swappiness=10" >> /etc/sysctl.conf
+    ok "已创建 2G swap（小内存机 OOM 兜底）"
+  else
+    rm -f /swapfile 2>/dev/null || true
+    log "swap 创建失败（不影响安装，可稍后手动配置）"
+  fi
+fi
+
 # ---- 5. systemd 服务 ----
 cat > "/etc/systemd/system/${SERVICE}.service" <<EOF
 [Unit]
@@ -174,6 +197,8 @@ Type=simple
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/hanyuxin -c $INSTALL_DIR/config.yaml
 Restart=on-failure
+Environment=GOGC=50
+Environment=GOMEMLIMIT=64MiB
 RestartSec=3
 LimitNOFILE=65536
 User=root

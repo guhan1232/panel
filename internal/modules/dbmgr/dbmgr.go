@@ -213,6 +213,7 @@ func (m *Module) installMariaDB(c *gin.Context) {
 	}
 	m.waitForPort(getMysql(m.db).Port)
 	msg := m.configureMysqlRoot(c)
+	m.applyMySQLLightweight("mariadb")
 	slog.Info("MariaDB 安装完成")
 	core.OK(c, gin.H{"ok": true, "message": "MariaDB 已安装并启动。" + msg})
 }
@@ -264,6 +265,7 @@ func (m *Module) installMySQL(c *gin.Context) {
 	}
 	m.waitForPort(getMysql(m.db).Port)
 	msg := m.configureMysqlRoot(c)
+	m.applyMySQLLightweight("mysql")
 	slog.Info("MySQL 安装完成")
 	core.OK(c, gin.H{"ok": true, "message": "MySQL 已安装并启动。" + msg})
 }
@@ -1073,4 +1075,70 @@ func (m *Module) backupRestore(c *gin.Context) {
 		return
 	}
 	core.OK(c, gin.H{"ok": true})
+}
+
+
+// applyMySQLLightweight 小内存机（≤4GB）安装后自适应轻量化：
+// 写独立配置文件（不碰发行版默认值），重启探活失败自动回滚删除；任何异常只记日志，不影响安装结果。
+// ≤2GB：buffer_pool 32M + performance_schema OFF + max_conn 30；2-4GB：buffer_pool 128M + P_S OFF + max_conn 80。
+func (m *Module) applyMySQLLightweight(kind string) {
+	total := memTotalBytes()
+	if total <= 0 || total > 4<<30 {
+		return // 大内存机保持发行版默认（性能优先）
+	}
+	bufferPool, maxConn := "32M", "30"
+	if total > 2<<30 {
+		bufferPool, maxConn = "128M", "80"
+	}
+	var dir, unit string
+	if kind == "mariadb" {
+		unit = "mariadb"
+		if _, e := os.Stat("/etc/mysql/mariadb.conf.d"); e == nil {
+			dir = "/etc/mysql/mariadb.conf.d"
+		} else {
+			dir = "/etc/my.cnf.d"
+		}
+	} else {
+		if _, e := os.Stat("/etc/mysql/mysql.conf.d"); e == nil {
+			dir, unit = "/etc/mysql/mysql.conf.d", "mysql"
+		} else if _, e2 := os.Stat("/etc/my.cnf.d"); e2 == nil {
+			dir, unit = "/etc/my.cnf.d", "mysqld" // RHEL 系 mysql-server 单元名
+		} else {
+			return
+		}
+	}
+	conf := fmt.Sprintf("# 寒语馨面板小内存机轻量化（自动写入；删除本文件并重启 %s 即恢复发行版默认）\n[mysqld]\ninnodb_buffer_pool_size = %s\nmax_connections = %s\ninnodb_log_buffer_size = 8M\ntable_open_cache = 200\nthread_cache_size = 8\n", unit, bufferPool, maxConn)
+	if total <= 2<<30 {
+		conf += "performance_schema = OFF\n"
+	}
+	path := filepath.Join(dir, "zz-hanyuxin-light.cnf")
+	if e := os.WriteFile(path, []byte(conf), 0644); e != nil {
+		slog.Warn("MySQL 轻量化配置写入失败（不影响使用）", "err", e)
+		return
+	}
+	if _, _, e := execx.Run("db", 90*time.Second, "systemctl", "restart", unit); e != nil {
+		_ = os.Remove(path)
+		_, _, _ = execx.Run("db", 90*time.Second, "systemctl", "restart", unit)
+		slog.Warn("MySQL 轻量化重启失败，已回滚删除配置", "err", e)
+		return
+	}
+	slog.Info("MySQL 轻量化配置已生效", "path", path, "buffer_pool", bufferPool)
+}
+
+// memTotalBytes 读取 /proc/meminfo 的 MemTotal（字节；失败返回 0）。
+func memTotalBytes() int64 {
+	b, e := os.ReadFile("/proc/meminfo")
+	if e != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			if f := strings.Fields(line); len(f) >= 2 {
+				if kb, e2 := strconv.ParseInt(f[1], 10, 64); e2 == nil {
+					return kb * 1024
+				}
+			}
+		}
+	}
+	return 0
 }

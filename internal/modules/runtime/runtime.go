@@ -1291,6 +1291,7 @@ func (m *Module) installPHP(version string) ([]string, error) {
 		return nil, fmt.Errorf("php%s-fpm 未进入 active 状态，请检查 journalctl -u %s", version, unit)
 	}
 	_, _, _ = execx.Run("runtime", 30*time.Second, "systemctl", "start", "unattended-upgrades")
+	applyFPMLightweight(unit)
 	if err := ensureComposer(); err != nil {
 		slog.Warn("Composer 自动安装失败（不影响 PHP 使用）", "err", err)
 	}
@@ -1543,4 +1544,74 @@ func (m *Module) setPecl(c *gin.Context) {
 	}
 	slog.Info("PECL 镜像已设置", "mirror", host, "by", c.GetString("user"))
 	core.OK(c, gin.H{"mirror": host})
+}
+
+
+// applyFPMLightweight 小内存机（≤4GB）PHP-FPM 安装后轻量化：
+// www.conf 的 pm 改 ondemand（worker 零常驻，请求触发、空闲 10s 回收）。
+// 改前备份，重启探活失败自动回滚还原；任何异常只记日志，不影响 PHP 已装好的状态。
+func applyFPMLightweight(unit string) {
+	if total := memTotalBytes(); total <= 0 || total > 4<<30 {
+		return
+	}
+	var pools []string
+	for _, pat := range []string{"/etc/php/*/fpm/pool.d/www.conf", "/etc/php-fpm.d/www.conf"} {
+		if ms, e := filepath.Glob(pat); e == nil {
+			pools = append(pools, ms...)
+		}
+	}
+	if len(pools) == 0 {
+		return
+	}
+	changed := false
+	for _, pf := range pools {
+		b, e := os.ReadFile(pf)
+		if e != nil || !strings.Contains(string(b), "pm = dynamic") {
+			continue // 已是 ondemand/static 或读不到：不动
+		}
+		if e := os.WriteFile(pf+".hanyuxin-bak", b, 0644); e != nil {
+			continue
+		}
+		s := strings.Replace(string(b), "pm = dynamic", "pm = ondemand", 1)
+		if !strings.Contains(s, "pm.process_idle_timeout") {
+			s = strings.Replace(s, "pm = ondemand", "pm = ondemand\npm.process_idle_timeout = 10s", 1)
+		}
+		if e := os.WriteFile(pf, []byte(s), 0644); e != nil {
+			continue
+		}
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	if _, _, e := execx.Run("runtime", 60*time.Second, "systemctl", "restart", unit); e != nil {
+		for _, pf := range pools {
+			if b, e2 := os.ReadFile(pf + ".hanyuxin-bak"); e2 == nil {
+				_ = os.WriteFile(pf, b, 0644)
+			}
+			_ = os.Remove(pf + ".hanyuxin-bak")
+		}
+		_, _, _ = execx.Run("runtime", 60*time.Second, "systemctl", "restart", unit)
+		slog.Warn("PHP-FPM 轻量化重启失败，已回滚 www.conf", "err", e)
+		return
+	}
+	slog.Info("PHP-FPM ondemand 轻量化已生效", "unit", unit)
+}
+
+// memTotalBytes 读取 /proc/meminfo 的 MemTotal（字节；失败返回 0）。
+func memTotalBytes() int64 {
+	b, e := os.ReadFile("/proc/meminfo")
+	if e != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			if f := strings.Fields(line); len(f) >= 2 {
+				if kb, e2 := strconv.ParseInt(f[1], 10, 64); e2 == nil {
+					return kb * 1024
+				}
+			}
+		}
+	}
+	return 0
 }
