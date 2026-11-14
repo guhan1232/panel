@@ -190,6 +190,25 @@ object Api {
 
     suspend fun panelInfo(c: PanelClient): PanelInfo = c.request<PanelInfo>("GET", "/api/setting/info") ?: PanelInfo()
     suspend fun appConfig(c: PanelClient): AppCfg = c.request<AppCfg>("GET", "/api/setting/app-config") ?: AppCfg()
+    
+    // ---- 两因素验证（TOTP）：状态 / 绑定 / 启用 / 解除 ----
+
+    suspend fun twoFAStatus(c: PanelClient): TwoFAStatus =
+        c.request<TwoFAStatus>("GET", "/api/setting/2fa/status") ?: TwoFAStatus()
+
+    suspend fun twoFASetup(c: PanelClient): TwoFASetup =
+        c.request<TwoFASetup>("POST", "/api/setting/2fa/setup", "{}") ?: TwoFASetup()
+
+    suspend fun twoFAEnable(c: PanelClient, secret: String, code: String) {
+        val body = Http.json.encodeToString(mapOf("secret" to secret, "code" to code))
+        c.request<Unit>("POST", "/api/setting/2fa/enable", body)
+    }
+
+    suspend fun twoFADisable(c: PanelClient, password: String) {
+        val body = Http.json.encodeToString(mapOf("password" to password))
+        c.request<Unit>("POST", "/api/setting/2fa/disable", body)
+    }
+
     suspend fun checkUpdate(server: ServerInfo): UpdateInfo {
         val anon = PanelClient(server, null)
         return anon.request<UpdateInfo>("GET", "/api/app/check-update", query = listOf("platform" to "android", "v" to BuildVersion.CURRENT)) ?: UpdateInfo()

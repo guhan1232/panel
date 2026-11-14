@@ -176,6 +176,11 @@ data class PanelInfo(
 data class AppCfg(val public_url: String = "", val apk_url: String = "", val latest_version: String = "", val release_notes: String = "")
 
 @Serializable
+data class TwoFAStatus(val enabled: Boolean = false)
+
+@Serializable
+data class TwoFASetup(val secret: String = "", val url: String = "")
+
 data class UpdateInfo(
     val has_update: Boolean = false,
     val current: String = "",

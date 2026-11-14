@@ -9,6 +9,7 @@ import android.os.Environment
 import android.widget.Toast
 import android.net.Uri
 import androidx.biometric.BiometricManager
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Notifications
@@ -45,6 +47,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -66,6 +69,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -101,11 +106,17 @@ fun MeScreen(server: ServerInfo) {
     var info by remember(server.host) { mutableStateOf<PanelInfo?>(null) }
     var bio by remember { mutableStateOf(ServerStore.bioEnabled()) }
     var showDevices by remember { mutableStateOf(false) }
+    var show2FA by remember { mutableStateOf(false) }
+    var twoFAEnabled by remember { mutableStateOf<Boolean?>(null) }
+    val twoFAText = when (twoFAEnabled) { true -> "已启用"; false -> "未启用"; null -> "" }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var dlProgress by remember { mutableIntStateOf(-1) } // -1 未下载；0-99 下载中；100 校验中
     var checking by remember { mutableStateOf(false) }
     var panelName by remember { mutableStateOf("") }
 
+    LaunchedEffect(Unit) {
+        apiGuard(onError = {}) { twoFAEnabled = Api.twoFAStatus(clientFor(server)).enabled }
+    }
     LaunchedEffect(server.host) {
         apiGuard { Api.panelInfo(clientFor(server)) }?.let { info = it }
         apiGuard { Api.brandInfo(clientFor(server)) }?.let { panelName = it.name }
@@ -179,6 +190,9 @@ fun MeScreen(server: ServerInfo) {
                     trailing = { Switch(checked = bio, onCheckedChange = { toggleBio() }) },
                     onClick = { toggleBio() },
                 )
+                SettingsRow(Icons.Outlined.VpnKey, AppColors.Rose, "两因素验证（TOTP）", twoFAText) {
+                    show2FA = true
+                }
                 GroupDivider()
                 SettingsRow(Icons.Outlined.Devices, SkyBlue, "登录设备", "查看与踢出在线会话") { showDevices = true }
             }
@@ -259,6 +273,9 @@ fun MeScreen(server: ServerInfo) {
     if (showDevices) {
         DevicesDialog(server) { showDevices = false }
     }
+    if (show2FA) {
+        TwoFADialog(client = clientFor(server), onDismiss = { show2FA = false; twoFAEnabled = null }, onChanged = { twoFAEnabled = it })
+    }
 
     update?.let { u ->
         AlertDialog(
@@ -289,7 +306,7 @@ fun MeScreen(server: ServerInfo) {
                                 dlProgress = -1
                                 if (ok) update = null
                             })
-                        }
+                        }
                     }) { Text("下载并安装") }
                     else -> TextButton(onClick = { update = null }) { Text("知道了") }
                 }
@@ -628,5 +645,94 @@ private fun startAppUpdate(
 	} catch (e: Exception) {
 		android.widget.Toast.makeText(ctx, "下载失败：" + (e.message ?: "未知错误"), android.widget.Toast.LENGTH_SHORT).show() // 
 		onDone(false)
+	}
+}
+
+// ---- 两因素验证（TOTP）：状态 / 绑定（二维码 + 密钥 + 动态码）/ 解除 ----
+@Composable
+fun TwoFADialog(client: cn.hanyuxin.panel.data.PanelClient, onDismiss: () -> Unit, onChanged: (Boolean?) -> Unit) {
+	val scope = rememberCoroutineScope()
+	var enabled by remember { mutableStateOf<Boolean?>(null) }
+	var setup by remember { mutableStateOf<cn.hanyuxin.panel.data.TwoFASetup?>(null) }
+	var code by remember { mutableStateOf("") }
+	var password by remember { mutableStateOf("") }
+	var busy by remember { mutableStateOf(false) }
+	var err by remember { mutableStateOf<String?>(null) }
+	LaunchedEffect(Unit) {
+		apiGuard(onError = { err = it.message }) { enabled = Api.twoFAStatus(client).enabled }
+	}
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("两因素验证（TOTP）") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				when (enabled) {
+					null -> Row { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) }
+					true -> {
+						Text("已启用。登录面板时需输入验证器 App 的 6 位动态码。")
+						OutlinedTextField(password, { password = it }, label = { Text("输入登录密码以解除绑定") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true)
+						err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+						Button(enabled = !busy && password.isNotBlank(), onClick = {
+							busy = true
+							scope.launch {
+								apiGuard(onError = { err = it.message }) {
+									Api.twoFADisable(client, password)
+									enabled = false
+									onChanged(false)
+									err = null
+								}
+								busy = false
+							}
+						}) { Text("解除绑定") }
+					}
+					false -> {
+						val st = setup
+						if (st == null) {
+							Text("生成绑定密钥…")
+						} else {
+							Text("用验证器 App（Google Authenticator / 腾讯 Token 等）扫码，或手动录入密钥，然后输入 6 位动态码确认：", fontSize = 13.sp)
+							QrCodeImage(st.url, Modifier.align(Alignment.CenterHorizontally))
+							Text(st.secret, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary)
+							OutlinedTextField(code, { code = it }, label = { Text("6 位动态码") }, singleLine = true)
+							err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+							Button(enabled = !busy && code.length >= 6, onClick = {
+								busy = true
+								scope.launch {
+									apiGuard(onError = { err = it.message }) {
+										Api.twoFAEnable(client, st.secret, code.trim())
+										enabled = true
+										onChanged(true)
+										err = null
+									}
+									busy = false
+								}
+							}) { Text("确认启用") }
+						}
+						LaunchedEffect(enabled) {
+							if (enabled == false && setup == null) {
+								apiGuard(onError = { err = it.message }) { setup = Api.twoFASetup(client) }
+							}
+						}
+					}
+				}
+			}
+				err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+		},
+		confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+	)
+}
+
+/** OTP 链接二维码（zxing 生成矩阵 + Canvas 自绘，白底深块）。 */
+@Composable
+fun QrCodeImage(content: String, modifier: Modifier = Modifier) {
+	val size = 240
+	val matrix = remember(content) {
+		com.google.zxing.qrcode.QRCodeWriter().encode(content, com.google.zxing.BarcodeFormat.QR_CODE, size, size)
+	}
+	Canvas(modifier.size(size.dp).background(Color.White, RoundedCornerShape(10.dp))) {
+		val cell = size.toFloat() / matrix.width
+		for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
+			if (matrix[x, y]) drawRect(Color(0xFF111827), topLeft = Offset(x * cell, y * cell), size = Size(cell, cell))
+		}
 	}
 }

@@ -71,12 +71,12 @@ fun DashboardScreen(server: ServerInfo) {
                     StatCard(
                         Icons.Outlined.Speed, "CPU", pct(cur?.cpu ?: 0.0),
                         sub = "负载 ${String.format("%.2f", cur?.load1 ?: 0.0)}",
-                        tint = Color(0xFF2DD4BF), modifier = Modifier.weight(1f),
+                        tint = AppColors.Teal, modifier = Modifier.weight(1f),
                     )
                     StatCard(
                         Icons.Outlined.Memory, "内存", pct(cur?.mem_pct ?: 0.0),
                         sub = "${humanSize(cur?.mem_used ?: 0)} / ${humanSize(cur?.mem_total ?: 0)}",
-                        tint = Color(0xFF60A5FA), modifier = Modifier.weight(1f),
+                        tint = AppColors.Blue, modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -84,24 +84,24 @@ fun DashboardScreen(server: ServerInfo) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatCard(
                         Icons.Outlined.NetworkCheck, "下载", humanRate(cur?.recv ?: 0),
-                        sub = "实时接收", tint = Color(0xFF38BDF8), modifier = Modifier.weight(1f),
+                        sub = "实时接收", tint = AppColors.Sky, modifier = Modifier.weight(1f),
                     )
                     StatCard(
                         Icons.Outlined.NetworkCheck, "上传", humanRate(cur?.sent ?: 0),
-                        sub = "实时发送", tint = Color(0xFFF59E0B), modifier = Modifier.weight(1f),
+                        sub = "实时发送", tint = AppColors.Amber, modifier = Modifier.weight(1f),
                     )
                 }
             }
             item {
                 PanelCard {
                     Text("CPU 使用率", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    LineChart(d.history.map { it.cpu }, Color(0xFF2DD4BF))
+                    LineChart(d.history.map { it.cpu }, AppColors.Teal)
                 }
             }
             item {
                 PanelCard {
                     Text("内存使用率", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    LineChart(d.history.map { it.mem_pct }, Color(0xFF60A5FA))
+                    LineChart(d.history.map { it.mem_pct }, AppColors.Blue)
                 }
             }
             item {
@@ -117,7 +117,7 @@ fun DashboardScreen(server: ServerInfo) {
                 StatCard(
                     Icons.Outlined.Storage, dk.mount, pct(dk.used_pct),
                     sub = "${humanSize(dk.used)} / ${humanSize(dk.total)} · ${dk.fs}",
-                    tint = Color(0xFFA78BFA),
+                    tint = AppColors.Violet,
                 )
             }
             item {
