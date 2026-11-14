@@ -698,17 +698,26 @@ func (m *Module) panelRestoreRollback(c *gin.Context) {
 
 // ---- 面板在线自升级：清单 JSON {version, binary_url, sha256?} ----
 
-type upgradeManifest struct {
-	Version   string `json:"version"`
-	BinaryURL string `json:"binary_url"`
-	SHA256    string `json:"sha256"`
-	Notes     string `json:"notes"`
+type upgradeArchEntry struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
 }
 
+// upgradeManifest CNB Release 升级清单（panel-release 附件 upgrade-manifest.json）。
+// 新格式按架构区分（arch.amd64/arm64）；旧扁平格式（binary_url/sha256 顶层）自动兼容为当前架构。
+type upgradeManifest struct {
+	Version   string                       `json:"version"`
+	Notes     string                       `json:"notes"`
+	Arch      map[string]upgradeArchEntry  `json:"arch"`
+	BinaryURL string                       `json:"binary_url"` // 旧格式兼容
+	SHA256    string                       `json:"sha256"`     // 旧格式兼容
+}
+
+// upgradeCheck 从 CNB Release 清单检查面板新版本（按运行架构返回对应下载地址与 SHA256）。
 func (m *Module) upgradeCheck(c *gin.Context) {
 	url := core.GetSetting(m.db, core.KUpgradeURL)
 	if url == "" {
-		url = "https://cnb.cool/hanyuxin/panel/-/git/raw/main/upgrade.json"
+		url = "https://cnb.cool/hanyuxin/panel/-/releases/download/panel-release/upgrade-manifest.json"
 	}
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
@@ -726,11 +735,22 @@ func (m *Module) upgradeCheck(c *gin.Context) {
 		core.OK(c, gin.H{"configured": true, "reachable": false, "err": "清单解析失败: " + err.Error(), "current": core.Version})
 		return
 	}
+	goarch := runtime.GOARCH
+	url = ""
+	sha := ""
+	if mf.Arch != nil {
+		if a, ok := mf.Arch[goarch]; ok {
+			url, sha = a.URL, a.SHA256
+		}
+	}
+	if url == "" {
+		url, sha = mf.BinaryURL, mf.SHA256 // 旧扁平清单兼容
+	}
 	core.OK(c, gin.H{
 		"configured": true, "reachable": true,
 		"current": core.Version, "remote": mf.Version,
-		"binary_url": mf.BinaryURL, "sha256": mf.SHA256,
-		"notes":      mf.Notes,
+		"arch": goarch, "binary_url": url, "sha256": sha,
+		"notes": mf.Notes,
 		"has_update": mf.Version != "" && mf.Version != core.Version,
 	})
 }

@@ -341,21 +341,31 @@
         </template>
       </WmSectionCard>
 
-      <WmSectionCard class="setting-card" title="面板在线升级" description="从升级清单检查新版本，下载校验后原子替换并自动重启">
+      <WmSectionCard class="setting-card" title="面板在线升级" description="从 CNB Release 清单检查新版本：下载 → SHA256 校验 → 备份并原子替换 → 自动重启">
         <template #actions>
-          <a-button size="small" @click="checkUpgrade">检查更新</a-button>
+          <a-button size="small" :loading="upChecking" @click="checkUpgrade">检查更新</a-button>
           <a-button v-if="upInfo.has_update" size="small" type="primary" :loading="upApplying" @click="applyUpgrade">升级到 {{ upInfo.remote }}</a-button>
         </template>
-        <div v-if="upInfo.current">
-          <p>当前版本 <b class="wm-mono">{{ upInfo.current }}</b>
-            <template v-if="upInfo.remote"> · 清单版本 <b class="wm-mono">{{ upInfo.remote }}</b>
-            <WmStatusPill v-if="upInfo.has_update" label="有更新" tone="warning" />
-            <WmStatusPill v-else-if="upInfo.reachable" label="已是最新" tone="success" />
-            </template></p>
-          <p v-if="upInfo.notes" class="wm-text-muted">{{ upInfo.notes }}</p>
-          <p v-if="upInfo.err" class="wm-text-muted">清单不可达：{{ upInfo.err }}（可在配置 upgrade_manifest_url 更换升级源）</p>
+        <div class="mcp-status-row">
+          <span class="mcp-status-item">当前版本 <WmStatusPill :label="'v' + (upInfo.current || '—')" :tone="upInfo.has_update ? 'warning' : 'success'" :dot="true" /></span>
+          <span class="mcp-status-sep"></span>
+          <span class="mcp-status-item">升级渠道 <WmStatusPill label="CNB Release" tone="neutral" :dot="false" outline /></span>
+          <span class="mcp-status-sep"></span>
+          <span class="mcp-status-item">架构 <b class="wm-mono">{{ upInfo.arch || '-' }}</b></span>
+          <span class="mcp-status-sep"></span>
+          <span class="mcp-status-item">清单版本 <b class="wm-mono">{{ upInfo.remote || '—' }}</b></span>
         </div>
-        <WmNotice tone="warning" class="wm-mt-4">升级会自动备份当前二进制为 *.bak 并重启服务，重启期间面板短暂不可访问。</WmNotice>
+        <div class="wm-mt-4">
+          <WmStatusPill v-if="upInfo.has_update" label="发现新版本，可升级" tone="warning" :dot="true" />
+          <WmStatusPill v-else-if="upInfo.reachable" label="已是最新版本" tone="success" :dot="false" />
+          <WmStatusPill v-else-if="upInfo.reachable === false" label="清单不可达" tone="warning" :dot="false" />
+        </div>
+        <p v-if="upInfo.notes" class="wm-text-muted wm-mt-4">{{ upInfo.notes }}</p>
+        <p v-if="upInfo.err" class="wm-text-muted wm-mt-4">清单不可达：{{ upInfo.err }}（可在配置 upgrade_manifest_url 更换升级源）</p>
+        <div v-if="upgrading" class="wm-mt-4">
+          <WmNotice tone="warning">正在下载校验并替换二进制，面板将自动重启（约 10~30 秒不可访问），页面会在恢复后自动刷新…</WmNotice>
+        </div>
+        <WmNotice tone="warning" class="wm-mt-4">升级前自动备份当前二进制为 *.bak；SHA256 不符的包将被拒绝安装。</WmNotice>
       </WmSectionCard>
       <WmSectionCard class="setting-card" title="面板数据备份 / 恢复" description="导出：打包数据库快照、config.yaml 与托管证书；导入：上传备份包一键恢复（自动留存回滚点）">
         <template #actions>
@@ -461,7 +471,7 @@ const faSecret = ref('')
 const faURL = ref('')
 const faCode = ref('')
 const faSaving = ref(false)
-const upInfo = ref<any>({})
+const upInfo = ref<any>({ current: '', remote: '', arch: '', binary_url: '', sha256: '', notes: '', has_update: false, reachable: undefined, err: '' })
 const upApplying = ref(false)
 
 async function loadInfo() {
@@ -637,14 +647,29 @@ async function checkUpgrade() {
   upInfo.value = (await api.get('/setting/upgrade/check')) as any
 }
 
+const upgrading = ref(false)
+
 async function applyUpgrade() {
   try {
-    await ElMessageBox.confirm('升级会替换面板二进制并自动重启（约数秒不可访问），继续？', '在线升级', { type: 'warning' })
+    await ElMessageBox.confirm('升级会替换面板二进制并自动重启（约 10~30 秒不可访问），继续？', '在线升级', { type: 'warning' })
   } catch { return }
   upApplying.value = true
   try {
     await api.post('/setting/upgrade/apply', { binary_url: upInfo.value.binary_url, sha256: upInfo.value.sha256 || '' }, { timeout: 900000 })
-    ElMessage.success('二进制已替换，面板正在重启，稍后刷新页面并核对版本')
+    // 面板正在替换重启：轮询恢复后自动刷新
+    upApplying.value = false
+    upgrading.value = true
+    ElMessage.info('面板正在重启，恢复后自动刷新页面…')
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        await api.get('/setting/brand')
+        ElMessage.success('面板已升级至 v' + (upInfo.value.remote || '') + ' 并重启完成')
+        setTimeout(() => location.reload(), 1200)
+        return
+      } catch { /* 尚未恢复，继续等 */ }
+    }
+    ElMessage.warning('面板重启时间较长，请稍后手动刷新页面核对版本')
   } finally {
     upApplying.value = false
   }

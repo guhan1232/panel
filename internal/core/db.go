@@ -11,7 +11,7 @@ import (
 )
 
 // Version 面板版本号。
-const Version = "0.41.0"
+var Version = "0.41.0" // 编译时由 -ldflags "-X ...core.Version=<tag>" 注入（CNB tag 构建驱动面板在线升级）
 
 // Setting 表的保留键（各模块共享的 JSON 配置）。
 const (
