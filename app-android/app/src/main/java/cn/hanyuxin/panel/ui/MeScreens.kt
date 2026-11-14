@@ -27,6 +27,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Fingerprint
@@ -415,6 +417,8 @@ fun AlertsScreen(server: ServerInfo, onClose: () -> Unit) {
                                         fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+                                IconButton(onClick = { editTarget = r }) { Icon(Icons.Outlined.Edit, "编辑", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }
+                                IconButton(onClick = { delTarget = r }) { Icon(Icons.Outlined.Delete, "删除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
                                 Switch(
                                     r.enabled,
                                     onCheckedChange = { _ ->
@@ -499,14 +503,18 @@ fun AlertsScreen(server: ServerInfo, onClose: () -> Unit) {
                     )
                     if (f.name.isBlank()) { err = "请填写规则名称"; return@TextButton }
                     scope.launch {
+                        var ok = false
                         apiGuard(onError = { err = it.message }) {
                             if (editing != null) Api.alertRuleUpdate(client, editing.id, f)
                             else Api.alertRuleCreateFull(client, f)
+                            ok = true
                         }
-                        err = null
-                        createOpen = false
-                        editTarget = null
-                        reload++
+                        if (ok) {
+                            err = null
+                            createOpen = false
+                            editTarget = null
+                            reload++
+                        }
                     }
                 }) { Text("保存") }
             },
@@ -522,9 +530,9 @@ fun AlertsScreen(server: ServerInfo, onClose: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        apiGuard(onError = { err = it.message }) { Api.alertRuleDelete(client, r2.id) }
-                        delTarget = null
-                        reload++
+                        var ok = false
+                        apiGuard(onError = { err = it.message }) { Api.alertRuleDelete(client, r2.id); ok = true }
+                        if (ok) { delTarget = null; reload++ }
                     }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },

@@ -3,6 +3,11 @@ package cn.hanyuxin.panel.data
 
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.add
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okio.BufferedSink
@@ -85,9 +90,10 @@ object Api {
     suspend fun templates(c: PanelClient): List<AppTemplate> = c.request<List<AppTemplate>>("GET", "/api/apps/templates") ?: emptyList()
     suspend fun installedApps(c: PanelClient): List<AppInst> = c.request<List<AppInst>>("GET", "/api/apps") ?: emptyList()
     suspend fun installApp(c: PanelClient, appKey: String, name: String, version: String, params: Map<String, String>) {
-        val body = Http.json.encodeToString(
-            mapOf("app_key" to appKey, "name" to name, "version" to version, "params" to params),
-        )
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("app_key", appKey); put("name", name); put("version", version)
+            putJsonObject("params") { params.forEach { (k, v) -> put(k, v) } }
+        })
         c.request<Unit>("POST", "/api/apps", body)
     }
     suspend fun uninstallApp(c: PanelClient, id: Long, force: Boolean, removeData: Boolean) {
@@ -276,7 +282,7 @@ object Api {
     suspend fun procList(c: PanelClient, sort: String = "cpu"): List<ProcInfo> =
         c.request<List<ProcInfo>>("GET", "/api/proc/list", query = listOf("sort" to sort)) ?: emptyList()
     suspend fun procKill(c: PanelClient, pid: Int, force: Boolean) {
-        c.request<Unit>("POST", "/api/proc/kill", Http.json.encodeToString(mapOf("pid" to pid, "force" to force)))
+        c.request<Unit>("POST", "/api/proc/kill", Http.json.encodeToString(buildJsonObject { put("pid", pid); put("force", force) }))
     }
     suspend fun procServices(c: PanelClient): List<ServiceInfo> = c.request<List<ServiceInfo>>("GET", "/api/proc/services") ?: emptyList()
     suspend fun procServiceAction(c: PanelClient, unit: String, action: String) {
@@ -316,9 +322,10 @@ object Api {
         c.request<Unit>("POST", "/api/certs/upload", Http.json.encodeToString(mapOf("cert_pem" to certPem, "key_pem" to keyPem)))
     }
     suspend fun certIssue(c: PanelClient, domains: List<String>, email: String): Map<String, String> {
-        val body = Http.json.encodeToString(mapOf(
-            "domains" to domains, "email" to email, "challenge" to "http01",
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            putJsonArray("domains") { domains.forEach { add(it) } }
+            put("email", email); put("challenge", "http01")
+        })
         val d = c.request<Map<String, String>>("POST", "/api/certs/issue", body) ?: emptyMap()
         return d
     }
@@ -329,10 +336,10 @@ object Api {
     suspend fun alertRuleToggle(c: PanelClient, id: Long) { c.request<Unit>("POST", "/api/alerts/rules/$id/toggle", "{}") }
     suspend fun alertRuleDelete(c: PanelClient, id: Long) { c.request<Unit>("DELETE", "/api/alerts/rules/$id") }
     suspend fun alertRuleCreate(c: PanelClient, name: String, metric: String, op: String, threshold: Double): AlertRule? {
-        val body = Http.json.encodeToString(mapOf(
-            "name" to name, "metric" to metric, "op" to op, "threshold" to threshold,
-            "duration_min" to 1, "cooldown_min" to 10, "enabled" to true,
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("name", name); put("metric", metric); put("op", op); put("threshold", threshold)
+            put("duration_min", 1); put("cooldown_min", 10); put("enabled", true)
+        })
         return c.request<AlertRule>("POST", "/api/alerts/rules", body)
     }
 
@@ -344,7 +351,7 @@ object Api {
         return c.request<UserItem>("POST", "/api/users", body)
     }
     suspend fun userUpdate(c: PanelClient, id: Long, role: String?, password: String?, disabled: Boolean?): UserItem? {
-        val body = Http.json.encodeToString(buildMap {
+        val body = Http.json.encodeToString(buildJsonObject {
             role?.let { put("role", it) }
             password?.takeIf { it.isNotBlank() }?.let { put("password", it) }
             disabled?.let { put("disabled", it) }
@@ -368,25 +375,26 @@ object Api {
 
     suspend fun notifyConfig(c: PanelClient): NotifyConfigAll = c.request<NotifyConfigAll>("GET", "/api/notify/config") ?: NotifyConfigAll()
     suspend fun emailSave(c: PanelClient, e: NotifyEmailCfg, toList: List<String>) {
-        val body = Http.json.encodeToString(mapOf(
-            "enabled" to e.enabled, "host" to e.host, "port" to e.port, "ssl" to e.ssl,
-            "user" to e.user, "pass" to e.pass, "from" to e.from, "to" to toList,
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("enabled", e.enabled); put("host", e.host); put("port", e.port); put("ssl", e.ssl)
+            put("user", e.user); put("pass", e.pass); put("from", e.from)
+            putJsonArray("to") { toList.forEach { add(it) } }
+        })
         c.request<Unit>("POST", "/api/notify/email", body)
     }
     suspend fun webhookSave(c: PanelClient, w: NotifyWebhookCfg) {
-        val body = Http.json.encodeToString(mapOf(
-            "enabled" to w.enabled, "type" to w.type, "url" to w.url, "chat_id" to w.chat_id,
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("enabled", w.enabled); put("type", w.type); put("url", w.url); put("chat_id", w.chat_id)
+        })
         c.request<Unit>("POST", "/api/notify/webhook", body)
     }
     suspend fun notifyTest(c: PanelClient, channel: String) { c.request<Unit>("POST", "/api/notify/test", Http.json.encodeToString(mapOf("channel" to channel))) }
     suspend fun s3Config(c: PanelClient): S3Cfg = c.request<S3Cfg>("GET", "/api/s3/config") ?: S3Cfg()
     suspend fun s3Save(c: PanelClient, s3: S3Cfg) {
-        val body = Http.json.encodeToString(mapOf(
-            "enabled" to s3.enabled, "endpoint" to s3.endpoint, "access_key" to s3.access_key,
-            "secret_key" to s3.secret_key, "bucket" to s3.bucket, "use_ssl" to s3.use_ssl, "prefix" to s3.prefix,
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("enabled", s3.enabled); put("endpoint", s3.endpoint); put("access_key", s3.access_key)
+            put("secret_key", s3.secret_key); put("bucket", s3.bucket); put("use_ssl", s3.use_ssl); put("prefix", s3.prefix)
+        })
         c.request<Unit>("POST", "/api/s3/config", body)
     }
     suspend fun s3Test(c: PanelClient) { c.request<Unit>("POST", "/api/s3/test", "{}") }
@@ -399,17 +407,18 @@ object Api {
 
     // 告警规则全字段创建/更新（覆盖早前固定阈值的简化版）
     suspend fun alertRuleCreateFull(c: PanelClient, f: AlertRule): AlertRule? {
-        val body = Http.json.encodeToString(mapOf(
-            "name" to f.name, "metric" to f.metric, "op" to f.op, "threshold" to f.threshold,
-            "duration_min" to f.duration_min, "cooldown_min" to f.cooldown_min, "node_id" to f.node_id, "enabled" to true,
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("name", f.name); put("metric", f.metric); put("op", f.op); put("threshold", f.threshold)
+            put("duration_min", f.duration_min); put("cooldown_min", f.cooldown_min)
+            put("node_id", f.node_id); put("enabled", true)
+        })
         return c.request<AlertRule>("POST", "/api/alerts/rules", body)
     }
     suspend fun alertRuleUpdate(c: PanelClient, id: Long, f: AlertRule): AlertRule? {
-        val body = Http.json.encodeToString(mapOf(
-            "name" to f.name, "metric" to f.metric, "op" to f.op, "threshold" to f.threshold,
-            "duration_min" to f.duration_min, "cooldown_min" to f.cooldown_min, "node_id" to f.node_id,
-        ))
+        val body = Http.json.encodeToString(buildJsonObject {
+            put("name", f.name); put("metric", f.metric); put("op", f.op); put("threshold", f.threshold)
+            put("duration_min", f.duration_min); put("cooldown_min", f.cooldown_min); put("node_id", f.node_id)
+        })
         return c.request<AlertRule>("PUT", "/api/alerts/rules/$id", body)
     }
 
@@ -426,7 +435,7 @@ object Api {
         return Pair(en, d["token"] ?: "")
     }
     suspend fun mcpTokenGenerate(c: PanelClient): String {
-        val body = Http.json.encodeToString(mapOf("mode" to "full", "scopes" to emptyList<String>(), "readonly" to false))
+        val body = Http.json.encodeToString(buildJsonObject { put("mode", "full"); putJsonArray("scopes") { }; put("readonly", false) })
         val d = c.request<Map<String, String>>("POST", "/api/mcp/token", body) ?: return ""
         return d["token"] ?: ""
     }
