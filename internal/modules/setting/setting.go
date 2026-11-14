@@ -770,7 +770,7 @@ func (m *Module) upgradeApply(c *gin.Context) {
 		core.Err(c, 500, err.Error())
 		return
 	}
-	tmp.Close()
+	defer tmp.Close()
 	defer os.Remove(tmp.Name())
 
 	client := &http.Client{Timeout: 10 * time.Minute}
@@ -784,7 +784,8 @@ func (m *Module) upgradeApply(c *gin.Context) {
 		core.Err(c, 500, fmt.Sprintf("下载失败: HTTP %d", resp.StatusCode))
 		return
 	}
-	n, err := io.Copy(tmp, resp.Body)
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), resp.Body)
 	if err != nil {
 		core.Err(c, 500, "保存失败: "+err.Error())
 		return
@@ -794,18 +795,10 @@ func (m *Module) upgradeApply(c *gin.Context) {
 		return
 	}
 
-	if req.SHA256 != "" {
-		tmp.Seek(0, 0)
-		h := sha256.New()
-		if _, err := io.Copy(h, tmp); err != nil {
-			core.Err(c, 500, err.Error())
-			return
-		}
-		got := hex.EncodeToString(h.Sum(nil))
-		if !strings.EqualFold(got, req.SHA256) {
-			core.Err(c, 400, "SHA256 校验失败: got "+got)
-			return
-		}
+	got := hex.EncodeToString(h.Sum(nil))
+	if req.SHA256 != "" && !strings.EqualFold(got, req.SHA256) {
+		core.Err(c, 400, "SHA256 校验失败: got "+got)
+		return
 	}
 
 	exe, err := os.Executable()
@@ -821,12 +814,7 @@ func (m *Module) upgradeApply(c *gin.Context) {
 		return
 	}
 	_ = os.WriteFile(exePath+".bak", data, 0o755)
-	// 校验 + 赋权 + 原子替换
-	tmp.Seek(0, 0)
-	if _, err := tmp.Seek(0, 0); err != nil {
-		core.Err(c, 500, err.Error())
-		return
-	}
+	// 赋权 + 原子替换（下载临时文件已完成下载与 SHA256 校验）
 	newBin, err := os.ReadFile(tmp.Name())
 	if err != nil {
 		core.Err(c, 500, err.Error())
