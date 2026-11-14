@@ -401,6 +401,7 @@ func (m *Module) appConfigSet(c *gin.Context) {
 		{core.KAppApkURL, strings.TrimSpace(req.ApkURL)},
 		{core.KAppLatestVer, strings.TrimSpace(req.LatestVer)},
 		{core.KAppReleaseNotes, req.ReleaseNotes},
+		{core.KAppApkSha256, strings.TrimSpace(req.Sha256)},
 	}
 	for _, s := range sets {
 		if err := core.SetSetting(m.db, s.key, s.val); err != nil {
