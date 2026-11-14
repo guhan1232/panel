@@ -758,7 +758,7 @@ func (m *Module) upgradeCheck(c *gin.Context) {
 // upgradeApply 执行自升级：下载 → SHA256 校验（可选）→ 备份 → 原子替换 → 重启。
 func (m *Module) upgradeApply(c *gin.Context) {
 	var req struct {
-		BinaryURL string `binding:"required"`
+		BinaryURL string `binding:"required" json:"binary_url"`
 		SHA256    string `json:"sha256"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
