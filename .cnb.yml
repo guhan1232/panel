@@ -1,7 +1,7 @@
 # CNB 流水线：
 # 1) main push：后端 vet/test/build + 前端构建（质量门）
-# 2) main tag_push（panel-v*，如 panel-v0.41.1）：构建两架构服务端二进制（ldflags 注入版本）
-#    → 发布 panel-release Release（含 upgrade-manifest.json）→ 面板「设置 → 面板在线升级」自动从该清单检查/升级
+# 2) $ tag_push（panel-v* tag，如 panel-v0.41.1）：构建两架构服务端二进制（ldflags 注入版本）
+#    -> 发布 panel-release Release（含 upgrade-manifest.json）-> 面板「设置 -> 系统运维 -> 面板在线升级」自动检查/升级
 main:
   push:
     - name: backend-test
@@ -25,21 +25,43 @@ main:
         - name: build
           script: cd web && npm ci --no-audit --no-fund && npm run build
 
-}
-' "$VER" "寒语馨面板 $VER（CNB 云端正式构建，随 tag panel-v$VER 发布）" "$CNB_REPO_SLUG" "$A64" "$CNB_REPO_SLUG" "$ARM" > upgrade-manifest.json
-            cat upgrade-manifest.json
-            cat upgrade-manifest.json
-            ls -lh
-        - name: 创建 Release
+$:
+  tag_push:
+    - name: panel-server
+      runner:
+        cpus: 4
+      docker:
+        image: golang:1.26
+      stages:
+        - name: build-server
+          script: |
+            VER=$(echo "$CNB_BRANCH" | sed -n 's/^panel-v//p')
+            if [ -z "$VER" ]; then echo "skip: not panel-v* tag"; exit 0; fi
+            echo "version: $VER"
+            cd "$CNB_BUILD_WORKSPACE"
+            REPO=$(find "$(pwd)" -maxdepth 3 -name go.mod | head -1 | xargs dirname)
+            echo "repo: $REPO"
+            cd "$REPO"
+            LDFLAGS="-s -w -X cnb.cool/hanyuxin/panel/internal/core.Version=$VER"
+            mkdir -p dist
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-linux-amd64 ./cmd/server
+            GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-linux-arm64 ./cmd/server
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-agent-linux-amd64 ./cmd/agent
+            A64=$(sha256sum dist/hanyuxin-linux-amd64 | awk '{print $1}')
+            ARM=$(sha256sum dist/hanyuxin-linux-arm64 | awk '{print $1}')
+            printf '{\n  "version": "%s",\n  "notes": "%s",\n  "arch": {\n    "amd64": { "url": "https://cnb.cool/%s/-/releases/download/panel-release/hanyuxin-linux-amd64", "sha256": "%s" },\n    "arm64": { "url": "https://cnb.cool/%s/-/releases/download/panel-release/hanyuxin-linux-arm64", "sha256": "%s" }\n  }\n}\n' "$VER" "hanyuxin-panel $VER (CNB cloud build)" "$CNB_REPO_SLUG" "$A64" "$CNB_REPO_SLUG" "$ARM" > dist/upgrade-manifest.json
+            cat dist/upgrade-manifest.json
+            ls -lh dist/
+        - name: create-release
           type: git:release
           options:
             tag: panel-release
-            title: 寒语馨面板服务端（正式构建 · CNB 云端）
-            description: 面板服务端二进制（amd64/arm64）+ Agent + 在线升级清单（upgrade-manifest.json）。面板内「设置 → 系统运维 → 面板在线升级」自动从此处检查、下载、校验并原子替换升级。
+            title: hanyuxin-panel server (official build by CNB)
+            description: panel server binaries (amd64/arm64) + agent + upgrade-manifest.json. Panel "Settings -> Panel Upgrade" checks and applies automatically.
             latest: false
-        - name: 上传附件（OpenAPI 直传）
+        - name: upload-assets
           script: |
-            cd /workspace/dist
+            cd dist
             for F in hanyuxin-linux-amd64 hanyuxin-linux-arm64 hanyuxin-agent-linux-amd64 upgrade-manifest.json; do
               SIZE=$(stat -c%s "$F")
               REL=$(curl -sf -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases/tags/panel-release")
@@ -50,38 +72,5 @@ main:
               UPLOAD_URL=$(echo "$UP" | grep -o '"upload_url":"[^"]*"' | cut -d'"' -f4)
               VERIFY_URL=$(echo "$UP" | grep -o '"verify_url":"[^"]*"' | cut -d'"' -f4)
               curl -sf -X PUT -T "$F" "$UPLOAD_URL" && curl -sf -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" "$VERIFY_URL" \
-                && echo "✓ $F" || { echo "❌ $F 上传失败"; exit 1; }
+                && echo "OK $F" || { echo "FAIL $F"; exit 1; }
             done
-
-$:
-  tag_push:
-    - name: panel-server
-      runner:
-        cpus: 4
-      docker:
-        image: golang:1.26
-      stages:
-        - name: 构建服务端（版本注入 + 两架构）
-          script: |
-            VER=$(echo "$CNB_BRANCH" | sed -n 's/^panel-v//p')
-            if [ -z "$VER" ]; then echo "非 panel-v* tag，跳过"; exit 0; fi
-            echo "version: $VER"
-            cd "$CNB_BUILD_WORKSPACE"
-            REPO=$(find "$(pwd)" -maxdepth 3 -name go.mod | head -1 | xargs dirname)
-            echo "repo: $REPO"
-            cd "$REPO"
-            LDFLAGS="-s -w -X cnb.cool/hanyuxin/panel/internal/core.Version=$VER"
-            mkdir -p /workspace/dist && cd /workspace/dist
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o hanyuxin-linux-amd64 $CNB_SOURCE_DIR/cmd/server 2>/dev/null \
-              || GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o hanyuxin-linux-amd64 ./cmd/server
-            GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o hanyuxin-linux-arm64 ./cmd/server
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o hanyuxin-agent-linux-amd64 ./cmd/agent
-            A64=$(sha256sum hanyuxin-linux-amd64 | awk '{print $1}')
-            ARM=$(sha256sum hanyuxin-linux-arm64 | awk '{print $1}')
-            printf '{
-  "version": "%s",
-  "notes": "%s",
-  "arch": {
-    "amd64": { "url": "https://cnb.cool/%s/-/releases/download/panel-release/hanyuxin-linux-amd64", "sha256": "%s" },
-    "arm64": { "url": "https://cnb.cool/%s/-/releases/download/panel-release/hanyuxin-linux-arm64", "sha256": "%s" }
-  }
