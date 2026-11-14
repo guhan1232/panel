@@ -717,7 +717,7 @@ type upgradeManifest struct {
 func (m *Module) upgradeCheck(c *gin.Context) {
 	url := core.GetSetting(m.db, core.KUpgradeURL)
 	if url == "" {
-		url = "https://cnb.cool/hanyuxin/panel/-/releases/download/panel-release/upgrade-manifest.json"
+		url = "https://cnb.cool/hanyuxin/panel/-/git/raw/main/release/upgrade-manifest.json"
 	}
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
