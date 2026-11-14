@@ -375,6 +375,7 @@ func (m *Module) appConfigGet(c *gin.Context) {
 		"apk_url":        core.GetSetting(m.db, core.KAppApkURL),
 		"latest_version": core.GetSetting(m.db, core.KAppLatestVer),
 		"release_notes":  core.GetSetting(m.db, core.KAppReleaseNotes),
+		"sha256":         core.GetSetting(m.db, core.KAppApkSha256),
 	})
 }
 
@@ -389,6 +390,7 @@ func (m *Module) appConfigSet(c *gin.Context) {
 		ApkURL       string `json:"apk_url"`
 		LatestVer    string `json:"latest_version"`
 		ReleaseNotes string `json:"release_notes"`
+		Sha256       string `json:"sha256"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)

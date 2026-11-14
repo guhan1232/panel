@@ -33,6 +33,7 @@ const (
 	KAppApkURL       = "app_apk_url"       // Android APK 下载地址（APP 自更新 + 设置页下载入口）
 	KAppLatestVer    = "app_latest_version" // APP 最新版本号（与 /api/app/check-update 比对）
 	KAppReleaseNotes = "app_release_notes"  // APP 最新版更新说明
+	KAppApkSha256    = "app_apk_sha256"    // APP 更新包 SHA256（下载后校验，防篡改/防错包）
 )
 
 // GetSetting 读取一个 KV 配置（不存在返回空串）。
