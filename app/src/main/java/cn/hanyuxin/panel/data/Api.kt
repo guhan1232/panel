@@ -88,7 +88,9 @@ object Api {
     // ---- 软件商店 ----
 
     suspend fun templates(c: PanelClient): List<AppTemplate> = c.request<List<AppTemplate>>("GET", "/api/apps/templates") ?: emptyList()
-    suspend fun installedApps(c: PanelClient): List<AppInst> = c.request<List<AppInst>>("GET", "/api/apps") ?: emptyList()
+    // /api/apps 返回 {app, status} 包装（v0.41+），拍平为 AppInst 供列表渲染
+    suspend fun installedApps(c: PanelClient): List<AppInst> =
+        (c.request<List<AppEntry>>("GET", "/api/apps") ?: emptyList()).map { it.app }
     suspend fun installApp(c: PanelClient, appKey: String, name: String, version: String, params: Map<String, String>) {
         val body = Http.json.encodeToString(buildJsonObject {
             put("app_key", appKey); put("name", name); put("version", version)

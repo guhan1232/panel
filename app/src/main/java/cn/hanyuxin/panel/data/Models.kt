@@ -119,6 +119,9 @@ data class AppTemplate(
 )
 
 @Serializable
+data class AppEntry(val app: AppInst = AppInst(), val status: String = "")
+
+@Serializable
 data class AppInst(
     val id: Long = 0,
     val name: String = "",
