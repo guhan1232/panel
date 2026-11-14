@@ -61,6 +61,11 @@ $:
             latest: false
         - name: upload-assets
           script: |
+            # ensure panel-release Release exists (git:release under tag_push may attach to the event tag)
+            curl -s -o /dev/null -w "ensure:%{http_code}\n" -X POST \
+              -H "Authorization: Bearer $CNB_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" \
+              -d '{"tag_name":"panel-release","name":"hanyuxin-panel server","body":"server binaries"}' \
+              "$CNB_API_ENDPOINT/$CNB_REPO_SLUG/-/releases" || true
             cd dist
             for F in hanyuxin-linux-amd64 hanyuxin-linux-arm64 hanyuxin-agent-linux-amd64 upgrade-manifest.json; do
               SIZE=$(stat -c%s "$F")
