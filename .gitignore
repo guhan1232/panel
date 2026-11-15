@@ -1,0 +1,25 @@
+# 构建产物
+bin/
+*.exe
+
+# 前端依赖（web/dist 为嵌入产物，随仓库提交）
+web/node_modules/
+
+# 运行时生成（含入口串/初始密码/数据库，禁止入库）
+config.yaml
+/data/
+logs/
+.workbuddy/
+
+# AI 工具本地配置
+.qwen/
+.claude/
+.qoder/
+
+# 开发杂项
+panel-dev.log
+ja-dev.txt
+design-system.html
+dbg-*.txt
+dbg-*.json
+.gstack/

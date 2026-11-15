@@ -1,0 +1,18 @@
+[Unit]
+Description=寒语馨面板 (Hanyuxin Panel) Linux Web Panel
+Documentation=https://cnb.cool/hanyuxin/panel
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hanyuxin
+ExecStart=/opt/hanyuxin/hanyuxin -c /opt/hanyuxin/config.yaml
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+
+# 面板需要管理系统资源，以 root 运行；安全由入口防护/会话/审计控制
+User=root
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,71 @@
+# CNB 流水线：
+# 1) main push：后端 vet/test/build + 前端构建（质量门）
+# 2) $ tag_push（panel-v* tag）：构建两架构服务端二进制（ldflags 注入版本）
+#    -> 产物 git push 回 main 的 release/ 目录 + upgrade-manifest.json
+#    -> 面板「设置 -> 系统运维 -> 面板在线升级」从 raw 清单检查/下载/校验/原子替换升级
+main:
+  push:
+    - name: backend-test
+      runner:
+        cpus: 4
+      docker:
+        image: golang:1.26.11
+      stages:
+        - name: vet
+          script: go vet ./...
+        - name: test
+          script: go test ./...
+        - name: build
+          script: CGO_ENABLED=0 go build ./...
+    - name: frontend-build
+      runner:
+        cpus: 4
+      docker:
+        image: node:22-alpine
+      stages:
+        - name: build
+          script: cd web && npm ci --no-audit --no-fund && npm run build
+
+$:
+  tag_push:
+    - name: panel-server
+      runner:
+        cpus: 4
+      docker:
+        image: golang:1.26.11
+      stages:
+        - name: build-server
+          script: |
+            VER=$(echo "$CNB_BRANCH" | sed -n 's/^panel-v//p')
+            if [ -z "$VER" ]; then echo "skip: not panel-v* tag"; exit 0; fi
+            echo "version: $VER"
+            cd "$CNB_BUILD_WORKSPACE"
+            REPO=$(find "$(pwd)" -maxdepth 3 -name go.mod | head -1 | xargs dirname)
+            echo "repo: $REPO"
+            cd "$REPO"
+            LDFLAGS="-s -w -X cnb.cool/hanyuxin/panel/internal/core.Version=$VER"
+            mkdir -p dist
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-linux-amd64 ./cmd/server
+            GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o dist/hanyuxin-linux-arm64 ./cmd/server
+            A64=$(sha256sum dist/hanyuxin-linux-amd64 | awk '{print $1}')
+            ARM=$(sha256sum dist/hanyuxin-linux-arm64 | awk '{print $1}')
+            printf '{\n  "version": "%s",\n  "notes": "%s",\n  "arch": {\n    "amd64": { "url": "https://cnb.cool/%s/-/git/raw/main/release/hanyuxin-linux-amd64", "sha256": "%s" },\n    "arm64": { "url": "https://cnb.cool/%s/-/git/raw/main/release/hanyuxin-linux-arm64", "sha256": "%s" }\n  }\n}\n' "$VER" "hanyuxin-panel $VER (CNB cloud build)" "$CNB_REPO_SLUG" "$A64" "$CNB_REPO_SLUG" "$ARM" > dist/upgrade-manifest.json
+            cat dist/upgrade-manifest.json
+            ls -lh dist/
+        - name: publish-to-repo
+          script: |
+            VER=$(echo "$CNB_BRANCH" | sed -n 's/^panel-v//p')
+            cd "$CNB_BUILD_WORKSPACE"
+            REPO=$(find "$(pwd)" -maxdepth 3 -name go.mod | head -1 | xargs dirname)
+            cd "$REPO"
+            git config user.email "git@hanyuxin.cn"
+            git config user.name "hanyuxin"
+            git remote set-url origin "https://cnb:$CNB_TOKEN@cnb.cool/$CNB_REPO_SLUG.git"
+            git fetch origin main
+            git checkout -B main origin/main
+            mkdir -p release
+            cp dist/hanyuxin-linux-amd64 dist/hanyuxin-linux-arm64 dist/upgrade-manifest.json release/
+            git add release/
+            git commit -m "release: panel v$VER (CNB cloud build)" || { echo "no changes"; exit 0; }
+            git push origin main
+            echo "published v$VER to main/release/"

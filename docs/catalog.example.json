@@ -1,0 +1,33 @@
+[
+  {
+    "key": "my-nginx",
+    "name": "MyNginx",
+    "desc": "镜像站示例：自定义 Nginx",
+    "kind": "compose",
+    "version": "1.0",
+    "params": [
+      { "key": "port", "label": "宿主机端口", "def": "8088", "required": true }
+    ],
+    "compose": "services:\n  nginx:\n    image: nginx:stable\n    ports:\n      - \"{{port}}:80\"\n    restart: always\n"
+  },
+  {
+    "key": "my-exporter",
+    "name": "MyExporter",
+    "desc": "镜像站示例：原生二进制应用",
+    "kind": "native",
+    "version": "1.0.0",
+    "params": [
+      { "key": "port", "label": "监听端口", "def": "9101", "required": true }
+    ],
+    "native": {
+      "urls": {
+        "amd64": "https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz",
+        "arm64": "https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-arm64.tar.gz"
+      },
+      "archive": true,
+      "in_archive": "node_exporter-1.8.2.linux-{arch}/node_exporter",
+      "binary": "node_exporter",
+      "args": ["--web.listen-address", ":{{port}}"]
+    }
+  }
+]

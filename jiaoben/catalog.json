@@ -1,0 +1,52 @@
+{
+  "apps": [
+    {
+      "key": "hello-test",
+      "name": "连通性测试脚本",
+      "desc": "验证脚本应用通道：输出环境变量与主机信息，无副作用。",
+      "kind": "script",
+      "version": "1.0.0",
+      "script": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/jiaoben/scripts/hello-test.sh",
+      "params": [
+        { "key": "note", "label": "备注", "def": "" }
+      ]
+    },
+    {
+      "key": "system-tune",
+      "name": "系统基础优化",
+      "desc": "设置时区、配置 vm.swappiness、提升文件句柄数与常用内核参数（幂等，可重复执行）。",
+      "kind": "script",
+      "version": "1.1.0",
+      "script": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/jiaoben/scripts/system-tune.sh",
+      "params": [
+        { "key": "timezone", "label": "时区", "def": "Asia/Shanghai" },
+        { "key": "swap_size", "label": "Swap 大小（MB，0=不创建）", "def": "2048" }
+      ]
+    },
+    {
+      "key": "nginx-log-clean",
+      "name": "Nginx 日志轮转清理",
+      "desc": "按大小轮转 /var/log/nginx 下日志并清理 7 天前归档（幂等）。",
+      "kind": "script",
+      "version": "1.0.0",
+      "script": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/jiaoben/scripts/nginx-log-clean.sh",
+      "params": [
+        { "key": "max_mb", "label": "单文件触发阈值（MB）", "def": "100" },
+        { "key": "keep_days", "label": "归档保留天数", "def": "7" }
+      ]
+    },
+    {
+      "key": "ddns-cloudflare",
+      "name": "Cloudflare DDNS",
+      "desc": "用 Cloudflare API 把本机公网 IP 更新到指定 A 记录（需 API Token 与 Zone 权限）。",
+      "kind": "script",
+      "version": "1.0.0",
+      "script": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/jiaoben/scripts/ddns-cloudflare.sh",
+      "params": [
+        { "key": "cf_token", "label": "API Token", "def": "" },
+        { "key": "zone", "label": "Zone 名称", "def": "example.com" },
+        { "key": "record", "label": "A 记录主机名", "def": "home.example.com" }
+      ]
+    }
+  ]
+}

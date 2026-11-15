@@ -1,0 +1,232 @@
+// hanyuxin —— 寒语馨面板：Linux Web 管理面板（单二进制）。
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	webui "cnb.cool/hanyuxin/panel"
+	"cnb.cool/hanyuxin/panel/internal/audit"
+	"cnb.cool/hanyuxin/panel/internal/auth"
+	"cnb.cool/hanyuxin/panel/internal/config"
+	"cnb.cool/hanyuxin/panel/internal/core"
+	"cnb.cool/hanyuxin/panel/internal/modules/alert"
+	"cnb.cool/hanyuxin/panel/internal/modules/appstore"
+	"cnb.cool/hanyuxin/panel/internal/modules/cert"
+	"cnb.cool/hanyuxin/panel/internal/modules/cron"
+	"cnb.cool/hanyuxin/panel/internal/modules/dashboard"
+	"cnb.cool/hanyuxin/panel/internal/modules/dbmgr"
+	"cnb.cool/hanyuxin/panel/internal/modules/filem"
+	"cnb.cool/hanyuxin/panel/internal/modules/firewall"
+	"cnb.cool/hanyuxin/panel/internal/modules/mcp"
+	"cnb.cool/hanyuxin/panel/internal/modules/node"
+	"cnb.cool/hanyuxin/panel/internal/modules/proc"
+	rtm "cnb.cool/hanyuxin/panel/internal/modules/runtime"
+	"cnb.cool/hanyuxin/panel/internal/modules/setting"
+	"cnb.cool/hanyuxin/panel/internal/modules/term"
+	"cnb.cool/hanyuxin/panel/internal/modules/website"
+	"cnb.cool/hanyuxin/panel/internal/notify"
+	"cnb.cool/hanyuxin/panel/internal/objectstore"
+	"cnb.cool/hanyuxin/panel/internal/selfcert"
+)
+
+func main() {
+	cfgPath := flag.String("c", "config.yaml", "配置文件路径")
+	flag.Parse()
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "加载配置失败:", err)
+		os.Exit(1)
+	}
+	core.Setup(cfg.LogDir, cfg.LogLevel)
+	slog.Info("寒语馨面板启动", "version", core.Version, "listen", cfg.Server.Listen)
+	scheme := "http"
+	if cfg.Server.TLS.Enabled {
+		scheme = "https"
+	}
+	slog.Info("面板访问地址", "url", fmt.Sprintf("%s://<服务器IP>%s/s/%s", scheme, cfg.Server.Listen, cfg.Server.Entrance))
+
+	db, err := core.OpenDB(cfg.DataDir)
+	if err != nil {
+		slog.Error("打开数据库失败", "err", err)
+		os.Exit(1)
+	}
+	if err := core.BootstrapAdmin(db, cfg.DataDir); err != nil {
+		slog.Error("初始化管理员失败", "err", err)
+		os.Exit(1)
+	}
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	authSvc := auth.New(db, cfg)
+
+	// 安全入口
+	r.GET("/s/:code", authSvc.HandleEntrance)
+
+	// API：全部经过入口防护；登录之外的接口需要会话
+	auditMod := audit.New(db)
+	api := r.Group("/api", authSvc.EntranceRequired(), audit.Middleware(auditMod))
+	authSvc.Register(api)
+	protected := api.Group("", authSvc.Middleware())
+	authSvc.RegisterAdmin(protected) // 用户管理（仅 admin）
+
+	// 多节点（Agent 反连走独立端点，token 鉴权；管理面走会话权限）
+	protectedRW := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
+	protectedAdmin := protected.Group("", authSvc.RequireAdmin())
+	nodeMod := node.New(db)
+	if err := nodeMod.Start(); err != nil {
+		slog.Error("节点模块启动失败", "err", err)
+		os.Exit(1)
+	}
+	r.GET("/api/ws/agent", nodeMod.HandleAgent)
+	nodeMod.Register(protected, protectedRW, protectedAdmin)
+	r.GET("/api/ws/nodeterm/:id", authSvc.EntranceRequired(), authSvc.Middleware(), nodeMod.HandleNodeTerm)
+
+	// 开放 API 与 MCP Server（外部脚本 / AI 客户端接入，凭 API Token 等效 admin）
+	mcpMod := mcp.New(db, cfg, authSvc)
+	mcpMod.Register(protected, protectedAdmin)
+
+	// 计划任务（依赖节点执行通道，需在 nodeMod 之后组装）
+	cronMod := cron.New(db, cfg.DataDir, nodeMod.ExecOnNode)
+	if err := cronMod.Start(); err != nil {
+		slog.Error("计划任务模块启动失败", "err", err)
+		os.Exit(1)
+	}
+	cronMod.Register(protected)
+	filem.New(cfg.DataDir).Register(protected)
+	// 终端为系统 shell，viewer 角色禁止
+	termGrp := protected.Group("", authSvc.RequireRole(auth.RoleAdmin, auth.RoleOperator))
+	term.Register(termGrp, db)
+	// SSH 多标签终端：主机收藏 CRUD + SSH 拨号 WS（凭据加密落库）
+	term.RegisterHosts(termGrp, db, cfg)
+	term.RegisterSSH(termGrp, db, cfg)
+	proc.Register(protected)
+	certMod := cert.New(db, cfg.DataDir)
+	settingMod := setting.New(db, cfg, certMod)
+	settingMod.Register(protected)
+	// 开放 API Token 管理（独立于 MCP Token，见 docs/API.md）
+	settingMod.RegisterTokenAdmin(protectedAdmin)
+	// 面板品牌名：登录页/布局壳匿名可读（仍受安全入口防护）
+	api.GET("/setting/brand", settingMod.BrandPublic)
+	certMod.Register(protected)
+
+	// P1 模块
+	auditMod.Start()
+	auditMod.Register(protected)
+	notify.New(db).Register(protected)
+	objectstore.New(db).Register(protected)
+	firewall.Register(protected, cfg.Server.Listen, db)
+	websiteMod := website.New(db, cfg.DataDir)
+	if err := websiteMod.Start(); err != nil {
+		slog.Error("网站模块启动失败", "err", err)
+	}
+	websiteMod.Register(protected)
+	certMod.Start()
+	dbmgr.New(db, cfg.DataDir).Register(protected)
+
+	// 运行时版本管理器（宝塔式：多版本共存/设默认/卸载）
+	runtimeMod := rtm.New(db, cfg.DataDir)
+	if err := runtimeMod.Start(); err != nil {
+		slog.Error("运行时模块启动失败", "err", err)
+	}
+	runtimeMod.Register(protected)
+
+	// P2 模块
+	dash := dashboard.New(db)
+	dash.Register(protected)
+	alertMod := alert.New(db, dash, func(nodeID uint) (cpu, mem, load1 float64, ok bool) {
+		var latest node.NodeMetric
+		if err := db.Where("node_id = ?", nodeID).Order("time DESC").First(&latest).Error; err != nil {
+			return 0, 0, 0, false
+		}
+		if time.Since(latest.Time) > 5*time.Minute {
+			return 0, 0, 0, false
+		}
+		return latest.CPU, latest.MemPct, latest.Load1, true
+	})
+	if err := alertMod.Start(); err != nil {
+		slog.Error("告警模块启动失败", "err", err)
+	}
+	alertMod.Register(protected)
+	appstoreMod := appstore.New(db, cfg.DataDir)
+	if err := appstoreMod.Start(); err != nil {
+		slog.Error("应用商店模块启动失败", "err", err)
+	}
+	appstoreMod.Register(protected, protectedAdmin)
+
+	// SPA 静态资源（嵌入前端）
+	spaFS := webui.FS()
+	r.NoRoute(func(c *gin.Context) {
+		p := c.Request.URL.Path
+		if p == "/api" || strings.HasPrefix(p, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "not found"})
+			return
+		}
+		if !authSvc.SpaAllowed(c) {
+			// 无入口 Cookie 的页面请求：302 引导到安全入口（写 Cookie 后回首页）。
+			c.Redirect(http.StatusFound, "/s/"+cfg.Server.Entrance)
+			return
+		}
+		// 真实静态资源（/assets/*、favicon 等）由 embed 文件系统输出（assets 带长缓存头）
+		if f, err := spaFS.Open(strings.TrimPrefix(p, "/")); err == nil {
+			defer f.Close()
+			if st, statErr := f.Stat(); statErr == nil && !st.IsDir() {
+				webui.ServeStatic(c.Writer, c.Request, spaFS)
+				return
+			}
+		}
+		// 其余路径（SPA history 路由 / 根路径）一律回 index.html，200
+		webui.ServeIndex(c.Writer, spaFS)
+	})
+
+	srv := &http.Server{Addr: cfg.Server.Listen, Handler: r}
+	go serve(srv, cfg, cfg.DataDir)
+
+	// 优雅退出
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	slog.Info("正在停止面板...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+	slog.Info("面板已停止")
+}
+
+func serve(srv *http.Server, cfg *config.Config, dataDir string) {
+	var err error
+	if cfg.Server.TLS.Enabled {
+		cert, key := cfg.Server.TLS.Cert, cfg.Server.TLS.Key
+		if cert == "" || key == "" {
+			cert, key, err = selfcert.Ensure(filepath.Join(dataDir, "certs"))
+			if err != nil {
+				slog.Error("生成自签证书失败", "err", err)
+				os.Exit(1)
+			}
+			slog.Info("已生成自签证书", "cert", cert)
+		}
+		slog.Info("HTTPS 服务已启动", "addr", cfg.Server.Listen)
+		err = srv.ListenAndServeTLS(cert, key)
+	} else {
+		slog.Warn("HTTPS 未启用（可在 config.yaml 中开启 server.tls.enabled）", "addr", cfg.Server.Listen)
+		err = srv.ListenAndServe()
+	}
+	if err != nil && err != http.ErrServerClosed {
+		slog.Error("服务异常退出", "err", err)
+		os.Exit(1)
+	}
+}
