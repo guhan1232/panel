@@ -25,6 +25,7 @@ const (
 	KMcpToken       = "mcp_token"    // MCP Server 专用 Token（与开放 API Token 相互独立）
 	KAppSourceURL   = "appstore_source_url"
 	KAppSourceCache = "appstore_source_cache"
+	KAppSources     = "appstore_sources_v2" // 软件商店多仓库源（JSON 数组，含每源清单缓存）
 	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）
 	KPanelName      = "panel_name"           // 自定义面板名称（空 = 默认「寒语馨面板」）
 

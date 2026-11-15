@@ -928,7 +928,6 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	g.GET("/versions", m.listVersions)
 	g.GET("/mirrors", listMirrors)
 	g.GET("/soft-sources", listSoftSources)
-	g.GET("/source", m.getSource)
 	g.GET("/docker/status", dockerStatus)
 	g.POST("/docker/install", installDocker)
 	g.GET("/docker/containers", m.dockerContainers)
@@ -961,10 +960,10 @@ func (m *Module) Register(api gin.IRouter, admin gin.IRouter) {
 	m.registerScriptRoutes(g)
 	g.POST("/:id/uninstall", m.uninstall)
 	g.POST("/:id/upgrade", m.upgrade)
-	admin.POST("/apps/source", m.setSource)
 	g.GET("/sys-source", sysSourceGet)
 	g.POST("/sys-source", sysSourceSet)
 	g.POST("/sys-source/restore", sysSourceRestore)
+	m.registerSourceRoutes(g, admin)
 }
 
 // ---- Docker 镜像源（daemon.json）管理 ----
@@ -1236,7 +1235,8 @@ func (m *Module) listVersions(c *gin.Context) {
 }
 
 func (m *Module) listTemplates(c *gin.Context) {
-	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO；合并远程应用源（内置优先去重）
+	// 模板的 Gen/Native 为函数字段，JSON 不支持，输出 DTO；
+	// 合并顺序：内置 → 仓库源（多源按序去重）→ 本地三方脚本包（custom: 前缀）
 	out := make([]gin.H, 0, len(templates))
 	for _, t := range templates {
 		item := gin.H{"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": t.Kind, "params": t.Params, "source": "builtin", "default_version": t.DefaultVersion}
@@ -1248,18 +1248,16 @@ func (m *Module) listTemplates(c *gin.Context) {
 		}
 		out = append(out, item)
 	}
+	seen := map[string]bool{}
+	for _, t := range templates {
+		seen[t.Key] = true
+	}
 	for _, d := range m.remoteCatalog() {
-		dup := false
-		for _, t := range templates {
-			if t.Key == d.Key {
-				dup = true
-				break
-			}
-		}
-		if dup {
+		if seen[d.Key] {
 			continue
 		}
-		item := gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "version": d.Version, "default_version": d.Version}
+		seen[d.Key] = true
+		item := gin.H{"key": d.Key, "name": d.Name, "desc": d.Desc, "kind": d.Kind, "params": d.Params, "source": "remote", "source_name": d.SourceName, "version": d.Version, "category": d.Category, "icon": d.Icon, "default_version": d.Version}
 		if d.Kind == "package" {
 			item["soft_sources"] = supportedPkgSources()
 		} else if d.Kind == "native" && d.Native != nil {
@@ -1268,7 +1266,43 @@ func (m *Module) listTemplates(c *gin.Context) {
 		}
 		out = append(out, item)
 	}
+	// 本地三方脚本包（custom:<name>），与仓库/内置 key 去重（custom: 前缀天然不撞）
+	for _, s := range m.customScriptList() {
+		out = append(out, s)
+	}
 	core.OK(c, out)
+}
+
+// customScriptList 将本地脚本包转为商店目录条目（source=local，key=custom:<name>）。
+func (m *Module) customScriptList() []gin.H {
+	dir := m.scriptsDir()
+	out := []gin.H{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		name := ""
+		if e.IsDir() && scriptNameRe.MatchString(e.Name()) {
+			name = e.Name()
+		} else if !e.IsDir() && strings.HasSuffix(e.Name(), ".sh") && scriptNameRe.MatchString(strings.TrimSuffix(e.Name(), ".sh")) {
+			name = strings.TrimSuffix(e.Name(), ".sh")
+		}
+		if name == "" {
+			continue
+		}
+		t := m.customTemplate(name)
+		if t == nil {
+			continue
+		}
+		pkgDir := m.scriptPkgDir(name)
+		meta := readScriptMeta(pkgDir, name)
+		out = append(out, gin.H{
+			"key": t.Key, "name": t.Name, "desc": t.Desc, "kind": "script", "params": t.Params,
+			"source": "local", "source_name": "本地脚本", "version": meta.Version, "category": meta.Category, "icon": meta.Icon,
+		})
+	}
+	return out
 }
 
 // aptInstallMu 系统包安装全程互斥：并发安装会竞争 apt/dpkg 锁导致 update 失败。
@@ -1724,6 +1758,15 @@ func (m *Module) logs(c *gin.Context) {
 		out, _, err = execx.Run("appstore", 30*time.Second, "journalctl", "-u", r.Binary, "-n", "200", "--no-pager")
 	} else if r.Kind == "native" {
 		out, _, err = execx.Run("appstore", 30*time.Second, "journalctl", "-u", m.unitName(r.Name), "-n", "200", "--no-pager")
+	} else if r.Kind == "script" {
+		// 脚本类：安装/运行日志落盘在 scriptsDir/<实例名>.sh.log
+		data, rerr := os.ReadFile(filepath.Join(m.scriptsDir(), r.Name+".sh.log"))
+		if rerr != nil {
+			core.OK(c, gin.H{"content": ""})
+			return
+		}
+		core.OK(c, gin.H{"content": string(data)})
+		return
 	} else {
 		out, _, err = execx.Run("appstore", 30*time.Second, "docker", composeArgs(m.composeFile(r.Name), "logs", "--tail=200")...)
 	}

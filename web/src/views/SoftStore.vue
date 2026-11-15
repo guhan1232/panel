@@ -1,37 +1,39 @@
 <template>
   <div class="wm-page store-page ops-page">
+    <!-- 顶部命令栏 -->
     <section class="ops-commandbar">
       <div class="ops-commandbar__group">
-        <template v-if="storeTab === 'apps' || storeTab === 'runtime'">
-          <a-input v-model:value="keyword" placeholder="搜索软件或运行时" allow-clear style="width: 240px">
-            <template #prefix><SearchOutlined /></template>
-          </a-input>
+        <a-input v-model:value="keyword" placeholder="搜索软件、脚本或运行时" allow-clear style="width: 240px">
+          <template #prefix><SearchOutlined /></template>
+        </a-input>
+        <template v-if="storeTab === 'apps'">
+          <a-segmented v-model:value="catFilter" size="small" :options="catOptions" />
           <a-segmented v-model:value="sourceFilter" size="small" :options="[
             { value: 'all', label: `全部 ${templates.length}` },
             { value: 'builtin', label: `内置 ${builtinCount}` },
-            { value: 'remote', label: `镜像源 ${remoteCount}` }
+            { value: 'remote', label: `仓库 ${remoteCount}` },
+            { value: 'local', label: `本地 ${localCount}` }
           ]" />
         </template>
-        <span v-else class="ops-commandbar__hint">
-          {{ storeTab === 'scripts' ? '自定义脚本执行后会留痕，可随时查看日志。' : '在实例管理中启动、停止、升级或卸载已安装软件。' }}
-        </span>
       </div>
       <div class="ops-commandbar__group ops-commandbar__group--end">
-        <span class="ops-commandbar__hint">{{ loading ? '正在同步目录…' : '目录已同步' }}</span>
-        <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
+        <a-button v-if="storeTab === 'apps'" size="small" type="primary" ghost @click="openScriptDlg()">上传脚本</a-button>
+        <a-button v-if="storeTab === 'sources'" size="small" type="primary" @click="openSrcDlg()">添加仓库源</a-button>
+        <a-button size="small" @click="loadAll"><ReloadOutlined />刷新</a-button>
       </div>
     </section>
 
     <a-tabs v-model:activeKey="storeTab" tab-position="top" class="store-tabs ops-tabs">
+      <!-- ============ Tab 1 应用商店 ============ -->
       <a-tab-pane key="apps">
         <template #tab>
-          <span class="ops-tab"><AppstoreOutlined /><span class="ops-tab__label">可安装软件</span><span class="ops-tab__count">{{ templates.length }}</span></span>
+          <span class="ops-tab"><AppstoreOutlined /><span class="ops-tab__label">应用商店</span><span class="ops-tab__count">{{ templates.length }}</span></span>
         </template>
         <section class="ops-panel">
           <header class="ops-panel__head">
             <div>
               <h3 class="ops-panel__title">软件目录</h3>
-              <p class="ops-panel__desc">原生二进制与系统包一键部署，安装时可选择下载来源。</p>
+              <p class="ops-panel__desc">内置应用、仓库托管脚本与本地三方脚本包一键安装；容器类见 Docker 页，系统包可选镜像源。</p>
             </div>
             <div class="ops-panel__actions">
               <WmStatusPill :label="`显示 ${filteredTemplates.length} / ${templates.length}`" tone="neutral" :dot="false" outline />
@@ -41,30 +43,126 @@
             <div class="ops-card-grid" v-if="filteredTemplates.length">
               <article v-for="t in filteredTemplates" :key="t.key" class="store-card">
                 <div class="store-card__head">
-                  <span class="store-card__avatar">{{ (t.name || '?').slice(0, 1) }}</span>
+                  <span class="store-card__avatar" :class="{ 'store-card__avatar--local': t.source === 'local' }">{{ t.icon || (t.name || '?').slice(0, 1) }}</span>
                   <div class="store-card__title">
                     <b class="wm-truncate">{{ t.name }}</b>
                     <span v-if="t.version" class="store-card__ver">v{{ t.version }}</span>
                   </div>
                 </div>
-                <p class="store-card__desc">{{ t.desc }}</p>
+                <p class="store-card__desc">{{ t.desc || '（暂无描述）' }}</p>
                 <div class="store-card__tags">
                   <WmStatusPill :label="kindLabel(t.kind)" :tone="t.kind === 'package' ? 'success' : t.kind === 'native' ? 'warning' : 'info'" :dot="false" outline />
-                  <WmStatusPill :label="t.source === 'remote' ? '镜像源' : '内置'" :tone="t.source === 'remote' ? 'danger' : 'success'" :dot="false" outline />
+                  <WmStatusPill :label="sourceLabel(t)" :tone="t.source === 'builtin' ? 'success' : t.source === 'local' ? 'warning' : 'processing'" :dot="false" outline />
+                  <WmStatusPill v-if="t.category" :label="t.category" tone="neutral" :dot="false" outline />
                 </div>
                 <div class="store-card__foot">
                   <a-button type="primary" size="small" @click="openInstall(t)">安装</a-button>
+                  <a-button v-if="t.source === 'local'" size="small" @click="editScript(String(t.key).replace('custom:', ''))">编辑</a-button>
                 </div>
               </article>
             </div>
-            <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词，或把来源筛选切回「全部」。" />
+            <WmEmptyState v-else compact title="没有匹配的软件" description="试试更换关键词、切换分类，或到「脚本管理」上传自己的脚本包。" />
           </div>
         </section>
       </a-tab-pane>
 
+      <!-- ============ Tab 2 脚本管理 ============ -->
+      <a-tab-pane key="scripts">
+        <template #tab>
+          <span class="ops-tab"><FileTextOutlined /><span class="ops-tab__label">脚本管理</span><span class="ops-tab__count">{{ customScripts.length }}</span></span>
+        </template>
+        <section class="ops-panel">
+          <header class="ops-panel__head">
+            <div>
+              <h3 class="ops-panel__title">三方脚本包</h3>
+              <p class="ops-panel__desc">上传自带元数据与参数声明的 bash 脚本包，出现在「应用商店」可直接安装；直接运行会留痕可查日志。</p>
+            </div>
+            <div class="ops-panel__actions">
+              <a-button type="primary" size="small" @click="openScriptDlg()">上传脚本包</a-button>
+            </div>
+          </header>
+          <div class="ops-panel__body">
+            <div class="ops-card-grid" v-if="customScripts.length">
+              <article v-for="s in customScripts" :key="s.name" class="store-card">
+                <div class="store-card__head">
+                  <span class="store-card__avatar store-card__avatar--local">{{ s.icon || (s.title || s.name).slice(0, 1) }}</span>
+                  <div class="store-card__title">
+                    <b class="wm-truncate">{{ s.title || s.name }}</b>
+                    <span v-if="s.version" class="store-card__ver">v{{ s.version }}</span>
+                  </div>
+                </div>
+                <p class="store-card__desc">{{ s.desc || s.head || 'bash 脚本' }}</p>
+                <div class="store-card__tags">
+                  <WmStatusPill v-if="s.category" :label="s.category" tone="neutral" :dot="false" outline />
+                  <WmStatusPill :label="`${(s.params || []).length} 个参数`" tone="info" :dot="false" outline />
+                </div>
+                <div class="store-card__foot store-card__foot--wrap">
+                  <a-button type="primary" size="small" @click="openInstall({ key: 'custom:' + s.name, name: s.title || s.name, desc: s.desc, kind: 'script', params: s.params })">安装</a-button>
+                  <a-button size="small" @click="editScript(s.name)">编辑</a-button>
+                  <a-button type="link" size="small" @click="viewScriptLog(s.name)">日志</a-button>
+                  <a-button type="link" size="small" danger @click="delScript(s.name)">删除</a-button>
+                </div>
+              </article>
+            </div>
+            <WmEmptyState v-else compact title="还没有脚本包" description="点击右上角「上传脚本包」：填写名称、描述、参数声明并粘贴 bash 内容。" />
+            <WmNotice tone="neutral" class="wm-mt-4">
+              脚本以 bash 在面板服务器执行（限时 30 分钟，环境变量注入 PANEL_APP_NAME）；参数以「双花括号包裹参数名」占位符替换进脚本，安装时按声明生成表单。
+            </WmNotice>
+          </div>
+        </section>
+      </a-tab-pane>
+
+      <!-- ============ Tab 3 应用源 ============ -->
+      <a-tab-pane key="sources">
+        <template #tab>
+          <span class="ops-tab"><CloudOutlined /><span class="ops-tab__label">应用源</span><span class="ops-tab__count">{{ appSources.length }}</span></span>
+        </template>
+        <section class="ops-panel">
+          <header class="ops-panel__head">
+            <div>
+              <h3 class="ops-panel__title">仓库源</h3>
+              <p class="ops-panel__desc">从 git 仓库清单（catalog.json）获取软件安装脚本与源码声明；支持添加任意 http(s) 清单地址，启用后合并进「应用商店」。</p>
+            </div>
+            <div class="ops-panel__actions">
+              <a-button type="primary" size="small" @click="openSrcDlg()">添加仓库源</a-button>
+            </div>
+          </header>
+          <div class="ops-panel__body">
+            <div class="store-src-list" v-if="appSources.length">
+              <article v-for="s in appSources" :key="s.id" class="store-src" :class="{ 'store-src--off': !s.enabled }">
+                <div class="store-src__main">
+                  <div class="store-src__title">
+                    <b>{{ s.name }}</b>
+                    <WmStatusPill v-if="s.builtin" label="内置" tone="success" :dot="false" outline />
+                    <WmStatusPill :label="s.enabled ? '已启用' : '已停用'" :tone="s.enabled ? 'success' : 'neutral'" :dot="false" />
+                    <WmStatusPill v-if="s.err" label="刷新失败" tone="danger" :dot="false" />
+                  </div>
+                  <p class="store-src__url wm-mono wm-truncate">{{ s.url }}</p>
+                  <p class="store-src__meta">
+                    {{ s.count }} 个应用 · 更新于 {{ s.updated || '从未' }}
+                    <span v-if="s.err" class="store-src__err">（{{ s.err }}）</span>
+                  </p>
+                </div>
+                <div class="store-src__actions">
+                  <a-switch :checked="s.enabled" size="small" @change="(v: any) => toggleSource(s, v)" />
+                  <a-button size="small" :loading="refreshingId === s.id" @click="refreshSource(s)">刷新</a-button>
+                  <a-button size="small" @click="openSrcDlg(s)">编辑</a-button>
+                  <a-button v-if="!s.builtin" size="small" danger @click="delSource(s)">删除</a-button>
+                </div>
+              </article>
+            </div>
+            <WmEmptyState v-else compact title="暂无仓库源" description="添加仓库源后，清单中的软件会出现在「应用商店」。" />
+            <WmNotice tone="info" class="wm-mt-4">
+              清单格式：JSON 裸数组或 {"apps":[...]}；应用声明支持 script（bash 内容或 http(s) 脚本地址）/ native（二进制发行包）/ compose 三类，字段与示例见仓库 docs/catalog.example.json。同名 key 按源顺序先注册者优先。
+            </WmNotice>
+          </div>
+        </section>
+      </a-tab-pane>
+
+      <!-- ============ Tab 4 运行环境 ============ -->
       <a-tab-pane key="runtime">
         <template #tab>
-          <span class="ops-tab"><CodeOutlined /><span class="ops-tab__label">运行时环境</span><span class="ops-tab__count">{{ runtimes.length }}</span></span>
+          <span class="ops-tab"><CodeOutlined /><span class="ops-tab__label">运行环境</span><span class="ops-tab__count">{{ runtimes.length }}</span></span>
         </template>
         <section class="ops-panel">
           <header class="ops-panel__head">
@@ -100,44 +198,17 @@
         </section>
       </a-tab-pane>
 
-      <a-tab-pane key="scripts">
-        <template #tab>
-          <span class="ops-tab"><FileTextOutlined /><span class="ops-tab__label">脚本应用</span><span class="ops-tab__count">{{ customScripts.length }}</span></span>
-        </template>
-        <WmSectionCard title="脚本应用" description="仓库托管的一键安装脚本 + 自定义脚本（上传即用，执行留痕）">
-          <template #actions>
-            <a-button size="small" type="primary" @click="scriptDlg = true">上传脚本</a-button>
-          </template>
-          <a-list v-if="customScripts.length" :data-source="customScripts" size="small" class="store-list">
-            <template #renderItem="{ item }">
-              <a-list-item class="store-list__item">
-                <div class="store-list__meta">
-                  <b class="wm-truncate">{{ item.name }}</b>
-                  <span class="wm-text-muted wm-truncate">{{ item.head || 'bash 脚本' }}</span>
-                </div>
-                <template #actions>
-                  <a-button type="link" size="small" @click="runScript(item.name)">运行</a-button>
-                  <a-button type="link" size="small" @click="viewScriptLog(item.name)">日志</a-button>
-                  <a-button type="link" size="small" danger @click="delScript(item.name)">删除</a-button>
-                </template>
-              </a-list-item>
-            </template>
-          </a-list>
-          <p v-else class="wm-text-muted">还没有上传自定义脚本。仓库清单中的 script 类应用会出现在左侧「可安装软件」里，可直接一键安装。</p>
-          <WmNotice tone="neutral" class="wm-mt-4">脚本在面板服务器上以 bash 执行（限时 30 分钟），环境变量注入 PANEL_APP_NAME；安装时可声明参数，以双花括号参数名占位符替换。</WmNotice>
-        </WmSectionCard>
-      </a-tab-pane>
-
+      <!-- ============ Tab 5 已安装 ============ -->
       <a-tab-pane key="installed">
         <template #tab>
-          <span class="ops-tab"><DownloadOutlined /><span class="ops-tab__label">已安装 / 管理</span><span class="ops-tab__count">{{ apps.length }}</span></span>
+          <span class="ops-tab"><DownloadOutlined /><span class="ops-tab__label">已安装</span><span class="ops-tab__count">{{ apps.length }}</span></span>
         </template>
         <div class="ops-stack">
           <WmSectionCard title="实例管理" description="启动、停止、重启、升级、查看日志或卸载已安装软件" flush>
             <template #actions>
               <WmStatusPill :label="`${apps.length} 个实例`" tone="neutral" :dot="false" outline />
             </template>
-            <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从「可安装软件」选择模板，选择下载源即可安装。">
+            <WmTable :data="apps" v-loading="loading" empty-title="还没有安装软件" empty-description="从「应用商店」选择软件，选择下载源即可安装。">
               <WmColumn label="实例名" min-width="140"><template #default="{ row }"><b>{{ row.app.name }}</b></template></WmColumn>
               <WmColumn label="软件" width="130"><template #default="{ row }"><span class="wm-mono">{{ row.app.app_key }}</span></template></WmColumn>
               <WmColumn label="形态" width="90">
@@ -187,6 +258,123 @@
       </a-tab-pane>
     </a-tabs>
 
+    <!-- 安装抽屉 -->
+    <a-drawer v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" :width="680">
+      <a-form layout="vertical">
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">基本信息</div>
+          <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
+          <a-form-item v-if="cur?.versions?.length" label="版本" style="margin-bottom: 0">
+            <a-select v-model:value="instVer" style="width: 100%">
+              <a-select-option v-for="v in cur.versions" :key="v.version" :value="v.version">
+                {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
+              </a-select-option>
+            </a-select>
+            <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
+          </a-form-item>
+        </div>
+        <div class="wm-form-sec" v-if="cur?.kind !== 'script'">
+          <div class="wm-form-sec__title">下载与安装</div>
+          <a-form-item label="下载源" :style="cur?.kind === 'package' ? '' : 'margin-bottom: 0'">
+            <a-select v-model:value="instSource" style="width: 100%">
+              <a-select-option v-for="s in sources" :key="s.id"
+                :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
+            </a-select>
+            <div v-if="sourceHint" class="hint">{{ sourceHint }}</div>
+            <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
+          </a-form-item>
+        </div>
+        <div v-if="(cur?.params || []).length" class="wm-form-sec">
+          <div class="wm-form-sec__title">参数</div>
+          <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label" style="margin-bottom: 16px">
+            <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
+          </a-form-item>
+        </div>
+      </a-form>
+      <template #footer>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="deploying" @click="deploy">安装（下载发行包可能较慢）</a-button>
+      </template>
+    </a-drawer>
+
+    <a-modal v-model:open="upDlg" :title="`升级 ${upRow?.name || ''}`" width="520px">
+      <a-form layout="vertical">
+        <a-form-item label="当前版本"><span class="wm-mono">{{ upRow?.app?.version || '未记录' }}</span></a-form-item>
+        <a-form-item label="目标版本">
+          <a-select v-model:value="upVer" style="width: 100%">
+            <a-select-option v-for="v in upVersions" :key="v.version" :value="v.version">
+              {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+      <WmNotice tone="warning">升级会按所选版本重新安装并重启服务；仓库中不存在该版本时会失败。</WmNotice>
+      <template #footer>
+        <a-button @click="upDlg = false">取消</a-button>
+        <a-button type="primary" :loading="upRunning" @click="doUpgrade">开始升级</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="860px">
+      <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
+    </a-modal>
+
+    <!-- 上传/编辑脚本包 -->
+    <a-modal v-model:open="scriptDlg" :title="scriptEditing ? `编辑脚本包 - ${scriptForm.name}` : '上传脚本包（bash）'" ok-text="保存" cancel-text="取消" :confirm-loading="scriptSaving" @ok="saveScript" width="760px">
+      <a-form layout="vertical">
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">元数据</div>
+          <div class="script-meta-grid">
+            <a-form-item label="脚本名（key）" required>
+              <a-input v-model:value="scriptForm.name" :disabled="scriptEditing" placeholder="如 init-blog（小写字母数字_-）" />
+            </a-form-item>
+            <a-form-item label="显示名"><a-input v-model:value="scriptForm.title" placeholder="默认与脚本名一致" /></a-form-item>
+            <a-form-item label="版本"><a-input v-model:value="scriptForm.version" placeholder="1.0.0" /></a-form-item>
+            <a-form-item label="分类"><a-input v-model:value="scriptForm.category" placeholder="如 系统工具 / 网站" /></a-form-item>
+            <a-form-item label="图标（emoji 或单字）"><a-input v-model:value="scriptForm.icon" placeholder="如 🚀" style="width: 100%" /></a-form-item>
+          </div>
+          <a-form-item label="描述"><a-input v-model:value="scriptForm.desc" placeholder="脚本用途说明，显示在商店卡片" /></a-form-item>
+        </div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">
+            参数声明
+            <a-button type="link" size="small" @click="scriptForm.params.push({ key: '', label: '', def: '' })">+ 添加参数</a-button>
+          </div>
+          <div v-for="(p, idx) in scriptForm.params" :key="idx" class="script-param-row">
+            <a-input v-model:value="p.key" placeholder="key（如 db_pass）" style="width: 180px" />
+            <a-input v-model:value="p.label" placeholder="表单标签" style="width: 220px" />
+            <a-input v-model:value="p.def" placeholder="默认值" style="width: 160px" />
+            <a-button type="link" danger size="small" @click="scriptForm.params.splice(idx, 1)">移除</a-button>
+          </div>
+          <div class="hint">安装时按声明生成表单；值以「双花括号包裹 key」占位符替换进脚本内容。</div>
+        </div>
+        <div class="wm-form-sec">
+          <div class="wm-form-sec__title">脚本内容</div>
+          <a-form-item style="margin-bottom: 0">
+            <a-textarea v-model:value="scriptForm.content" :rows="12" placeholder="#!/bin/bash&#10;echo hello" class="wm-mono" />
+          </a-form-item>
+        </div>
+        <WmNotice tone="warning" class="wm-mt-4">脚本将以 bash 在面板服务器执行；保存后即出现在「应用商店」（来源=本地脚本），可带参数一键安装。</WmNotice>
+      </a-form>
+    </a-modal>
+
+    <!-- 脚本日志 -->
+    <a-modal v-model:open="scriptLogDlg" :title="`脚本日志 - ${scriptLogName}`" width="860px">
+      <WmCodeBlock :content="scriptLogContent" :label="`${scriptLogName} / script log`" />
+    </a-modal>
+
+    <!-- 添加/编辑仓库源 -->
+    <a-modal v-model:open="srcDlg" :title="srcEditing ? `编辑仓库源 - ${srcForm.name}` : '添加仓库源'" ok-text="保存" cancel-text="取消" :confirm-loading="srcSaving" @ok="saveSource" width="640px">
+      <a-form layout="vertical">
+        <a-form-item label="源名称" required><a-input v-model:value="srcForm.name" placeholder="如 我的应用仓库" /></a-form-item>
+        <a-form-item label="清单地址（catalog.json URL）" required>
+          <a-input v-model:value="srcForm.url" placeholder="https://example.com/catalog.json 或 git raw 地址" />
+          <div class="hint">指向一个 JSON 清单：裸数组或 {"apps":[...]}。保存时会立即拉取校验；应用声明支持 script/native/compose 三类。</div>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 运行时抽屉 -->
     <a-drawer v-model:open="rtDlg" width="860px" :title="`运行时版本 - ${rtLang?.name || ''}`">
       <WmToolbar>
         <a-select v-model:value="rtSource" style="width: 190px" @change="loadVersions">
@@ -199,7 +387,6 @@
         </a-select>
         <a-input v-model:value="rtFilter" placeholder="版本过滤" style="width: 140px" allow-clear />
         <a-button size="small" @click="loadVersions">更新版本列表</a-button>
-        <template #note>共 {{ filteredVersions.length }} 个</template>
         <template v-if="rtLang?.key === 'nodejs'">
           <span class="hint">registry源</span>
           <a-select v-model:value="npmRegistry" placeholder="未设置" style="width: 200px" :loading="regLoading" @change="saveRegistry">
@@ -255,125 +442,380 @@
         </WmColumn>
       </WmTable>
     </a-drawer>
-
-    <a-drawer v-model:open="dlg" :title="`安装 ${cur?.name || ''}`" :width="680">
-      <a-form layout="vertical">
-        <div class="wm-form-sec">
-          <div class="wm-form-sec__title">基本信息</div>
-          <a-form-item label="实例名称"><a-input v-model:value="instName" placeholder="如 prod-node" /></a-form-item>
-          <a-form-item v-if="cur?.versions?.length" label="版本" style="margin-bottom: 0">
-            <a-select v-model:value="instVer" style="width: 100%">
-              <a-select-option v-for="v in cur.versions" :key="v.version" :value="v.version">
-                {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
-              </a-select-option>
-            </a-select>
-            <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
-          </a-form-item>
-        </div>
-        <div class="wm-form-sec">
-          <div class="wm-form-sec__title">下载与安装</div>
-          <a-form-item label="下载源" :style="cur?.kind === 'package' ? '' : 'margin-bottom: 0'">
-            <a-select v-model:value="instSource" style="width: 100%">
-              <a-select-option v-for="s in sources" :key="s.id"
-                :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
-            </a-select>
-            <div v-if="sourceHint" class="hint">{{ sourceHint }}</div>
-            <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
-          </a-form-item>
-          <a-form-item v-if="cur?.kind === 'package'" label="安装方式" style="margin-bottom: 0">
-            <div class="hint">通过系统包管理器（apt/dnf）安装，由 systemd 托管</div>
-          </a-form-item>
-        </div>
-        <div v-if="(cur?.params || []).length" class="wm-form-sec">
-          <div class="wm-form-sec__title">参数</div>
-          <a-form-item v-for="p in cur?.params || []" :key="p.key" :label="p.label" style="margin-bottom: 16px">
-            <a-input v-model:value="instParams[p.key]" :placeholder="p.def" :type="p.key.includes('pass') || p.key === 'password' ? 'password' : 'text'" />
-          </a-form-item>
-        </div>
-      </a-form>
-      <template #footer>
-        <a-button @click="dlg = false">取消</a-button>
-        <a-button type="primary" :loading="deploying" @click="deploy">安装（下载发行包可能较慢）</a-button>
-      </template>
-    </a-drawer>
-
-    <a-modal v-model:open="upDlg" :title="`升级 ${upRow?.name || ''}`" width="520px">
-      <a-form layout="vertical">
-        <a-form-item label="当前版本"><span class="wm-mono">{{ upRow?.app?.version || '未记录' }}</span></a-form-item>
-        <a-form-item label="目标版本">
-          <a-select v-model:value="upVer" style="width: 100%">
-            <a-select-option v-for="v in upVersions" :key="v.version" :value="v.version">
-              {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
-            </a-select-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-      <WmNotice tone="warning">升级会按所选版本重新安装并重启服务；仓库中不存在该版本时会失败。</WmNotice>
-      <template #footer>
-        <a-button @click="upDlg = false">取消</a-button>
-        <a-button type="primary" :loading="upRunning" @click="doUpgrade">开始升级</a-button>
-      </template>
-    </a-modal>
-
-    <a-modal v-model:open="logDlg" :title="`日志 - ${logName}`" width="860px">
-      <WmCodeBlock :content="logContent" :label="`${logName} / logs`" />
-    </a-modal>
-
-    <!-- 上传脚本 -->
-    <a-modal v-model:open="scriptDlg" title="上传自定义脚本（bash）" ok-text="保存" cancel-text="取消" @ok="saveScript" width="680px">
-      <a-form layout="vertical">
-        <a-form-item label="脚本名（小写字母数字_-）"><a-input v-model:value="scriptForm.name" placeholder="如 init-blog" /></a-form-item>
-        <a-form-item label="脚本内容">
-          <a-textarea v-model:value="scriptForm.content" :rows="10" placeholder="#!/bin/bash&#10;echo hello" class="wm-mono" />
-        </a-form-item>
-        <WmNotice tone="warning">脚本将以 bash 在面板服务器执行；安装该脚本应用时，参数会以「双花括号包裹参数名」的占位符替换进脚本（例如双花括号包裹 db_pass）。</WmNotice>
-      </a-form>
-    </a-modal>
-
-    <!-- 脚本日志 -->
-    <a-modal v-model:open="scriptLogDlg" :title="`脚本日志 - ${scriptLogName}`" width="860px">
-      <WmCodeBlock :content="scriptLogContent" :label="`${scriptLogName} / script log`" />
-    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import {
   AppstoreOutlined,
+  CloudOutlined,
   CodeOutlined,
   DownloadOutlined,
   FileTextOutlined,
   ReloadOutlined,
   SearchOutlined
 } from '@ant-design/icons-vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '../antd-compat'
 import { ArrowDown } from '../antd-compat'
 import api from '../api'
 import { fmtTime } from '../utils'
 
+const storeTab = ref('apps')
+const keyword = ref('')
+const loading = ref(false)
 
+const kindLabel = (k: string) => ({ native: '二进制', package: '系统包', compose: '容器', script: '脚本' } as any)[k] || k
+const sourceLabel = (t: any) => (t.source === 'builtin' ? '内置' : t.source === 'local' ? '本地脚本' : t.source_name || '仓库')
+
+// ---- 商店目录 ----
 const templates = ref<any[]>([])
+const catFilter = ref('all')
+const sourceFilter = ref<'all' | 'builtin' | 'remote' | 'local'>('all')
+const builtinCount = computed(() => templates.value.filter((t) => t.source === 'builtin').length)
+const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
+const localCount = computed(() => templates.value.filter((t) => t.source === 'local').length)
+const catOptions = computed(() => {
+  const cats = new Set<string>()
+  for (const t of templates.value) if (t.category) cats.add(t.category)
+  return [{ value: 'all', label: '全部分类' }, ...[...cats].sort().map((c) => ({ value: c, label: c }))]
+})
+const filteredTemplates = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  return templates.value.filter((t) => {
+    if (sourceFilter.value !== 'all' && t.source !== sourceFilter.value) return false
+    if (catFilter.value !== 'all' && t.category !== catFilter.value) return false
+    if (!q) return true
+    return [t.name, t.key, t.desc, t.category, kindLabel(t.kind)].some((v: any) => String(v || '').toLowerCase().includes(q))
+  })
+})
+
+// ---- 脚本包 ----
+const customScripts = ref<any[]>([])
+const scriptDlg = ref(false)
+const scriptEditing = ref(false)
+const scriptSaving = ref(false)
+const scriptForm = reactive({ name: '', title: '', desc: '', version: '', category: '', icon: '', params: [] as any[], content: '' })
+const scriptLogDlg = ref(false)
+const scriptLogName = ref('')
+const scriptLogContent = ref('')
+
+function openScriptDlg() {
+  scriptEditing.value = false
+  Object.assign(scriptForm, { name: '', title: '', desc: '', version: '', category: '', icon: '', content: '' })
+  scriptForm.params = []
+  scriptDlg.value = true
+}
+
+async function editScript(name: string) {
+  try {
+    const d: any = await api.get(`/apps/scripts/${name}`)
+    scriptEditing.value = true
+    Object.assign(scriptForm, { name: d.name, title: d.title, desc: d.desc, version: d.version, category: d.category, icon: d.icon || '', content: d.content })
+    scriptForm.params = (d.params || []).map((p: any) => ({ ...p }))
+    scriptDlg.value = true
+  } catch {
+    ElMessage.warning('脚本读取失败')
+  }
+}
+
+async function saveScript() {
+  const name = scriptForm.name.trim()
+  if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(name)) {
+    ElMessage.warning('脚本名仅允许小写字母数字_-（2-64 位）')
+    return
+  }
+  if (!scriptForm.content.trim()) {
+    ElMessage.warning('脚本内容不能为空')
+    return
+  }
+  for (const p of scriptForm.params) {
+    if (p.key && !/^[a-z][a-z0-9_]{0,31}$/.test(p.key)) {
+      ElMessage.warning(`参数 key 非法：${p.key}（小写字母开头，字母数字下划线）`)
+      return
+    }
+  }
+  scriptSaving.value = true
+  try {
+    await api.post('/apps/scripts', {
+      name, title: scriptForm.title, desc: scriptForm.desc, version: scriptForm.version,
+      category: scriptForm.category, icon: scriptForm.icon, params: scriptForm.params.filter((p) => p.key), content: scriptForm.content
+    })
+    ElMessage.success('脚本包已保存，可在「应用商店」安装')
+    scriptDlg.value = false
+    loadAll()
+  } finally {
+    scriptSaving.value = false
+  }
+}
+
+async function delScript(name: string) {
+  try {
+    await ElMessageBox.confirm(`确认删除脚本包「${name}」？`, '删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.delete(`/apps/scripts/${name}`)
+  ElMessage.success('已删除')
+  loadAll()
+}
+
+async function viewScriptLog(name: string) {
+  try {
+    const d: any = await api.get(`/apps/scripts/${name}/log`)
+    scriptLogName.value = name
+    scriptLogContent.value = d.log || '（暂无日志）'
+    scriptLogDlg.value = true
+  } catch {
+    ElMessage.warning('暂无日志')
+  }
+}
+
+// ---- 仓库源 ----
+const appSources = ref<any[]>([])
+const srcDlg = ref(false)
+const srcEditing = ref(false)
+const srcSaving = ref(false)
+const srcForm = reactive({ id: '', name: '', url: '' })
+const refreshingId = ref('')
+
+function openSrcDlg(s?: any) {
+  srcEditing.value = !!s
+  Object.assign(srcForm, { id: s?.id || '', name: s?.name || '', url: s?.url || '' })
+  srcDlg.value = true
+}
+
+async function saveSource() {
+  if (!srcForm.name.trim() || !srcForm.url.trim()) {
+    ElMessage.warning('请填写源名称与清单地址')
+    return
+  }
+  srcSaving.value = true
+  try {
+    if (srcEditing.value) {
+      await api.put(`/apps/sources/${srcForm.id}`, { name: srcForm.name, url: srcForm.url })
+      ElMessage.success('仓库源已更新')
+    } else {
+      await api.post('/apps/sources', { name: srcForm.name, url: srcForm.url })
+      ElMessage.success('仓库源已添加')
+    }
+    srcDlg.value = false
+    loadAll()
+  } finally {
+    srcSaving.value = false
+  }
+}
+
+async function toggleSource(s: any, enabled: boolean) {
+  await api.put(`/apps/sources/${s.id}`, { enabled })
+  s.enabled = enabled
+  loadAll()
+}
+
+async function refreshSource(s: any) {
+  refreshingId.value = s.id
+  try {
+    await api.post(`/apps/sources/${s.id}/refresh`)
+    ElMessage.success('已刷新')
+    loadAll()
+  } finally {
+    refreshingId.value = ''
+  }
+}
+
+async function delSource(s: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除仓库源「${s.name}」？其应用将从商店移除（已安装实例不受影响）。`, '删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.delete(`/apps/sources/${s.id}`)
+  ElMessage.success('已删除')
+  loadAll()
+}
+
+// ---- 安装/实例管理（沿用安装引擎）----
+const templatesRaw = ref<any[]>([])
 const apps = ref<any[]>([])
 const sources = ref<any[]>([])
-const loading = ref(false)
 const dlg = ref(false)
 const deploying = ref(false)
 const cur = ref<any>(null)
 const instName = ref('')
 const instSource = ref('auto')
-
-const storeTab = ref('apps')
-
 const instVer = ref('')
 const instParams = reactive<Record<string, string>>({})
 const logDlg = ref(false)
 const logName = ref('')
 const logContent = ref('')
 
-const kindLabel = (k: string) => ({ native: '二进制', package: '系统包', compose: '容器', script: '脚本' } as any)[k] || k
-const builtinCount = computed(() => templates.value.filter((t) => t.source !== 'remote').length)
+const filteredRuntimes = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return runtimes.value
+  return runtimes.value.filter((r) => [r.name, r.key, r.desc].some((v: any) => String(v || '').toLowerCase().includes(q)))
+})
 
+async function load() {
+  loading.value = true
+  try {
+    templatesRaw.value = (await api.get('/apps/templates')) as any
+    templates.value = templatesRaw.value.filter((t: any) => t.kind !== 'compose')
+    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind !== 'compose')
+    sources.value = (await api.get('/apps/soft-sources')) as any
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadAll() {
+  load()
+  loadScripts()
+  loadSourcesList()
+  loadRuntimes()
+}
+
+async function loadScripts() {
+  try {
+    customScripts.value = (await api.get('/apps/scripts')) as any
+  } catch {
+    customScripts.value = []
+  }
+}
+
+async function loadSourcesList() {
+  try {
+    appSources.value = (await api.get('/apps/sources')) as any
+  } catch {
+    appSources.value = []
+  }
+}
+
+const upDlg = ref(false)
+const upRow = ref<any>(null)
+const upVer = ref('')
+const upVersions = ref<any[]>([])
+const upRunning = ref(false)
+
+async function openUpgrade(row: any) {
+  upRow.value = row
+  upVer.value = ''
+  upVersions.value = []
+  upDlg.value = true
+  try {
+    const d: any = await api.get('/apps/versions', { params: { key: row.app.app_key } })
+    upVersions.value = d.versions || []
+    if (d.default && !upVer.value) upVer.value = d.default
+  } catch { /* 清单拉取失败时保持空 */ }
+}
+
+async function doUpgrade() {
+  if (!upVer.value) {
+    ElMessage.warning('请选择目标版本')
+    return
+  }
+  upRunning.value = true
+  try {
+    await api.post(`/apps/${upRow.value.app.id}/upgrade`, { version: upVer.value }, { timeout: 900000 })
+    ElMessage.success('已升级到 ' + upVer.value)
+    upDlg.value = false
+    load()
+  } finally {
+    upRunning.value = false
+  }
+}
+
+async function openInstall(t: any) {
+  cur.value = t
+  instName.value = String(t.key || '').replace('custom:', '')
+  instSource.value = 'auto'
+  instVer.value = t.default_version || ''
+  Object.keys(instParams).forEach((k) => delete instParams[k])
+  for (const p of t.params || []) instParams[p.key] = p.def || ''
+  dlg.value = true
+  // native/package 拉取可选版本清单
+  if (t.kind === 'native' || t.kind === 'package') {
+    try {
+      const d: any = await api.get('/apps/versions', { params: { key: t.key } })
+      cur.value = { ...t, versions: d.versions || [] }
+      if (d.default && !instVer.value) instVer.value = d.default
+    } catch { /* 拉取失败时无版本选择 */ }
+  }
+}
+
+function sourceDisabled(id: string) {
+  if (!cur.value) return false
+  if (cur.value.soft_sources && !cur.value.soft_sources.includes(id)) return true
+  // nginx.org 与 packages.redis.io 的历史版本没有对应的通用 apt 镜像，避免提交后才失败。
+  if (cur.value.key === 'nginx-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official'].includes(id)
+  if (cur.value.key === 'redis-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official'].includes(id)
+  if (cur.value.key === 'mariadb' && instVer.value && instVer.value !== 'distro') return !['auto', 'official', 'aliyun'].includes(id)
+  if (cur.value.key === 'postgresql-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official', 'aliyun', 'tencent'].includes(id)
+  return false
+}
+
+async function deploy() {
+  if (!instName.value) {
+    ElMessage.warning('请填写实例名称')
+    return
+  }
+  deploying.value = true
+  try {
+    const d: any = await api.post('/apps', { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 1900000 })
+    ElMessage.success(d?.status || '安装完成')
+    dlg.value = false
+    loadAll()
+  } finally {
+    deploying.value = false
+  }
+}
+
+async function act(row: any, action: string) {
+  await api.post(`/apps/${row.app.id}/${action}`, {}, { timeout: 900000 })
+  ElMessage.success('已执行 ' + action)
+  load()
+}
+
+async function viewLogs(row: any) {
+  const d: any = await api.get(`/apps/${row.app.id}/logs`)
+  logName.value = row.app.name
+  logContent.value = d.content
+  logDlg.value = true
+}
+
+async function uninstall(row: any) {
+  let removeData = false
+  try {
+    await ElMessageBox.confirm(`确认卸载「${row.app.name}」？`, '卸载', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await ElMessageBox.confirm('是否同时删除安装目录（不可恢复）？', '删除文件', {
+      type: 'error', confirmButtonText: '删除文件', cancelButtonText: '保留文件'
+    })
+    removeData = true
+  } catch {
+    removeData = false
+  }
+  // 面板依赖保护：nginx 等被面板反代/网站占用的系统包需二次确认强卸
+  let force = false
+  try {
+    await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData, force })
+  } catch (e: any) {
+    if (!e?.msg?.includes('面板正在使用')) throw e
+    try {
+      await ElMessageBox.confirm(e.msg, '面板依赖警告', { type: 'error', confirmButtonText: '仍要强制卸载', cancelButtonText: '取消' })
+    } catch {
+      return
+    }
+    force = true
+    await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData, force })
+  }
+  ElMessage.success('已卸载')
+  loadAll()
+}
+
+// ---- 运行环境（功能保留）----
 const runtimes = ref<any[]>([])
 const rtDlg = ref(false)
 const rtLang = ref<any>(null)
@@ -535,248 +977,7 @@ async function rmRuntime(row: any) {
   ElMessage.success('已卸载')
   loadRuntimes()
 }
-const remoteCount = computed(() => templates.value.filter((t) => t.source === 'remote').length)
 
-const keyword = ref('')
-const sourceFilter = ref<'all' | 'builtin' | 'remote'>('all')
-const filteredTemplates = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  return templates.value.filter((t) => {
-    if (sourceFilter.value === 'builtin' && t.source === 'remote') return false
-    if (sourceFilter.value === 'remote' && t.source !== 'remote') return false
-    if (!q) return true
-    return [t.name, t.key, t.desc, kindLabel(t.kind)].some((v: any) => String(v || '').toLowerCase().includes(q))
-  })
-})
-const filteredRuntimes = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  if (!q) return runtimes.value
-  return runtimes.value.filter((r) => [r.name, r.key, r.desc].some((v: any) => String(v || '').toLowerCase().includes(q)))
-})
-
-async function load() {
-  loading.value = true
-  try {
-    loadRuntimes()
-    templates.value = ((await api.get('/apps/templates')) as any).filter((t: any) => t.kind !== 'compose')
-    apps.value = ((await api.get('/apps')) as any).filter((a: any) => a.app.kind !== 'compose')
-    sources.value = (await api.get('/apps/soft-sources')) as any
-  } finally {
-    loading.value = false
-  }
-}
-
-const upDlg = ref(false)
-const upRow = ref<any>(null)
-const upVer = ref('')
-const upVersions = ref<any[]>([])
-const upRunning = ref(false)
-
-async function openUpgrade(row: any) {
-  upRow.value = row
-  upVer.value = ''
-  upVersions.value = []
-  upDlg.value = true
-  try {
-    const d: any = await api.get('/apps/versions', { params: { key: row.app.app_key } })
-    upVersions.value = d.versions || []
-    if (d.default && !upVer.value) upVer.value = d.default
-  } catch { /* 清单拉取失败时保持空 */ }
-}
-
-async function doUpgrade() {
-  if (!upVer.value) {
-    ElMessage.warning('请选择目标版本')
-    return
-  }
-  upRunning.value = true
-  try {
-    await api.post(`/apps/${upRow.value.app.id}/upgrade`, { version: upVer.value }, { timeout: 900000 })
-    ElMessage.success('已升级到 '+ upVer.value)
-    upDlg.value = false
-    load()
-  } finally {
-    upRunning.value = false
-  }
-}
-
-async function openInstall(t: any) {
-  cur.value = t
-  instName.value = t.key
-  instSource.value = 'auto'
-  instVer.value = (t as any).default_version || ''
-  Object.keys(instParams).forEach((k) => delete instParams[k])
-  for (const p of t.params || []) instParams[p.key] = p.def || ''
-  dlg.value = true
-  // native/package 拉取可选版本清单
-  if (t.kind === 'native' || t.kind === 'package') {
-    try {
-      const d: any = await api.get('/apps/versions', { params: { key: t.key } })
-      cur.value = { ...t, versions: d.versions || [] }
-      if (d.default && !instVer.value) instVer.value = d.default
-    } catch { /* 拉取失败时无版本选择 */ }
-  }
-}
-
-function sourceDisabled(id: string) {
-  if (!cur.value) return false
-  if (cur.value.soft_sources && !cur.value.soft_sources.includes(id)) return true
-  // nginx.org 与 packages.redis.io 的历史版本没有对应的通用 apt 镜像，避免提交后才失败。
-  if (cur.value.key === 'nginx-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official'].includes(id)
-  if (cur.value.key === 'redis-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official'].includes(id)
-  if (cur.value.key === 'mariadb' && instVer.value && instVer.value !== 'distro') return !['auto', 'official', 'aliyun'].includes(id)
-  if (cur.value.key === 'postgresql-pkg' && instVer.value && instVer.value !== 'distro') return !['auto', 'official', 'aliyun', 'tencent'].includes(id)
-  return false
-}
-
-watch(instVer, () => {
-  if (sourceDisabled(instSource.value)) instSource.value = 'auto'
-})
-
-const sourceHint = computed(() => {
-  const k = cur.value?.key
-  const v = instVer.value
-  if (!k || !v || v === 'distro') return ''
-  if (k === 'nginx-pkg') return 'nginx.org 官方仓库未被任何镜像站收录，指定版本仅官方源可用（apt 系直连一般可用）。'
-  if (k === 'redis-pkg') return 'packages.redis.io 官方仓库未被任何镜像站收录，指定版本仅官方源可用。'
-  if (k === 'mariadb') return 'MariaDB 指定版本走阿里云镜像（apt 默认阿里云；dnf 走阿里云 yum 镜像），官方源亦可。'
-  if (k === 'postgresql-pkg') return 'PGDG 双通道均接镜像：apt 走阿里云/腾讯云，dnf 亦走镜像，官方源可选。'
-  return ''
-})
-
-async function deploy() {
-  if (!instName.value) {
-    ElMessage.warning('请填写实例名称')
-    return
-  }
-  deploying.value = true
-  try {
-    const d: any = await api.post('/apps', { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 900000 })
-    ElMessage.success(d?.status || '安装完成')
-    dlg.value = false
-    load()
-  } finally {
-    deploying.value = false
-  }
-}
-
-async function act(row: any, action: string) {
-  await api.post(`/apps/${row.app.id}/${action}`, {}, { timeout: 900000 })
-  ElMessage.success('已执行 ' + action)
-  load()
-}
-// ---- 脚本应用 ----
-const customScripts = ref<any[]>([])
-const scriptDlg = ref(false)
-const scriptForm = reactive({ name: '', content: '' })
-const scriptLogDlg = ref(false)
-const scriptLogName = ref('')
-const scriptLogContent = ref('')
-
-async function loadScripts() {
-  try {
-    customScripts.value = (await api.get('/apps/scripts')) as any
-  } catch {
-    customScripts.value = []
-  }
-}
-
-async function saveScript() {
-  const name = scriptForm.name.trim()
-  if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(name)) {
-    ElMessage.warning('脚本名仅允许小写字母数字_-（2-64 位）')
-    return
-  }
-  if (!scriptForm.content.trim()) {
-    ElMessage.warning('脚本内容不能为空')
-    return
-  }
-  await api.post('/apps/scripts', { name, content: scriptForm.content })
-  ElMessage.success('脚本已保存')
-  scriptDlg.value = false
-  scriptForm.name = ''
-  scriptForm.content = ''
-  loadScripts()
-}
-
-async function runScript(name: string) {
-  try {
-    const r: any = await ElMessageBox.prompt('输入应用实例名（小写字母数字短横线）', '运行脚本 ' + name, { inputValue: name + '-' + Date.now().toString(36).slice(-4) })
-    const d: any = await api.post(`/apps/scripts/${name}/run`, { instance: r.value }, { timeout: 1900000 })
-    ElMessage.success(d?.status || '脚本执行成功')
-    load()
-  } catch {
-    /* 取消 */
-  }
-}
-
-async function viewScriptLog(name: string) {
-  try {
-    const d: any = await api.get(`/apps/scripts/${name}/log`)
-    scriptLogName.value = name
-    scriptLogContent.value = d.log || '（暂无日志）'
-    scriptLogDlg.value = true
-  } catch {
-    ElMessage.warning('暂无日志')
-  }
-}
-
-async function delScript(name: string) {
-  try {
-    await ElMessageBox.confirm(`确认删除脚本「${name}」？`, '删除', { type: 'warning' })
-  } catch {
-    return
-  }
-  await api.delete(`/apps/scripts/${name}`)
-  ElMessage.success('已删除')
-  loadScripts()
-}
-
-
-async function viewLogs(row: any) {
-  const d: any = await api.get(`/apps/${row.app.id}/logs`)
-  logName.value = row.app.name
-  logContent.value = d.content
-  logDlg.value = true
-}
-
-async function uninstall(row: any) {
-  let removeData = false
-  try {
-    await ElMessageBox.confirm(`确认卸载「${row.app.name}」？`, '卸载', { type: 'warning' })
-  } catch {
-    return
-  }
-  try {
-    await ElMessageBox.confirm('是否同时删除安装目录（不可恢复）？', '删除文件', {
-      type: 'error', confirmButtonText: '删除文件', cancelButtonText: '保留文件'
-    })
-    removeData = true
-  } catch {
-    removeData = false
-  }
-  // 面板依赖保护：nginx 等被面板反代/网站占用的系统包需二次确认强卸
-  let force = false
-  try {
-    await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData, force })
-  } catch (e: any) {
-    if (!e?.msg?.includes('面板正在使用')) throw e
-    try {
-      await ElMessageBox.confirm(e.msg, '面板依赖警告', { type: 'error', confirmButtonText: '仍要强制卸载', cancelButtonText: '取消' })
-    } catch {
-      return
-    }
-    force = true
-    await api.post(`/apps/${row.app.id}/uninstall`, { remove_data: removeData, force })
-  }
-  ElMessage.success('已卸载')
-  load()
-}
-
-onMounted(() => {
-  load()
-  loadScripts()
-})
 async function loadComposerInfo() {
   composerLoading.value = true
   try {
@@ -818,6 +1019,7 @@ async function savePecl(val: string) {
   ElMessage.success('PECL 镜像已设置')
 }
 
+onMounted(() => loadAll())
 </script>
 
 <style scoped>
@@ -826,5 +1028,67 @@ async function savePecl(val: string) {
   flex-wrap: wrap;
   gap: 4px;
   margin: 0 0 var(--wm-s3);
+}
+.store-card__foot--wrap {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.store-card__avatar--local {
+  background: color-mix(in srgb, var(--wm-primary, #0f766e) 14%, #fff);
+  color: var(--wm-primary, #0f766e);
+}
+.script-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+}
+.script-param-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.store-src-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.store-src {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--wm-border, #e4e7ec);
+  border-radius: 12px;
+  background: var(--wm-surface, #fff);
+}
+.store-src--off {
+  opacity: 0.62;
+}
+.store-src__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.store-src__url {
+  font-size: 12px;
+  margin: 0 0 4px;
+  max-width: 560px;
+}
+.store-src__meta {
+  font-size: 12px;
+  color: var(--wm-text-secondary, #667085);
+  margin: 0;
+}
+.store-src__err {
+  color: var(--wm-danger, #d92d20);
+}
+.store-src__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 </style>

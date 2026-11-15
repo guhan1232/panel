@@ -1,4 +1,5 @@
-// 脚本类应用：仓库托管脚本一键安装 + 用户自定义脚本上传/运行。
+// 脚本类应用：仓库托管脚本一键安装 + 用户三方脚本包（元数据+参数声明，商店一等公民）。
+// 存储为目录式脚本包：data/appstore/scripts/<key>/{install.sh, meta.json}；旧单文件 .sh 自动迁移。
 package appstore
 
 import (
@@ -21,6 +22,18 @@ import (
 
 var scriptNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,62}$`)
 
+// ScriptMeta 三方脚本包元数据（商店展示 + 参数表单声明）。
+type ScriptMeta struct {
+	Name     string  `json:"name"`     // 包 key（小写字母数字_-）
+	Title    string  `json:"title"`    // 显示名
+	Desc     string  `json:"desc"`
+	Version  string  `json:"version"`
+	Category string  `json:"category"` // 分类（前端聚合筛选）
+	Icon     string  `json:"icon"`     // 图标（emoji/单字，可空）
+	Params   []Param `json:"params"`   // 参数声明（安装时表单）
+	Updated  string  `json:"updated"`
+}
+
 func (m *Module) scriptsDir() string {
 	// 绝对路径：bash 子进程的 cwd 可能与面板工作目录不同，相对路径会找不到文件
 	d, err := filepath.Abs(filepath.Join(m.dataDir, "appstore", "scripts"))
@@ -28,6 +41,78 @@ func (m *Module) scriptsDir() string {
 		return filepath.Join(m.dataDir, "appstore", "scripts")
 	}
 	return d
+}
+
+func (m *Module) scriptPkgDir(name string) string {
+	return filepath.Join(m.scriptsDir(), name)
+}
+
+// readScriptMeta 读取脚本包元数据（缺失时返回仅含 name 的默认值）。
+func readScriptMeta(dir, name string) ScriptMeta {
+	meta := ScriptMeta{Name: name, Title: name}
+	if b, err := os.ReadFile(filepath.Join(dir, "meta.json")); err == nil {
+		var m ScriptMeta
+		if json.Unmarshal(b, &m) == nil && m.Name == name {
+			return m
+		}
+	}
+	return meta
+}
+
+// migrateLegacyScript 旧单文件 <name>.sh 迁移为目录式脚本包（一次性，成功后删除旧文件）。
+func (m *Module) migrateLegacyScript(name string) {
+	old := filepath.Join(m.scriptsDir(), name+".sh")
+	if _, err := os.Stat(old); err != nil {
+		return
+	}
+	dir := m.scriptPkgDir(name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	if b, err := os.ReadFile(old); err == nil {
+		_ = os.WriteFile(filepath.Join(dir, "install.sh"), b, 0o700)
+		meta := ScriptMeta{Name: name, Title: name, Updated: time.Now().Format("2006-01-02 15:04")}
+		if raw, jerr := json.Marshal(meta); jerr == nil {
+			_ = os.WriteFile(filepath.Join(dir, "meta.json"), raw, 0o600)
+		}
+		_ = os.Remove(old)
+		slog.Info("旧版脚本已迁移为脚本包", "name", name)
+	}
+}
+
+// scriptContent 读取脚本包内容（含旧单文件迁移兜底）。
+func (m *Module) scriptContent(name string) (string, error) {
+	if !scriptNameRe.MatchString(name) {
+		return "", fmt.Errorf("脚本名非法")
+	}
+	m.migrateLegacyScript(name)
+	b, err := os.ReadFile(filepath.Join(m.scriptPkgDir(name), "install.sh"))
+	if err != nil {
+		return "", fmt.Errorf("脚本不存在")
+	}
+	return string(b), nil
+}
+
+// customTemplate 将自定义脚本包转为商店模板（key = custom:<name>，统一走 install 引擎）。
+func (m *Module) customTemplate(name string) *Template {
+	if !scriptNameRe.MatchString(name) {
+		return nil
+	}
+	m.migrateLegacyScript(name)
+	dir := m.scriptPkgDir(name)
+	content, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		return nil
+	}
+	meta := readScriptMeta(dir, name)
+	return &Template{
+		Key:    "custom:" + name,
+		Name:   meta.Title,
+		Desc:   meta.Desc,
+		Kind:   "script",
+		Params: meta.Params,
+		Script: string(content),
+	}
 }
 
 // resolveScriptContent 模板 Script 字段：http(s) URL 则拉取（仓库托管），否则视为内嵌内容。
@@ -112,38 +197,62 @@ func CaptureRun(cmd *exec.Cmd, timeout time.Duration) ([]byte, error) {
 	}
 }
 
-// ---- 自定义脚本 CRUD ----
+// ---- 三方脚本包 CRUD ----
 
-// listCustomScripts 列出用户上传的脚本。
+// listCustomScripts 列出脚本包（含元数据；旧单文件自动迁移）。
 func (m *Module) listCustomScripts(c *gin.Context) {
 	dir := m.scriptsDir()
 	items := []gin.H{}
 	entries, err := os.ReadDir(dir)
 	if err == nil {
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
+			name := ""
+			if e.IsDir() && scriptNameRe.MatchString(e.Name()) {
+				name = e.Name()
+			} else if !e.IsDir() && strings.HasSuffix(e.Name(), ".sh") && scriptNameRe.MatchString(strings.TrimSuffix(e.Name(), ".sh")) {
+				name = strings.TrimSuffix(e.Name(), ".sh")
+			}
+			if name == "" {
 				continue
 			}
-			info, _ := e.Info()
-			item := gin.H{"name": strings.TrimSuffix(e.Name(), ".sh"), "size": info.Size(), "updated": info.ModTime().Format("2006-01-02 15:04")}
-			if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil {
-				head := string(b)
-				if len(head) > 120 {
-					head = head[:120]
-				}
-				item["head"] = strings.SplitN(head, "\n", 2)[0]
+			m.migrateLegacyScript(name)
+			pkgDir := m.scriptPkgDir(name)
+			content, err := os.ReadFile(filepath.Join(pkgDir, "install.sh"))
+			if err != nil {
+				continue
 			}
-			items = append(items, item)
+			meta := readScriptMeta(pkgDir, name)
+			head := string(content)
+			if len(head) > 160 {
+				head = head[:160]
+			}
+			items = append(items, gin.H{
+				"name":     meta.Name,
+				"title":    meta.Title,
+				"desc":     meta.Desc,
+				"version":  meta.Version,
+				"category": meta.Category,
+				"params":   meta.Params,
+				"head":     strings.SplitN(head, "\n", 2)[0],
+				"size":     len(content),
+				"updated":  meta.Updated,
+			})
 		}
 	}
 	core.OK(c, items)
 }
 
-// saveCustomScript 保存/更新用户脚本。
+// saveCustomScript 新建/更新脚本包（元数据 + 内容）。
 func (m *Module) saveCustomScript(c *gin.Context) {
 	var req struct {
-		Name    string `binding:"required"`
-		Content string `binding:"required"`
+		Name     string  `json:"name" binding:"required"`
+		Title    string  `json:"title"`
+		Desc     string  `json:"desc"`
+		Version  string  `json:"version"`
+		Category string  `json:"category"`
+		Icon     string  `json:"icon"`
+		Params   []Param `json:"params"`
+		Content  string  `json:"content" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.BindErr(c, err)
@@ -154,30 +263,77 @@ func (m *Module) saveCustomScript(c *gin.Context) {
 		core.Err(c, 400, "脚本名仅允许小写字母数字_-（2-64 位）")
 		return
 	}
-	if err := os.MkdirAll(m.scriptsDir(), 0o700); err != nil {
+	if len(req.Content) > 1<<20 {
+		core.Err(c, 400, "脚本内容超过 1MB 上限")
+		return
+	}
+	// 参数 key 合法性校验（占位符替换依赖 {{key}}）
+	seen := map[string]bool{}
+	for _, p := range req.Params {
+		if !regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`).MatchString(p.Key) || seen[p.Key] {
+			core.Err(c, 400, "参数 key 非法或重复: "+p.Key)
+			return
+		}
+		seen[p.Key] = true
+	}
+	dir := m.scriptPkgDir(name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
-	if err := os.WriteFile(filepath.Join(m.scriptsDir(), name+".sh"), []byte(req.Content), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "install.sh"), []byte(req.Content), 0o700); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = name
+	}
+	meta := ScriptMeta{Name: name, Title: title, Desc: strings.TrimSpace(req.Desc), Version: strings.TrimSpace(req.Version), Category: strings.TrimSpace(req.Category), Icon: strings.TrimSpace(req.Icon), Params: req.Params, Updated: time.Now().Format("2006-01-02 15:04")}
+	raw, _ := json.Marshal(meta)
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), raw, 0o600); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	// 旧版同名单文件日志一并清理
+	_ = os.Remove(filepath.Join(m.scriptsDir(), name+".sh.log"))
+	slog.Info("脚本包已保存", "name", name, "by", c.GetString("user"))
 	core.OK(c, gin.H{"name": name})
 }
 
-// deleteCustomScript 删除脚本（及其日志）。
+// getCustomScript 读取脚本包（编辑回填：元数据 + 内容）。
+func (m *Module) getCustomScript(c *gin.Context) {
+	name := c.Param("name")
+	if !scriptNameRe.MatchString(name) {
+		core.Err(c, 400, "脚本名非法")
+		return
+	}
+	m.migrateLegacyScript(name)
+	dir := m.scriptPkgDir(name)
+	content, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		core.Err(c, 404, "脚本不存在")
+		return
+	}
+	meta := readScriptMeta(dir, name)
+	core.OK(c, gin.H{"name": meta.Name, "title": meta.Title, "desc": meta.Desc, "version": meta.Version, "category": meta.Category, "params": meta.Params, "content": string(content), "updated": meta.Updated})
+}
+
+// deleteCustomScript 删除脚本包（及其日志）。
 func (m *Module) deleteCustomScript(c *gin.Context) {
 	name := c.Param("name")
 	if !scriptNameRe.MatchString(name) {
 		core.Err(c, 400, "脚本名非法")
 		return
 	}
+	_ = os.RemoveAll(m.scriptPkgDir(name))
 	_ = os.Remove(filepath.Join(m.scriptsDir(), name+".sh"))
 	_ = os.Remove(filepath.Join(m.scriptsDir(), name+".sh.log"))
+	slog.Info("脚本包已删除", "name", name, "by", c.GetString("user"))
 	core.OK(c, nil)
 }
 
-// runCustomScript 运行用户上传的脚本（登记为 script 类应用实例）。
+// runCustomScript 直接运行脚本包（登记为 script 类应用实例；商店统一安装走 POST /apps custom: 前缀）。
 func (m *Module) runCustomScript(c *gin.Context) {
 	name := c.Param("name")
 	if !scriptNameRe.MatchString(name) {
@@ -202,12 +358,12 @@ func (m *Module) runCustomScript(c *gin.Context) {
 		core.Err(c, 400, "同名实例已存在")
 		return
 	}
-	content, err := os.ReadFile(filepath.Join(m.scriptsDir(), name+".sh"))
+	content, err := m.scriptContent(name)
 	if err != nil {
-		core.Err(c, 404, "脚本不存在")
+		core.Err(c, 404, err.Error())
 		return
 	}
-	tpl := &Template{Key: "script:" + name, Name: name, Kind: "script", Script: string(content)}
+	tpl := &Template{Key: "script:" + name, Name: name, Kind: "script", Script: content}
 	p := orParams(req.Params)
 	status, err := m.installScript(tpl, req.Instance, p)
 	if err != nil {
@@ -225,7 +381,7 @@ func (m *Module) runCustomScript(c *gin.Context) {
 	core.OK(c, gin.H{"app": row, "status": status})
 }
 
-// scriptLog 查看脚本安装日志。
+// scriptLog 查看脚本运行日志。
 func (m *Module) scriptLog(c *gin.Context) {
 	name := c.Param("name")
 	if !scriptNameRe.MatchString(name) {
@@ -244,6 +400,7 @@ func (m *Module) scriptLog(c *gin.Context) {
 func (m *Module) registerScriptRoutes(g gin.IRouter) {
 	g.GET("/scripts", m.listCustomScripts)
 	g.POST("/scripts", m.saveCustomScript)
+	g.GET("/scripts/:name", m.getCustomScript)
 	g.DELETE("/scripts/:name", m.deleteCustomScript)
 	g.POST("/scripts/:name/run", m.runCustomScript)
 	g.GET("/scripts/:name/log", m.scriptLog)
