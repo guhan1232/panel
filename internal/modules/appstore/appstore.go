@@ -532,13 +532,15 @@ volumes:
 				if id, _ := osRelease(); id == "debian" {
 					distroPath = "debian"
 				}
-				poolBase := "https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/"
-				if branch == "mainline" {
-					poolBase = "https://nginx.org/packages/mainline/" + distroPath + "/pool/nginx/n/nginx/"
-				}
 				deb := "/tmp/hanyuxin-nginx-" + ver + ".deb"
+				// 下载候选：USTC 镜像优先，官方 nginx.org 回退（curl 逐候选，成功即停）
+				urls := nginxPoolBaseCandidates(distroPath, branch)
+				dl := "false"
+				for _, u := range urls {
+					dl += fmt.Sprintf(" || curl -fSL --retry 3 --connect-timeout 30 -o %s %s", deb, u+fname)
+				}
 				pre = []string{
-					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " " + poolBase + fname,
+					dl,
 					"systemctl stop nginx 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 purge -y nginx nginx-common nginx-core 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + deb,
@@ -548,7 +550,7 @@ volumes:
 				post = []string{"rm -f " + deb}
 				note = "nginx.org " + ver
 				if branch == "mainline" {
-					note = "nginx.org " + ver + "（主线）"
+					note = "nginx.org " + ver + "（主线，镜像站下载）"
 				}
 				return pre, pkgs, post, unit, note, nil
 			}
@@ -2323,6 +2325,19 @@ var nginxPoolCache struct {
 
 const nginxPoolTTL = 6 * time.Hour
 
+// nginxPoolBaseCandidates 按分支返回 pool 目录基址候选：USTC 镜像优先（国内 0.5s），
+// 官方 nginx.org 回退。branch = stable | mainline（主线版本独立发布在 packages/mainline/）。
+func nginxPoolBaseCandidates(distroPath, branch string) []string {
+	main := ""
+	if branch == "mainline" {
+		main = "mainline/"
+	}
+	return []string{
+		"https://mirrors.ustc.edu.cn/nginx/" + main + distroPath + "/pool/nginx/n/nginx/",
+		"https://nginx.org/packages/" + main + distroPath + "/pool/nginx/n/nginx/",
+	}
+}
+
 // nginxPoolEntries 拉取 nginx.org packages 的 stable 与 mainline 两个 pool 目录，
 // 按当前发行版代号与架构过滤（缓存 6 小时 + Last-Modified 条件请求：未变化时 304 零下载）。
 func nginxPoolEntries() []nginxDeb {
@@ -2339,10 +2354,6 @@ func nginxPoolEntries() []nginxDeb {
 	if id, _ := osRelease(); id == "debian" {
 		distroPath = "debian"
 	}
-	pools := map[string]string{
-		"stable":   "https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/",
-		"mainline": "https://nginx.org/packages/mainline/" + distroPath + "/pool/nginx/n/nginx/",
-	}
 	re := regexp.MustCompile(`nginx_(\d+(?:\.\d+){2})-(\d+)~([a-z0-9]+)_(amd64|arm64)\.deb`)
 	arch := runtime.GOARCH
 	// 沿用缓存条目（对应 pool 304 未变化时零下载）
@@ -2353,42 +2364,49 @@ func nginxPoolEntries() []nginxDeb {
 		}
 	}
 	newPools := map[string]string{}
-	for branch, base := range pools {
-		data, notModified, respLM, err := httpGetCond(base, 20*time.Second, 4<<20, nginxPoolCache.pools[base])
-		if err != nil {
-			continue // 拉取失败沿用缓存条目
-		}
-		if notModified {
-			// 保留该分支旧条目（按前缀过滤重建）
-			for v, f := range nginxPoolCache.byVer {
+	for _, branch := range []string{"stable", "mainline"} {
+		// 版本列表以官方 nginx.org 为唯一数据源（全量、最新）；USTC 镜像仅用于 deb 下载加速（同步可能滞后）
+		for _, base := range nginxPoolBaseCandidates(distroPath, branch) {
+			if !strings.Contains(base, "nginx.org") {
+				continue
+			}
+			data, notModified, respLM, err := httpGetCond(base, 20*time.Second, 4<<20, nginxPoolCache.pools[base])
+			if err != nil {
+				continue
+			}
+			if notModified {
+				// 保留该分支旧条目（按前缀过滤重建）
+				for v, f := range nginxPoolCache.byVer {
+					if strings.HasPrefix(f, branch+"/") {
+						byVer[v] = f
+					}
+				}
+				if lm, ok := nginxPoolCache.pools[base]; ok {
+					newPools[base] = lm
+				}
+				break
+			}
+			newPools[base] = respLM
+			// 该分支以新数据为准：清掉缓存中此分支旧条目
+			for v, f := range byVer {
 				if strings.HasPrefix(f, branch+"/") {
-					byVer[v] = f
+					delete(byVer, v)
 				}
 			}
-			if lm, ok := nginxPoolCache.pools[base]; ok {
-				newPools[base] = lm
+			bestRev := map[string]int{} // branch|ver → 最高 deb 修订号
+			for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+				if m[3] != cn || m[4] != arch {
+					continue
+				}
+				rev, _ := strconv.Atoi(m[2])
+				k := branch + "|" + m[1]
+				if best, ok := bestRev[k]; ok && best >= rev {
+					continue
+				}
+				bestRev[k] = rev
+				byVer[m[1]] = branch + "/" + m[0]
 			}
-			continue
-		}
-		newPools[base] = respLM
-		// 该分支以新数据为准：清掉缓存中此分支旧条目
-		for v, f := range byVer {
-			if strings.HasPrefix(f, branch+"/") {
-				delete(byVer, v)
-			}
-		}
-		bestRev := map[string]int{} // branch|ver → 最高 deb 修订号
-		for _, m := range re.FindAllStringSubmatch(string(data), -1) {
-			if m[3] != cn || m[4] != arch {
-				continue
-			}
-			rev, _ := strconv.Atoi(m[2])
-			k := branch + "|" + m[1]
-			if best, ok := bestRev[k]; ok && best >= rev {
-				continue
-			}
-			bestRev[k] = rev
-			byVer[m[1]] = branch + "/" + m[0]
+			break
 		}
 	}
 	if len(byVer) == 0 {
