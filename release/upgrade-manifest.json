@@ -1,8 +1,8 @@
 {
-  "version": "0.41.10",
-  "notes": "hanyuxin-panel 0.41.10 (CNB cloud build)",
+  "version": "0.41.11",
+  "notes": "hanyuxin-panel 0.41.11 (CNB cloud build)",
   "arch": {
-    "amd64": { "url": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/release/hanyuxin-linux-amd64", "sha256": "77c28a6c1a4deb513d143d843fc39208009ba75813adf713eee92480bac4c0e5" },
-    "arm64": { "url": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/release/hanyuxin-linux-arm64", "sha256": "9dd1bbb9893443f8fd674bade4a5770cc5d83a9f4eec0d6decdbb7bc730f42af" }
+    "amd64": { "url": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/release/hanyuxin-linux-amd64", "sha256": "5c60f1e6b635b7196437f8c3cfdf021e1e110b7edeedc1d7e0e4ae290c0c0517" },
+    "arm64": { "url": "https://cnb.cool/hanyuxin/panel/-/git/raw/main/release/hanyuxin-linux-arm64", "sha256": "c33b6d154188295c62d81bd2a4781d215221307fe803e34bca6c82ef9b2b32df" }
   }
 }
