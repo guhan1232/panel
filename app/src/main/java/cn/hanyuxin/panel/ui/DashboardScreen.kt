@@ -4,6 +4,7 @@
 // + 自适应量程趋势图 + 系统信息。
 package cn.hanyuxin.panel.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +41,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -118,7 +123,7 @@ private fun MetricCell(
         Spacer(Modifier.height(12.dp))
         Text(bigText, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = tint)
         Spacer(Modifier.height(12.dp))
-        // 细横条进度
+        // 细横条进度（低值保底 2% 可见）
         Box(
             Modifier
                 .fillMaxWidth()
@@ -128,13 +133,55 @@ private fun MetricCell(
         ) {
             Box(
                 Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .fillMaxWidth(maxOf(0.02f, progress.coerceIn(0f, 1f)))
                     .height(8.dp)
                     .background(tint),
             )
         }
         Spacer(Modifier.height(8.dp))
         Text(subText, fontSize = 11.sp, color = LabelGray)
+    }
+}
+
+/** 图例：色点 + 文字。 */
+@Composable
+private fun Legend(label: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).background(color, CircleShape))
+        Spacer(Modifier.width(4.dp))
+        Text(label, fontSize = 10.sp, color = LabelGray)
+    }
+}
+
+/** 双序列趋势图：同一坐标系两条圆头折线 + 淡填充，先画 v2（下层）再画 v1。 */
+@Composable
+private fun TrendChart(
+    v1: List<Double>, c1: Color,
+    v2: List<Double>, c2: Color,
+    yMax: Double,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier.fillMaxWidth().height(160.dp)) {
+        if (v1.size < 2 || yMax <= 0.0) return@Canvas
+        fun series(values: List<Double>, color: Color) {
+            if (values.size < 2) return
+            val stepX = size.width / (values.size - 1)
+            val path = Path()
+            values.forEachIndexed { i, v ->
+                val y = size.height - (v.coerceIn(0.0, yMax) / yMax * size.height).toFloat()
+                if (i == 0) path.moveTo(0f, y) else path.lineTo(i * stepX, y)
+            }
+            drawPath(path, color, style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            val fill = Path().apply {
+                addPath(path)
+                lineTo(size.width, size.height)
+                lineTo(0f, size.height)
+                close()
+            }
+            drawPath(fill, color.copy(alpha = 0.10f))
+        }
+        series(v2, c2)
+        series(v1, c1)
     }
 }
 
@@ -276,30 +323,61 @@ fun DashboardScreen(server: ServerInfo) {
                 }
             }
 
-            // ---- 运行趋势区块（量程自适应：低占用也有波形感） ----
+            // ---- 运行趋势：单卡 segmented 切换（CPU/内存/网速），双序列同坐标图 ----
             item { SectionTitle("运行趋势") }
             item {
-                val cpuMax = maxOf(10.0, (d.history.maxOfOrNull { it.cpu } ?: 0.0) * 1.4)
+                val mode = remember { mutableStateOf(0) }
                 PanelCard {
-                    Text("CPU 使用率", fontSize = 12.sp, color = LabelGray)
-                    Spacer(Modifier.height(4.dp))
-                    LineChart(d.history.map { it.cpu }, BrandTeal, yMax = cpuMax)
-                }
-            }
-            item {
-                val memMax = maxOf(10.0, (d.history.maxOfOrNull { it.mem_pct } ?: 0.0) * 1.4)
-                PanelCard {
-                    Text("内存使用率", fontSize = 12.sp, color = LabelGray)
-                    Spacer(Modifier.height(4.dp))
-                    LineChart(d.history.map { it.mem_pct }, AppColors.Blue, yMax = memMax)
-                }
-            }
-            item {
-                PanelCard {
-                    Text("网络速率", fontSize = 12.sp, color = LabelGray)
-                    Text("蓝色=下载 · 橙色=上传", fontSize = 10.sp, color = LabelGray)
-                    Spacer(Modifier.height(4.dp))
-                    NetChart(d.history.map { it.recv.toDouble() }, d.history.map { it.sent.toDouble() })
+                    Segmented(listOf("CPU", "内存", "网速"), mode.value, onSelect = { mode.value = it })
+                    Spacer(Modifier.height(10.dp))
+                    when (mode.value) {
+                        1 -> {
+                            val memMax = maxOf(10.0, (d.history.maxOfOrNull { it.mem_pct } ?: 0.0) * 1.15)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("内存使用率（量程 ${memMax.toInt()}%）", fontSize = 11.sp, color = LabelGray)
+                                Spacer(Modifier.weight(1f))
+                                Legend("内存", AppColors.Blue)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            TrendChart(
+                                d.history.map { it.mem_pct }, AppColors.Blue,
+                                emptyList(), Color.Transparent, memMax,
+                            )
+                        }
+                        2 -> {
+                            val peak = maxOf(
+                                d.history.maxOfOrNull { it.recv.toDouble() } ?: 1.0,
+                                d.history.maxOfOrNull { it.sent.toDouble() } ?: 1.0,
+                                1.0,
+                            ) * 1.1
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("网络速率", fontSize = 11.sp, color = LabelGray)
+                                Spacer(Modifier.weight(1f))
+                                Legend("下载", Color(0xFF38BDF8))
+                                Spacer(Modifier.width(10.dp))
+                                Legend("上传", Color(0xFFF59E0B))
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            TrendChart(
+                                d.history.map { it.recv.toDouble() }, Color(0xFF38BDF8),
+                                d.history.map { it.sent.toDouble() }, Color(0xFFF59E0B),
+                                peak,
+                            )
+                        }
+                        else -> {
+                            val cpuMax = maxOf(5.0, (d.history.maxOfOrNull { it.cpu } ?: 0.0) * 1.15)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("CPU 使用率（量程 ${cpuMax.toInt()}%）", fontSize = 11.sp, color = LabelGray)
+                                Spacer(Modifier.weight(1f))
+                                Legend("CPU", BrandTeal)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            TrendChart(
+                                d.history.map { it.cpu }, BrandTeal,
+                                emptyList(), Color.Transparent, cpuMax,
+                            )
+                        }
+                    }
                 }
             }
 
