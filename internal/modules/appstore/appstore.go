@@ -568,7 +568,7 @@ volumes:
 		},
 	},
 	{
-		Key: "mysql", Name: "MySQL", DefaultVersion: "distro", Desc: "关系型数据库（系统镜像源可选版本；apt 系部分发行版仅提供 MariaDB，请改用 MariaDB 应用）", Kind: "package",
+		Key: "mysql", Name: "MySQL", DefaultVersion: "distro", Desc: "关系型数据库（系统源版本 + 官方仓库主线/LTS，apt 系走镜像自动）", Kind: "package",
 		Params: []Param{},
 		Pkg: func(distro string) ([]string, string, error) {
 			if distro == "apt" {
@@ -577,11 +577,51 @@ volumes:
 					"for c in mysql-server mysql-innovation; do if apt-cache show $c >/dev/null 2>&1; then echo $c; break; fi; done")
 				cand := strings.TrimSpace(out)
 				if err != nil || cand == "" {
-					return nil, "", fmt.Errorf("当前发行版的系统源未提供 MySQL 包（Debian 系多仅提供 MariaDB，请使用 MariaDB 应用）")
+					return nil, "", fmt.Errorf("当前发行版的系统源未提供 MySQL 包（Debian 系多仅提供 MariaDB，请使用 MariaDB 应用或选择官方仓库版本）")
 				}
 				return []string{cand}, "mysql", nil
 			}
 			return []string{"mysql-server"}, "mysqld", nil
+		},
+		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
+			if distro != "apt" {
+				return nil, nil, nil, "", "", fmt.Errorf("MySQL 官方仓库版本当前仅支持 apt 系发行版；dnf/yum 系请使用发行版源版本（distro）")
+			}
+			// 版本线 → madison 前缀过滤：innovation（主线 9.x）/ lts-8.4 / lts-8.0；具体版本直传
+			prefix := "^9\\."
+			switch ver {
+			case "lts-8.4":
+				prefix = "^8\\.4\\."
+			case "lts-8.0":
+				prefix = "^8\\.0\\."
+			case "innovation":
+			default:
+				if strings.HasPrefix(ver, "9.") {
+					prefix = "^" + strings.ReplaceAll(ver, ".", "\\.")
+				} else {
+					return nil, nil, nil, "", "", fmt.Errorf("MySQL 官方仓库版本可选：innovation（主线最新）/ lts-8.4 / lts-8.0")
+				}
+			}
+			pre = []string{
+				"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg",
+				"curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | gpg --dearmor --yes -o /usr/share/keyrings/mysql.gpg",
+				`. /etc/os-release && echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] https://repo.mysql.com/apt/debian $VERSION_CODENAME mysql-innovation mysql-8.4 mysql-8.0 mysql-tools" > /etc/apt/sources.list.d/mysql-org.list`,
+				"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update",
+				// 选取对应版本线最新版本，逐包 pin 安装（server/client 同版本）
+				fmt.Sprintf(`v=$(apt-cache madison mysql-server | awk '{print $3}' | grep -E '%s' | head -1); [ -n "$v" ] || { echo "repo.mysql.com 上未找到该版本线的 MySQL 包"; exit 1; }; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y mysql-server=$v mysql-client=$v`, prefix),
+			}
+			pkgs = []string{"mysql-server"}
+			unit = "mysql"
+			note = "MySQL 官方仓库（repo.mysql.com，选线 " + ver + "）"
+			return pre, pkgs, post, unit, note, nil
+		},
+		VersionList: func() ([]AppVersion, error) {
+			return []AppVersion{
+				{Version: "distro", Note: "系统默认（推荐）"},
+				{Version: "innovation", Note: "官方仓库 · 主线最新 Innovation（9.x）"},
+				{Version: "lts-8.4", Note: "官方仓库 · LTS 8.4"},
+				{Version: "lts-8.0", Note: "官方仓库 · LTS 8.0"},
+			}, nil
 		},
 	},
 	{
@@ -694,7 +734,9 @@ volumes:
 				{Version: "14", Note: "PGDG"},
 				{Version: "15", Note: "PGDG"},
 				{Version: "16", Note: "PGDG"},
-				{Version: "17", Note: "PGDG 最新"},
+				{Version: "17", Note: "PGDG"},
+				{Version: "18", Note: "PGDG 最新主线"},
+				{Version: "19", Note: "PGDG 开发版（Beta）"},
 			}, nil
 		},
 		Pkg: func(distro string) ([]string, string, error) {
