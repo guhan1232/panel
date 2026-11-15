@@ -1,15 +1,22 @@
-// Package audit 操作审计：写操作留痕（操作人/中文操作说明/脱敏请求体/来源/状态）+ 定期清理。
+// Package audit 操作审计：写操作留痕（操作人/中文操作说明/脱敏请求体/来源/状态）。
+// 存储为按天分文件的 JSONL（data/audit/audit-YYYY-MM-DD.log），不写数据库；
+// 仅保留 7 天，写入时自动清理过期文件；查询 API 直接读文件（供 APP 审计页与导出）。
 package audit
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,8 +26,10 @@ import (
 )
 
 const (
-	maxBodyCapture = 8 << 10 // 8KB
-	retention      = 180 * 24 * time.Hour
+	maxBodyCapture  = 8 << 10 // 8KB
+	auditRetention  = 7 * 24 * time.Hour
+	terminalLogTTL  = 180 * 24 * time.Hour // 终端会话日志（DB）保留期不变
+	auditDateLayout = "2006-01-02"
 )
 
 func truncate(s string, n int) string {
@@ -69,7 +78,7 @@ var opRules = []struct {
 	{regexp.MustCompile(`^POST /api/apps$`), "部署应用"},
 	{regexp.MustCompile(`^POST /api/apps/docker/install$`), "安装 Docker"},
 	{regexp.MustCompile(`^POST /api/apps/docker/mirrors$`), "配置 Docker 镜像源"},
-	{regexp.MustCompile(`^POST /api/apps/source$`), "配置应用源"},
+	{regexp.MustCompile(`^POST /api/apps/sources$`), "添加仓库应用源"},
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/start$`), "启动应用"},
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/stop$`), "停止应用"},
 	{regexp.MustCompile(`^POST /api/apps/[^/]+/restart$`), "重启应用"},
@@ -106,6 +115,7 @@ var opRules = []struct {
 	{regexp.MustCompile(`^PUT /api/users/[^/]+$`), "修改用户"},
 	{regexp.MustCompile(`^DELETE /api/users/[^/]+$`), "删除用户"},
 	{regexp.MustCompile(`^POST /api/setting/password$`), "修改管理员密码"},
+	{regexp.MustCompile(`^PUT /api/auth/session-policy$`), "修改会话自动踢出策略"},
 	{regexp.MustCompile(`^POST /api/notify/`), "通知配置"},
 	{regexp.MustCompile(`^POST /api/s3/`), "对象存储配置"},
 	{regexp.MustCompile(`^POST /api/files/mkdir$`), "创建目录"},
@@ -120,6 +130,8 @@ var opRules = []struct {
 	{regexp.MustCompile(`^(POST|PUT|DELETE) /api/alerts`), "告警规则操作"},
 	{regexp.MustCompile(`^POST /api/dockerstore/`), "容器操作"},
 	{regexp.MustCompile(`^POST /api/runtimes/php/versions`), "PHP 版本操作"},
+	{regexp.MustCompile(`^POST /api/scripts/upload`), "上传脚本"},
+	{regexp.MustCompile(`^DELETE /api/scripts/`), "删除脚本"},
 }
 
 func describe(method, path string) string {
@@ -132,24 +144,151 @@ func describe(method, path string) string {
 	return method + " " + path
 }
 
+// auditEntry 审计记录（JSONL 文件行；字段名与旧 DB 模型保持一致，APP 审计页无感）。
+type auditEntry struct {
+	ID        int64  `json:"id"`
+	Time      string `json:"time"`
+	CreatedAt string `json:"created_at"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	Action    string `json:"action"`
+	IP        string `json:"ip"`
+	UA        string `json:"ua"`
+	Status    int    `json:"status"`
+	CostMS    int64  `json:"cost_ms"`
+	Body      string `json:"body,omitempty"`
+}
+
 // Module 审计模块。
-type Module struct{ db *gorm.DB }
+type Module struct {
+	db     *gorm.DB
+	dataMu sync.Mutex
+	seq    int64 // 当日行序号（id 生成用）
+	clean  string
+}
 
 func New(db *gorm.DB) *Module { return &Module{db: db} }
 
-// Start 启动定期清理（保留 180 天）。
+// auditDir 审计文件目录（data/audit）。
+func (m *Module) auditDir() string {
+	d, err := filepath.Abs(filepath.Join("data", "audit"))
+	if err != nil {
+		return filepath.Join("data", "audit")
+	}
+	return d
+}
+
+// Start 启动定期清理：审计文件保留 7 天，终端会话日志（DB）保留期不变。
 func (m *Module) Start() {
+	m.cleanupAuditFiles()
 	go func() {
 		for {
-			cut := time.Now().Add(-retention)
-			m.db.Where("created_at < ?", cut).Delete(&core.AuditLog{})
-			m.db.Where("created_at < ?", cut).Delete(&core.TerminalLog{})
 			time.Sleep(time.Hour)
+			m.cleanupAuditFiles()
+			cut := time.Now().Add(-terminalLogTTL)
+			m.db.Where("created_at < ?", cut).Delete(&core.TerminalLog{})
 		}
 	}()
 }
 
-// Register 审计查询 API（挂载于鉴权组）。
+// cleanupAuditFiles 删除 7 天前的审计日志文件（按文件名日期判定）。
+func (m *Module) cleanupAuditFiles() {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+	cut := time.Now().Add(-auditRetention).Format(auditDateLayout)
+	entries, err := os.ReadDir(m.auditDir())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "audit-") || !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		day := strings.TrimSuffix(strings.TrimPrefix(name, "audit-"), ".log")
+		if day < cut {
+			_ = os.Remove(filepath.Join(m.auditDir(), name))
+			slog.Info("过期审计日志已清理", "file", name)
+		}
+	}
+}
+
+// append 写入一条审计记录（JSONL 追加；每小时首写顺带清理过期文件）。
+func (m *Module) append(entry auditEntry) {
+	day := time.Now().Format(auditDateLayout)
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+	hour := time.Now().Format(auditDateLayout + "-15")
+	if m.clean != hour {
+		m.clean = hour
+		go m.cleanupAuditFiles()
+	}
+	m.seq++
+	entry.ID = time.Now().UnixNano() + m.seq
+	if entry.Time == "" {
+		entry.Time = time.Now().Format("2006-01-02 15:04:05")
+	}
+	if entry.CreatedAt == "" {
+		entry.CreatedAt = entry.Time
+	}
+	if err := os.MkdirAll(m.auditDir(), 0o700); err != nil {
+		slog.Warn("审计目录创建失败", "err", err)
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(m.auditDir(), "audit-"+day+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		slog.Warn("审计文件打开失败", "err", err)
+		return
+	}
+	defer f.Close()
+	raw, _ := json.Marshal(entry)
+	if _, err := f.Write(append(raw, '\n')); err != nil {
+		slog.Warn("审计记录写入失败", "err", err)
+	}
+}
+
+// readAll 倒序读取全部保留期内的审计记录（新文件在前，文件内行倒序）。
+func (m *Module) readAll() []auditEntry {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+	entries, err := os.ReadDir(m.auditDir())
+	if err != nil {
+		return nil
+	}
+	files := []string{}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, "audit-") && strings.HasSuffix(name, ".log") {
+			files = append(files, name)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(files))) // 文件名日期降序
+	out := []auditEntry{}
+	for _, name := range files {
+		f, err := os.Open(filepath.Join(m.auditDir(), name))
+		if err != nil {
+			continue
+		}
+		var lines []auditEntry
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 64<<10), maxBodyCapture+4096)
+		for sc.Scan() {
+			var e auditEntry
+			if json.Unmarshal(sc.Bytes(), &e) == nil {
+				lines = append(lines, e)
+			}
+		}
+		f.Close()
+		for i := len(lines) - 1; i >= 0; i-- {
+			out = append(out, lines[i])
+		}
+	}
+	return out
+}
+
+// Register 审计查询 API（挂载于鉴权组；Web 前台已移除展示，接口保留供 APP 审计页与导出使用）。
 func (m *Module) Register(api gin.IRouter) {
 	api.GET("/audit/list", m.list)
 	api.GET("/audit/export", m.exportCSV)
@@ -165,21 +304,33 @@ func (m *Module) list(c *gin.Context) {
 	if size < 1 || size > 100 {
 		size = 20
 	}
-	qry := m.db.Model(&core.AuditLog{})
-	if method := c.Query("method"); method != "" {
-		qry = qry.Where("method = ?", method)
+	method := c.Query("method")
+	q := c.Query("q")
+	u := c.Query("username")
+	all := m.readAll()
+	items := []auditEntry{}
+	for _, e := range all {
+		if method != "" && e.Method != method {
+			continue
+		}
+		if q != "" && !strings.Contains(e.Path, q) {
+			continue
+		}
+		if u != "" && e.Username != u {
+			continue
+		}
+		items = append(items, e)
 	}
-	if q := c.Query("q"); q != "" {
-		qry = qry.Where("path LIKE ?", "%"+q+"%")
+	total := int64(len(items))
+	start := (page - 1) * size
+	if start > len(items) {
+		start = len(items)
 	}
-	if u := c.Query("username"); u != "" {
-		qry = qry.Where("username = ?", u)
+	end := start + size
+	if end > len(items) {
+		end = len(items)
 	}
-	var total int64
-	qry.Count(&total)
-	var items []core.AuditLog
-	qry.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&items)
-	core.OK(c, gin.H{"total": total, "items": items})
+	core.OK(c, gin.H{"total": total, "items": items[start:end]})
 }
 
 func (m *Module) terminalLogs(c *gin.Context) {
@@ -206,8 +357,8 @@ func (m *Module) terminalLogs(c *gin.Context) {
 }
 
 // Middleware 写操作审计中间件：预读并回填请求体（供脱敏记录），
-// 记录发生在响应后（届时鉴权已注入操作人/角色信息）。
-func Middleware(db *gorm.DB) gin.HandlerFunc {
+// 记录发生在响应后（届时鉴权已注入操作人/角色信息），写入当日审计文件。
+func Middleware(m *Module) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var bodyRaw []byte
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead &&
@@ -221,7 +372,7 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
 			return
 		}
-		entry := core.AuditLog{
+		entry := auditEntry{
 			Username: c.GetString("user"),
 			Role:     c.GetString("role"),
 			Method:   c.Request.Method,
@@ -231,41 +382,41 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 			UA:       truncate(c.Request.UserAgent(), 256),
 			Status:   c.Writer.Status(),
 			CostMS:   time.Since(start).Milliseconds(),
+			Time:     start.Format("2006-01-02 15:04:05"),
 		}
 		if bodyRaw != nil {
 			entry.Body = sanitizeBody(bodyRaw)
 		}
-		if err := db.Create(&entry).Error; err != nil {
-			slog.Warn("审计记录写入失败", "err", err)
-		}
+		m.append(entry)
 	}
 }
 
-// exportCSV 审计日志全量导出（按筛选条件，CSV 流式下载）。
+// exportCSV 审计日志全量导出（读文件，CSV 流式下载）。
 func (m *Module) exportCSV(c *gin.Context) {
-	qry := m.db.Model(&core.AuditLog{}).Order("id DESC").Limit(100000)
-	if method := c.Query("method"); method != "" {
-		qry = qry.Where("method = ?", method)
-	}
-	if q := c.Query("q"); q != "" {
-		qry = qry.Where("path LIKE ?", "%"+q+"%")
-	}
-	if u := c.Query("username"); u != "" {
-		qry = qry.Where("username = ?", u)
-	}
-	var items []core.AuditLog
-	qry.Find(&items)
+	method := c.Query("method")
+	q := c.Query("q")
+	u := c.Query("username")
+	all := m.readAll()
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=hanyuxin-audit.csv")
 	// BOM 使 Excel 正确识别 UTF-8
 	_, _ = c.Writer.WriteString("\ufeff")
 	_, _ = c.Writer.WriteString("id,time,username,method,path,status,action\n")
-	for _, it := range items {
+	for _, it := range all {
+		if method != "" && it.Method != method {
+			continue
+		}
+		if q != "" && !strings.Contains(it.Path, q) {
+			continue
+		}
+		if u != "" && it.Username != u {
+			continue
+		}
 		action := strings.ReplaceAll(strings.ReplaceAll(it.Action, "\n", " "), "\r", "")
 		action = strings.ReplaceAll(action, ",", "，")
 		fmt.Fprintf(c.Writer, "%d,%s,%s,%s,%s,%d,%s\n",
-			it.ID, it.CreatedAt.Format("2006-01-02 15:04:05"), csvField(it.Username),
+			it.ID, it.CreatedAt, csvField(it.Username),
 			it.Method, it.Path, it.Status, action)
 	}
 }

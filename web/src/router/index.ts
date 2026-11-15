@@ -24,7 +24,6 @@ const router = createRouter({
         { path: 'terminal', component: () => import('../views/Terminal.vue'), meta: { title: '终端', group: '站点与服务', desc: '基于登录会话鉴权的 Web 终端，操作全程审计。' } },
         { path: 'proc', component: () => import('../views/Proc.vue'), meta: { title: '进程管理', group: '系统运维', desc: '进程与 systemd 服务的实时状态和控制。' } },
         { path: 'nodes', component: () => import('../views/Nodes.vue'), meta: { title: '节点管理', group: '系统运维', desc: 'Agent 反连接入、远程指标与命令执行。' } },
-        { path: 'audit', component: () => import('../views/Audit.vue'), meta: { title: '审计日志', group: '面板', desc: '全部写操作留痕，支持方法、路径与操作人筛选。' } },
         { path: 'alerts', component: () => import('../views/Alerts.vue'), meta: { title: '告警策略', group: '系统运维', desc: '阈值规则与触发历史，通知渠道在「通知与存储」配置。' } },
         { path: 'softstore', component: () => import('../views/SoftStore.vue'), meta: { title: '软件商店', group: '站点与服务', desc: '浏览软件模板、安装多版本运行时，并在统一工作区管理已部署实例与下载来源。' } },
         { path: 'dockerstore', component: () => import('../views/DockerStore.vue'), meta: { title: 'Docker 容器管理', group: '站点与服务', desc: '统一管理容器模板、运行状态、镜像、网络、存储卷和 Compose 编排。' } },

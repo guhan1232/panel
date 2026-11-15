@@ -78,7 +78,8 @@ func main() {
 	r.GET("/s/:code", authSvc.HandleEntrance)
 
 	// API：全部经过入口防护；登录之外的接口需要会话
-	api := r.Group("/api", authSvc.EntranceRequired(), audit.Middleware(db))
+	auditMod := audit.New(db)
+	api := r.Group("/api", authSvc.EntranceRequired(), audit.Middleware(auditMod))
 	authSvc.Register(api)
 	protected := api.Group("", authSvc.Middleware())
 	authSvc.RegisterAdmin(protected) // 用户管理（仅 admin）
@@ -124,7 +125,6 @@ func main() {
 	certMod.Register(protected)
 
 	// P1 模块
-	auditMod := audit.New(db)
 	auditMod.Start()
 	auditMod.Register(protected)
 	notify.New(db).Register(protected)

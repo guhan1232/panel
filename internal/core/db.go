@@ -75,21 +75,6 @@ type Session struct {
 	LastActiveAt time.Time `json:"last_active_at"` // 最后在线（鉴权时节流写入；自动踢出策略的「不在线」判定基准）
 }
 
-type AuditLog struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Username  string    `json:"username"`
-	Role      string    `gorm:"size:16" json:"role"`
-	Action    string    `gorm:"size:128" json:"action"`
-	Body      string    `gorm:"type:text" json:"body"`
-	Method    string    `gorm:"size:8" json:"method"`
-	Path      string    `gorm:"size:256" json:"path"`
-	IP        string    `gorm:"size:64" json:"ip"`
-	UA        string    `gorm:"size:256" json:"ua"`
-	Status    int       `json:"status"`
-	CostMS    int64     `json:"cost_ms"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 // TerminalLog Web 终端命令行记录（按回车逐条落库）。
 type TerminalLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
@@ -117,7 +102,11 @@ func OpenDB(dataDir string) (*gorm.DB, error) {
 	if err := db.Exec("PRAGMA journal_mode=WAL;").Error; err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&User{}, &Session{}, &AuditLog{}, &Setting{}, &TerminalLog{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &Session{}, &Setting{}, &TerminalLog{}); err != nil {
+		return nil, err
+	}
+	// 审计日志已改为文件存储（data/audit/*.log，保留 7 天）；清理旧数据库表释放空间
+	if err := db.Exec("DROP TABLE IF EXISTS audit_logs;").Error; err != nil {
 		return nil, err
 	}
 	return db, nil
