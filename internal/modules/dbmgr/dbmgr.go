@@ -85,6 +85,23 @@ func validIdent(name string) error {
 // sqlStr 转义 SQL 字符串字面量中的单引号（仅用于无法参数化的 DDL）。
 func sqlStr(s string) string { return strings.ReplaceAll(s, "'", "''") }
 
+// mysqlIdent 将标识符安全包裹为反引号标识符：白名单校验 + 二次过滤反引号。
+// DDL（CREATE/DROP DATABASE、用户与授权）无法参数化，白名单 + 包裹是标准做法。
+func mysqlIdent(name string) (string, error) {
+	if err := validIdent(name); err != nil {
+		return "", err
+	}
+	return "`" + strings.ReplaceAll(name, "`", "") + "`", nil
+}
+
+// pgIdent 将标识符安全包裹为双引号标识符（PostgreSQL）。
+func pgIdent(name string) (string, error) {
+	if err := validIdent(name); err != nil {
+		return "", err
+	}
+	return `"` + strings.ReplaceAll(name, `"`, "") + `"`, nil
+}
+
 // ---- 连接 ----
 
 func mysqlDB(c MysqlCfg) (*sql.DB, error) {
@@ -489,8 +506,9 @@ func (m *Module) mysqlCreateDB(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
-	if err := validIdent(req.Name); err != nil {
-		core.Err(c, 400, err.Error())
+	id, idErr := mysqlIdent(req.Name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	d, err := mysqlDB(getMysql(m.db))
@@ -499,7 +517,7 @@ func (m *Module) mysqlCreateDB(c *gin.Context) {
 		return
 	}
 	defer d.Close()
-	if _, err := d.Exec(fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci", req.Name)); err != nil {
+	if _, err := d.Exec("CREATE DATABASE " + id + " CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -508,8 +526,9 @@ func (m *Module) mysqlCreateDB(c *gin.Context) {
 
 func (m *Module) mysqlDropDB(c *gin.Context) {
 	name := c.Param("name")
-	if err := validIdent(name); err != nil {
-		core.Err(c, 400, err.Error())
+	id, idErr := mysqlIdent(name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	d, err := mysqlDB(getMysql(m.db))
@@ -518,7 +537,7 @@ func (m *Module) mysqlDropDB(c *gin.Context) {
 		return
 	}
 	defer d.Close()
-	if _, err := d.Exec(fmt.Sprintf("DROP DATABASE `%s`", name)); err != nil {
+	if _, err := d.Exec("DROP DATABASE " + id); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -576,8 +595,12 @@ func (m *Module) mysqlCreateUser(c *gin.Context) {
 		return
 	}
 	defer d.Close()
-	if _, err := d.Exec(fmt.Sprintf("CREATE USER `%s`@`%s` IDENTIFIED BY '%s'",
-		req.Name, sqlStr(req.Host), sqlStr(req.Password))); err != nil {
+	id, idErr := mysqlIdent(req.Name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
+		return
+	}
+	if _, err := d.Exec("CREATE USER " + id + "@`" + sqlStr(req.Host) + "` IDENTIFIED BY '" + sqlStr(req.Password) + "'"); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -594,12 +617,14 @@ func (m *Module) mysqlGrant(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
-	if err := validIdent(req.User); err != nil {
-		core.Err(c, 400, err.Error())
+	userId, idErr := mysqlIdent(req.User)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
-	if err := validIdent(req.DB); err != nil {
-		core.Err(c, 400, err.Error())
+	dbId, idErr := mysqlIdent(req.DB)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	d, err := mysqlDB(getMysql(m.db))
@@ -614,7 +639,7 @@ func (m *Module) mysqlGrant(c *gin.Context) {
 		core.Err(c, 400, "用户不存在（或 Host 不匹配），请先「创建用户」再授权")
 		return
 	}
-	if _, err := d.Exec(fmt.Sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO `%s`@`%s`", req.DB, req.User, sqlStr(req.Host))); err != nil {
+	if _, err := d.Exec("GRANT ALL PRIVILEGES ON " + dbId + ".* TO " + userId + "@`" + sqlStr(req.Host) + "`"); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -627,8 +652,9 @@ func (m *Module) mysqlGrant(c *gin.Context) {
 
 func (m *Module) mysqlDropUser(c *gin.Context) {
 	name, host := c.Param("name"), c.Param("host")
-	if err := validIdent(name); err != nil {
-		core.Err(c, 400, err.Error())
+	userId, idErr := mysqlIdent(name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	d, err := mysqlDB(getMysql(m.db))
@@ -637,7 +663,7 @@ func (m *Module) mysqlDropUser(c *gin.Context) {
 		return
 	}
 	defer d.Close()
-	if _, err := d.Exec(fmt.Sprintf("DROP USER `%s`@`%s`", name, sqlStr(host))); err != nil {
+	if _, err := d.Exec("DROP USER " + userId + "@`" + sqlStr(host) + "`"); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -687,8 +713,9 @@ func (m *Module) pgCreateDB(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
-	if err := validIdent(req.Name); err != nil {
-		core.Err(c, 400, err.Error())
+	id, idErr := pgIdent(req.Name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -699,7 +726,7 @@ func (m *Module) pgCreateDB(c *gin.Context) {
 		return
 	}
 	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, req.Name)); err != nil {
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+id); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -708,8 +735,9 @@ func (m *Module) pgCreateDB(c *gin.Context) {
 
 func (m *Module) pgDropDB(c *gin.Context) {
 	name := c.Param("name")
-	if err := validIdent(name); err != nil {
-		core.Err(c, 400, err.Error())
+	id, idErr := pgIdent(name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -720,7 +748,7 @@ func (m *Module) pgDropDB(c *gin.Context) {
 		return
 	}
 	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx, fmt.Sprintf(`DROP DATABASE "%s"`, name)); err != nil {
+	if _, err := conn.Exec(ctx, "DROP DATABASE "+id); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -769,8 +797,9 @@ func (m *Module) pgCreateUser(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
-	if err := validIdent(req.Name); err != nil {
-		core.Err(c, 400, err.Error())
+	id, idErr := pgIdent(req.Name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -781,7 +810,7 @@ func (m *Module) pgCreateUser(c *gin.Context) {
 		return
 	}
 	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx, fmt.Sprintf(`CREATE ROLE "%s" LOGIN PASSWORD '%s'`, req.Name, sqlStr(req.Password))); err != nil {
+	if _, err := conn.Exec(ctx, "CREATE ROLE "+id+" LOGIN PASSWORD '"+sqlStr(req.Password)+"'"); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -797,12 +826,14 @@ func (m *Module) pgGrant(c *gin.Context) {
 		core.BindErr(c, err)
 		return
 	}
-	if err := validIdent(req.User); err != nil {
-		core.Err(c, 400, err.Error())
+	userId, idErr := pgIdent(req.User)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
-	if err := validIdent(req.DB); err != nil {
-		core.Err(c, 400, err.Error())
+	dbId, idErr := pgIdent(req.DB)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -813,7 +844,7 @@ func (m *Module) pgGrant(c *gin.Context) {
 		return
 	}
 	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx, fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE "%s" TO "%s"`, req.DB, req.User)); err != nil {
+	if _, err := conn.Exec(ctx, "GRANT ALL PRIVILEGES ON DATABASE "+dbId+" TO "+userId); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
@@ -822,8 +853,9 @@ func (m *Module) pgGrant(c *gin.Context) {
 
 func (m *Module) pgDropUser(c *gin.Context) {
 	name := c.Param("name")
-	if err := validIdent(name); err != nil {
-		core.Err(c, 400, err.Error())
+	id, idErr := pgIdent(name)
+	if idErr != nil {
+		core.Err(c, 400, idErr.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -834,7 +866,7 @@ func (m *Module) pgDropUser(c *gin.Context) {
 		return
 	}
 	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx, fmt.Sprintf(`DROP ROLE "%s"`, name)); err != nil {
+	if _, err := conn.Exec(ctx, "DROP ROLE "+id); err != nil {
 		core.Err(c, 500, err.Error())
 		return
 	}
