@@ -2,8 +2,10 @@
 # 寒语馨面板全功能冒烟测试 v3（核心 API 打点 + 扫码登录/APP 会话全流程）
 # 用法：PANEL_BASE=https://IP:端口 PANEL_ENTRANCE=<入口> PANEL_USER=<用户> PANEL_PASS=<密码> bash smoke.sh
 # 判定：HTTP 200 且业务 code==0；空数据也算通过
-  # 登录拿会话
-  LOGIN_BODY="{\"username\":\"$PANEL_USER\",\"password\":\"$PANEL_PASS\"}"
+  # 登录拿会话（PANEL_TOTP 可选：账号开启两因素验证时传入当前动态码）
+  LOGIN_BODY="{\"username\":\"$PANEL_USER\",\"password\":\"$PANEL_PASS\""
+  [ -n "$PANEL_TOTP" ] && LOGIN_BODY="$LOGIN_BODY,\"code\":\"$PANEL_TOTP\""
+  LOGIN_BODY="$LOGIN_BODY}"
   J=$(curl -sk -c - -X POST "$PANEL_BASE/api/auth/login" -H 'Content-Type: application/json' -d "$LOGIN_BODY" -H "Cookie: wm_entrance=$PANEL_ENTRANCE" | grep wm_session | awk '{print $7}')
   echo "$J" > /tmp/sid
   B="wm_entrance=$PANEL_ENTRANCE; wm_session=$J"
@@ -100,8 +102,10 @@ curl -sk "$BASE/auth/qr/state?key=$QR_KEY" -H "Cookie: wm_entrance=$PANEL_ENTRAN
 CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$BASE/auth/qr/confirm" -H 'Content-Type: application/json' -d "{\"key\":\"$QR_KEY\"}" -H "Cookie: wm_entrance=$PANEL_ENTRANCE")
 [ "$CODE" = "401" ]; mark "未登录 confirm 被拒 401" $?
 # APP 端模拟：client=app 登录（登录需入口码——APP 侧入口码来自二维码或手动录入；
-# 登录后携带 Bearer 的后续请求才豁免入口 Cookie）
-APP_LOGIN=$(curl -sk -X POST "$BASE/auth/login" -H 'Content-Type: application/json' -H "Cookie: wm_entrance=$PANEL_ENTRANCE" -d "{\"username\":\"$PANEL_USER\",\"password\":\"$PANEL_PASS\",\"client\":\"app\",\"device_name\":\"smoke-test\"}")
+# 登录后携带 Bearer 的后续请求才豁免入口 Cookie；账号开启 2FA 时需带 PANEL_TOTP 动态码）
+APP_TOTP=""
+[ -n "$PANEL_TOTP" ] && APP_TOTP=",\"code\":\"$PANEL_TOTP\""
+APP_LOGIN=$(curl -sk -X POST "$BASE/auth/login" -H 'Content-Type: application/json' -H "Cookie: wm_entrance=$PANEL_ENTRANCE" -d "{\"username\":\"$PANEL_USER\",\"password\":\"$PANEL_PASS\",\"client\":\"app\",\"device_name\":\"smoke-test\"$APP_TOTP}")
 APP_TOKEN=$(echo "$APP_LOGIN" | sed 's/.*"token":"\([a-f0-9]\{64\}\)".*/\1/')
 AH="Authorization: Bearer $APP_TOKEN"
 [ "${#APP_TOKEN}" = "64" ]; mark "APP 登录返回 64 位 token" $?

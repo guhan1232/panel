@@ -9,7 +9,7 @@ main:
       runner:
         cpus: 4
       docker:
-        image: golang:1.26
+        image: golang:1.26.11
       stages:
         - name: vet
           script: go vet ./...
@@ -32,7 +32,7 @@ $:
       runner:
         cpus: 4
       docker:
-        image: golang:1.26
+        image: golang:1.26.11
       stages:
         - name: build-server
           script: |
