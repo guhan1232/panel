@@ -573,8 +573,11 @@ volumes:
 		},
 	},
 	{
-		Key: "mysql", Name: "MySQL", DefaultVersion: "distro", Desc: "关系型数据库（系统源版本 + 官方仓库 5/8/9 大版本线，apt 系）", Kind: "package",
-		Params: []Param{},
+		Key: "mysql", Name: "MySQL", DefaultVersion: "distro", Desc: "关系型数据库（8/9 系 apt 官方仓库；5.5/5.6/5.7 走 Docker 官方镜像）", Kind: "package",
+		Params: []Param{
+			{Key: "port", Label: "宿主机端口（5.x 容器方式使用）", Def: "3306"},
+			{Key: "root_pass", Label: "root 密码（5.x 容器方式使用）", Def: ""},
+		},
 		Pkg: func(distro string) ([]string, string, error) {
 			if distro == "apt" {
 				// Debian/Ubuntu 各版本的 MySQL 包名不同：按可用性探测（Ubuntu mysql-server；Debian trixie mysql-innovation；无候选则提示改用 MariaDB）
@@ -620,6 +623,7 @@ volumes:
 			out := []AppVersion{{Version: "distro", Note: "系统默认（推荐）"}}
 			vers, _ := mysqlRepoVersions()
 			out = append(out, vers...)
+			out = append(out, mysqlArch5xVersions()...)
 			return out, nil
 		},
 	},
@@ -974,6 +978,8 @@ func (m *Module) Start() error {
 		_ = nginxPoolEntries()
 		_ = mariadbVersions()
 		_, _ = redisVersions()
+		_, _ = mysqlRepoVersions()
+		_ = mysqlArch5xVersions()
 		slog.Info("软件商店版本缓存预热完成", "took", time.Since(start).Round(time.Millisecond))
 	}()
 	return nil
@@ -1519,7 +1525,24 @@ func (m *Module) install(c *gin.Context) {
 
 	var status string
 	row := AppInst{Name: req.Name, AppKey: req.AppKey, Kind: tpl.Kind}
-	if tpl.Kind == "script" {
+	// MySQL 5.x（官方归档无新发行版 deb）：转为 Docker 容器安装（mysql:<ver> 官方镜像，compose 管理）
+	if tpl.Key == "mysql" && isMysql5x(req.Version) {
+		if _, _, err := execx.Run("appstore", 15*time.Second, "docker", "version"); err != nil {
+			core.Err(c, 400, "MySQL 5.x 需以 Docker 容器安装（官方已无新发行版 deb），请先在软件商店安装 Docker")
+			return
+		}
+		composeTpl := &Template{Key: tpl.Key, Name: tpl.Name, Kind: "compose", Params: tpl.Params, Gen: func(pp map[string]string) (string, error) {
+			return mysql5xCompose(req.Version, pp), nil
+		}}
+		row.Kind = "compose"
+		mirror, mirrorNote := resolveMirror(req.Mirror, "compose")
+		s, err := m.installCompose(composeTpl, req.Name, p, mirror)
+		if err != nil {
+			core.Err(c, 500, err.Error())
+			return
+		}
+		status = s + "（MySQL " + req.Version + "，Docker 官方镜像，镜像站: " + mirrorNote + "）"
+	} else if tpl.Kind == "script" {
 		s, err := m.installScript(tpl, req.Name, p)
 		if err != nil {
 			core.Err(c, 500, err.Error())
@@ -2499,7 +2522,7 @@ func httpGetCond(url string, timeout time.Duration, limit int64, lastModified st
 	if err != nil {
 		return nil, false, "", err
 	}
-	req.Header.Set("User-Agent", "hanyuxin-panel")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 	if lastModified != "" {
 		req.Header.Set("If-Modified-Since", lastModified)
 	}
@@ -2611,6 +2634,64 @@ func mysqlRepoVersions() ([]AppVersion, []string) {
 	mysqlRepoCache.comps = comps
 	mysqlRepoCache.at = time.Now()
 	return out, comps
+}
+
+// isMysql5x 判断是否 MySQL 5.x 版本号（5.5/5.6/5.7 归档版本，走 Docker 容器安装）。
+func isMysql5x(ver string) bool {
+	return strings.HasPrefix(ver, "5.5.") || strings.HasPrefix(ver, "5.6.") || strings.HasPrefix(ver, "5.7.")
+}
+
+// mysql5xCompose 生成 MySQL 5.x 的 Docker compose（官方镜像 mysql:<ver>）。
+func mysql5xCompose(ver string, p map[string]string) string {
+	port := p["port"]
+	if port == "" {
+		port = "3306"
+	}
+	pass := p["root_pass"]
+	if pass == "" {
+		pass = "Mysql@2026"
+	}
+	return fmt.Sprintf(`services:
+  mysql:
+    image: mysql:%s
+    ports:
+      - %q
+    environment:
+      MYSQL_ROOT_PASSWORD: %s
+    volumes:
+      - ./data:/var/lib/mysql
+    restart: always
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+`, ver, port+":3306", yamlStr(pass))
+}
+
+var mysqlArchCache struct {
+	mu       sync.Mutex
+	versions []AppVersion
+	at       time.Time
+}
+
+// mysqlArch5xVersions MySQL 5.x 全部 GA 小版本（5.7.9~44 / 5.6.5~51 / 5.5.8~62，连续序列）。
+// 5.5/5.6/5.7 已 EOL，版本集合为封闭事实，代码生成无需远端拉取（归档页有 WAF 不可程序化访问）。
+// 安装走 Docker 官方镜像 mysql:<ver>（全部 GA 小版本均有对应 tag，docker pull 走面板配置的加速源）。缓存 6 小时。
+func mysqlArch5xVersions() []AppVersion {
+	mysqlArchCache.mu.Lock()
+	defer mysqlArchCache.mu.Unlock()
+	if mysqlArchCache.versions != nil && time.Since(mysqlArchCache.at) < 6*time.Hour {
+		return mysqlArchCache.versions
+	}
+	out := []AppVersion{}
+	for _, line := range []struct{ maj, min, max int }{{7, 9, 44}, {6, 5, 51}, {5, 8, 62}} {
+		for v := line.max; v >= line.min; v-- {
+			out = append(out, AppVersion{
+				Version: fmt.Sprintf("5.%d.%d", line.maj, v),
+				Note:    "官方归档 · Docker 容器安装",
+			})
+		}
+	}
+	mysqlArchCache.versions = out
+	mysqlArchCache.at = time.Now()
+	return out
 }
 
 // parseAptMadisonVersions 提取 apt-cache madison 的完整包版本号。
