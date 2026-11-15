@@ -116,6 +116,7 @@ func (m *Module) customTemplate(name string) *Template {
 }
 
 // resolveScriptContent 模板 Script 字段：http(s) URL 则拉取（仓库托管），否则视为内嵌内容。
+// 拉取结果做 HTML 检测：部分平台 raw 形式错误时返回网页而非脚本，防止把 HTML 当 bash 执行。
 func resolveScriptContent(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -135,7 +136,11 @@ func resolveScriptContent(s string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return string(b), nil
+		content := string(b)
+		if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "text/html") || strings.HasPrefix(strings.TrimSpace(content), "<!DOCTYPE") || strings.HasPrefix(strings.TrimSpace(content), "<html") {
+			return "", fmt.Errorf("该地址返回的是网页而非脚本文件（请使用仓库 raw 直链，如 /-/git/raw/main/... 或 raw.githubusercontent.com/...）")
+		}
+		return content, nil
 	}
 	return s, nil
 }
@@ -396,8 +401,28 @@ func (m *Module) scriptLog(c *gin.Context) {
 	core.OK(c, gin.H{"log": string(data)})
 }
 
+// fetchScriptContent 代理拉取仓库托管脚本内容（面板侧请求避免浏览器跨域），
+// 返回内容供上传对话框回填；仅 http(s)，上限 4MB。
+func (m *Module) fetchScriptContent(c *gin.Context) {
+	var req struct {
+		URL string `json:"url" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	content, err := resolveScriptContent(req.URL)
+	if err != nil {
+		core.Err(c, 500, "拉取失败: "+err.Error())
+		return
+	}
+	slog.Info("仓库脚本内容已获取", "url", req.URL, "by", c.GetString("user"))
+	core.OK(c, gin.H{"content": content})
+}
+
 // registerScriptRoutes 注册脚本应用路由（挂到已有 apps 组）。
 func (m *Module) registerScriptRoutes(g gin.IRouter) {
+	g.POST("/scripts/fetch", m.fetchScriptContent)
 	g.GET("/scripts", m.listCustomScripts)
 	g.POST("/scripts", m.saveCustomScript)
 	g.GET("/scripts/:name", m.getCustomScript)

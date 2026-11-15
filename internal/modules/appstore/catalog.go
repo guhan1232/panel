@@ -288,6 +288,50 @@ func fetchCatalog(url string) ([]remoteApp, error) {
 	return defs, nil
 }
 
+// candidateCatalogURLs 清单地址候选：用户可直接填 git 仓库地址，按常见托管平台
+// 的 raw 路径约定自动发现 catalog.json（CNB/GitLab 式、GitHub 式、主分支 main/master）。
+func candidateCatalogURLs(u string) []string {
+	u = strings.TrimSuffix(u, "/")
+	if strings.HasSuffix(u, ".json") {
+		return []string{u}
+	}
+	// 已是 raw 链接形态则按序尝试补 catalog.json
+	cands := []string{
+		u + "/-/git/raw/main/catalog.json",      // CNB
+		u + "/-/git/raw/main/jiaoben/catalog.json", // CNB 仓库约定子目录
+		u + "/-/raw/main/catalog.json",          // GitLab / Gitea
+		u + "/-/raw/master/catalog.json",
+		u + "/raw/main/catalog.json", // GitHub blob raw 形态
+		u + "/raw/master/catalog.json",
+	}
+	// GitHub 仓库地址（github.com/<owner>/<repo>）走 raw.githubusercontent.com
+	if i := strings.Index(u, "github.com/"); i >= 0 {
+		rest := u[i+len("github.com/"):]
+		cands = append(cands,
+			"https://raw.githubusercontent.com/"+rest+"/main/catalog.json",
+			"https://raw.githubusercontent.com/"+rest+"/master/catalog.json",
+		)
+	}
+	return cands
+}
+
+// resolveCatalog 解析用户输入为清单内容：返回 (定义, 最终清单URL, 错误)。
+func resolveCatalog(input string) ([]remoteApp, string, error) {
+	if strings.HasSuffix(strings.TrimSuffix(strings.TrimSpace(input), "/"), ".json") || strings.Contains(input, ".json?") {
+		defs, err := fetchCatalog(strings.TrimSpace(input))
+		return defs, strings.TrimSpace(input), err
+	}
+	var errs []string
+	for _, cand := range candidateCatalogURLs(input) {
+		defs, err := fetchCatalog(cand)
+		if err == nil {
+			return defs, cand, nil
+		}
+		errs = append(errs, cand+" → "+err.Error())
+	}
+	return nil, "", fmt.Errorf("未在仓库中找到 catalog.json（尝试过: %s）", strings.Join(errs, "; "))
+}
+
 // ---- 路由：多仓库源管理 ----
 
 func sourceDTO(s AppSource) gin.H {
@@ -330,12 +374,12 @@ func (m *Module) addSource(c *gin.Context) {
 		core.Err(c, 400, "仓库源数量已达上限")
 		return
 	}
-	defs, err := fetchCatalog(url)
+	defs, finalURL, err := resolveCatalog(url)
 	if err != nil {
-		core.Err(c, 500, "清单拉取失败: "+err.Error())
+		core.Err(c, 500, err.Error())
 		return
 	}
-	src := AppSource{ID: newSourceID(), Name: strings.TrimSpace(req.Name), URL: url, Enabled: true, Cache: defs, Updated: time.Now().Format("2006-01-02 15:04")}
+	src := AppSource{ID: newSourceID(), Name: strings.TrimSpace(req.Name), URL: finalURL, Enabled: true, Cache: defs, Updated: time.Now().Format("2006-01-02 15:04")}
 	list = append(list, src)
 	m.saveSources(list)
 	slog.Info("仓库源已添加", "name", src.Name, "url", url, "apps", len(defs), "by", c.GetString("user"))
@@ -366,17 +410,17 @@ func (m *Module) updateSource(c *gin.Context) {
 			list[i].Enabled = *req.Enabled
 		}
 		if req.URL != nil {
-			url := strings.TrimSpace(*req.URL)
-			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			input := strings.TrimSpace(*req.URL)
+			if !strings.HasPrefix(input, "http://") && !strings.HasPrefix(input, "https://") {
 				core.Err(c, 400, "仓库源地址需以 http(s):// 开头")
 				return
 			}
-			defs, err := fetchCatalog(url)
+			defs, finalURL, err := resolveCatalog(input)
 			if err != nil {
-				core.Err(c, 500, "清单拉取失败: "+err.Error())
+				core.Err(c, 500, err.Error())
 				return
 			}
-			list[i].URL = url
+			list[i].URL = finalURL
 			list[i].Cache = defs
 			list[i].Updated = time.Now().Format("2006-01-02 15:04")
 			list[i].Err = ""
@@ -434,7 +478,6 @@ func (m *Module) refreshSource(c *gin.Context) {
 	}
 	core.Err(c, 404, "仓库源不存在")
 }
-
 // EnsureDefaultSource 启动时加载/初始化源列表（含旧单源迁移），失败静默。
 func (m *Module) EnsureDefaultSource() {
 	list := m.loadSources()

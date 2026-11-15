@@ -323,6 +323,14 @@
     <a-modal v-model:open="scriptDlg" :title="scriptEditing ? `编辑脚本包 - ${scriptForm.name}` : '上传脚本包（bash）'" ok-text="保存" cancel-text="取消" :confirm-loading="scriptSaving" @ok="saveScript" width="760px">
       <a-form layout="vertical">
         <div class="wm-form-sec">
+          <div class="wm-form-sec__title">从仓库获取</div>
+          <div class="script-fetch-row">
+            <a-input v-model:value="scriptForm.fetchUrl" placeholder="脚本 raw 地址，如 https://cnb.cool/xxx/-/raw/main/scripts/foo.sh" @pressEnter="fetchScript" />
+            <a-button :loading="scriptFetching" @click="fetchScript">获取内容</a-button>
+          </div>
+          <div class="hint">从 git 仓库 raw 链接拉取脚本内容自动填入下方（由面板服务器代理请求，绕过浏览器跨域）。</div>
+        </div>
+        <div class="wm-form-sec">
           <div class="wm-form-sec__title">元数据</div>
           <div class="script-meta-grid">
             <a-form-item label="脚本名（key）" required>
@@ -367,9 +375,9 @@
     <a-modal v-model:open="srcDlg" :title="srcEditing ? `编辑仓库源 - ${srcForm.name}` : '添加仓库源'" ok-text="保存" cancel-text="取消" :confirm-loading="srcSaving" @ok="saveSource" width="640px">
       <a-form layout="vertical">
         <a-form-item label="源名称" required><a-input v-model:value="srcForm.name" placeholder="如 我的应用仓库" /></a-form-item>
-        <a-form-item label="清单地址（catalog.json URL）" required>
-          <a-input v-model:value="srcForm.url" placeholder="https://example.com/catalog.json 或 git raw 地址" />
-          <div class="hint">指向一个 JSON 清单：裸数组或 {"apps":[...]}。保存时会立即拉取校验；应用声明支持 script/native/compose 三类。</div>
+        <a-form-item label="仓库地址或清单 URL" required>
+          <a-input v-model:value="srcForm.url" placeholder="https://cnb.cool/xxx/yyy（git 仓库，自动发现 catalog.json）或完整清单 URL" />
+          <div class="hint">可直接填 git 仓库地址：面板按 CNB/GitLab/GitHub 的 raw 路径约定自动发现 catalog.json；也可填完整清单 URL。保存时立即拉取校验，应用声明支持 script/native/compose 三类。</div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -495,16 +503,40 @@ const customScripts = ref<any[]>([])
 const scriptDlg = ref(false)
 const scriptEditing = ref(false)
 const scriptSaving = ref(false)
-const scriptForm = reactive({ name: '', title: '', desc: '', version: '', category: '', icon: '', params: [] as any[], content: '' })
+const scriptForm = reactive({ name: '', title: '', desc: '', version: '', category: '', icon: '', params: [] as any[], content: '', fetchUrl: '' })
+const scriptFetching = ref(false)
 const scriptLogDlg = ref(false)
 const scriptLogName = ref('')
 const scriptLogContent = ref('')
 
 function openScriptDlg() {
   scriptEditing.value = false
-  Object.assign(scriptForm, { name: '', title: '', desc: '', version: '', category: '', icon: '', content: '' })
+  Object.assign(scriptForm, { name: '', title: '', desc: '', version: '', category: '', icon: '', content: '', fetchUrl: '' })
   scriptForm.params = []
   scriptDlg.value = true
+}
+
+async function fetchScript() {
+  const u = scriptForm.fetchUrl.trim()
+  if (!/^https?:\/\//.test(u)) {
+    ElMessage.warning('请填写 http(s) 脚本地址')
+    return
+  }
+  scriptFetching.value = true
+  try {
+    const d: any = await api.post('/apps/scripts/fetch', { url: u })
+    scriptForm.content = d.content || ''
+    // 脚本名为空时按 URL 文件名自动填充
+    if (!scriptForm.name.trim()) {
+      const base = u.split('?')[0].split('#')[0].split('/').pop() || ''
+      if (base.endsWith('.sh')) scriptForm.name = base.slice(0, -3).toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    }
+    ElMessage.success('脚本内容已获取')
+  } catch {
+    /* 拉取失败提示由全局错误处理展示 */
+  } finally {
+    scriptFetching.value = false
+  }
 }
 
 async function editScript(name: string) {
@@ -1047,6 +1079,10 @@ onMounted(() => loadAll())
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+.script-fetch-row {
+  display: flex;
+  gap: 8px;
 }
 .store-src-list {
   display: flex;
