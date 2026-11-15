@@ -1,8 +1,9 @@
-// DashboardScreen.kt —— 概览（宝塔式）：渐变横幅头卡（主机名/运行徽章/IP/上下行网速）
-// + 监控大卡 2×2 象限（负载温度计/CPU·内存圆弧/磁盘横条，色阶绿→黄→红）+ 趋势图 + 系统信息。
+// DashboardScreen.kt —— 概览（宝塔 APP 首页式）：
+// 渐变横幅头卡（主机名/运行徽章/IP/上下行网速）
+// + 监控大卡 2×2 象限：每象限 = 色点+标题 / 大号百分比主视觉 / 细横条进度 / 副信息（色阶绿→黄→红）
+// + 自适应量程趋势图 + 系统信息。
 package cn.hanyuxin.panel.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,11 +12,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDownward
@@ -35,8 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +57,7 @@ private val WarnAmber = Color(0xFFF59E0B)
 private val DangerRed = Color(0xFFEF4444)
 private val TrackGray = Color(0xFFEDF0F3)
 private val Hairline = Color(0xFFEEF0F3)
+private val LabelGray = Color(0xFF7A8699)
 
 /** 使用率色阶（宝塔语义）：低=绿 / 中=琥珀 / 高=红。 */
 private fun tierColor(p: Float): Color = when {
@@ -79,20 +83,7 @@ private fun SectionTitle(text: String, trailing: (@Composable () -> Unit)? = nul
     }
 }
 
-/** 绿色小徽章（运行天数 / 已用内存 / 总容量）。 */
-@Composable
-private fun MiniBadge(text: String, bg: Color = OkGreen) {
-    Text(
-        text,
-        fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        color = Color.White,
-        modifier = Modifier
-            .background(bg, RoundedCornerShape(5.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-    )
-}
-
-/** 浅底状态 pill（流畅/正常/繁忙）。 */
+/** 浅底状态 pill（实时/流畅等）。 */
 @Composable
 private fun StatePill(text: String, tint: Color) {
     Text(
@@ -105,69 +96,45 @@ private fun StatePill(text: String, tint: Color) {
     )
 }
 
-/** 圆弧仪表：底环 + 进度弧（-90° 起、圆头）+ 中央百分比，随进度着色。 */
+/**
+ * 监控象限：色点 + 标题 / 大号百分比主视觉 / 细横条进度 / 副信息。
+ * 空载时大数字撑住画面，不会出现空弧/空灰条。
+ */
 @Composable
-private fun GaugeArc(progress: Float, modifier: Modifier = Modifier) {
-    val p = progress.coerceIn(0f, 1f)
-    val tint = tierColor(p)
-    Box(modifier.size(92.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(92.dp)) {
-            val stroke = 10.dp.toPx()
-            drawArc(
-                TrackGray, startAngle = 0f, sweepAngle = 360f, useCenter = false,
-                style = Stroke(stroke, cap = StrokeCap.Round),
-            )
-            drawArc(
-                tint, startAngle = -90f, sweepAngle = 360f * p, useCenter = false,
-                style = Stroke(stroke, cap = StrokeCap.Round),
-            )
+private fun MetricCell(
+    title: String,
+    progress: Float,
+    bigText: String,
+    subText: String,
+    modifier: Modifier = Modifier,
+) {
+    val tint = tierColor(progress)
+    Column(modifier.padding(horizontal = 14.dp, vertical = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(tint, CircleShape))
+            Spacer(Modifier.width(6.dp))
+            Text(title, fontSize = 12.sp, color = LabelGray, fontWeight = FontWeight.Medium)
         }
-        Text("${(p * 100).toInt()}%", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint)
-    }
-}
-
-/** 负载温度计：百分比大字在上 + 细竖条（底部填充、色阶）。 */
-@Composable
-private fun LoadBar(progress: Float, modifier: Modifier = Modifier) {
-    val p = progress.coerceIn(0f, 1f)
-    val tint = tierColor(p)
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("${(p * 100).toInt()}%", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(bigText, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = tint)
+        Spacer(Modifier.height(12.dp))
+        // 细横条进度
         Box(
             Modifier
-                .width(26.dp)
-                .height(104.dp)
-                .clip(RoundedCornerShape(13.dp))
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
                 .background(TrackGray),
         ) {
             Box(
                 Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(maxOf(10.dp, (104 * p).dp))
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .height(8.dp)
                     .background(tint),
             )
         }
-    }
-}
-
-/** 水平进度条（磁盘）。 */
-@Composable
-private fun HBar(progress: Float, tint: Color, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(12.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(TrackGray),
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                .height(12.dp)
-                .background(tint),
-        )
+        Spacer(Modifier.height(8.dp))
+        Text(subText, fontSize = 11.sp, color = LabelGray)
     }
 }
 
@@ -263,113 +230,74 @@ fun DashboardScreen(server: ServerInfo) {
                 }
             }
 
-            // ---- 监控概览区块 ----
+            // ---- 监控概览区块：一张大卡 2×2 象限 ----
             item {
-                SectionTitle("监控概览") {
-                    StatePill("实时", BrandTeal)
-                }
+                SectionTitle("监控概览") { StatePill("实时", BrandTeal) }
             }
-
-            // 监控大卡：2×2 象限 + 细分隔线
             item {
                 PanelCard {
-                    Row {
-                        // 象限 1：负载
-                        Column(
-                            Modifier.weight(1f).height(180.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("负载", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.width(6.dp))
-                                StatePill(
-                                    if (loadPct < 0.5f) "流畅" else if (loadPct < 0.8f) "正常" else "繁忙",
-                                    tierColor(loadPct),
-                                )
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            LoadBar(loadPct)
-                            Spacer(Modifier.height(10.dp))
-                            Text("负载 ${String.format("%.2f", cur?.load1 ?: 0.0)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column {
+                        Row(Modifier.height(IntrinsicSize.Min)) {
+                            MetricCell(
+                                title = "CPU 使用率",
+                                progress = ((cur?.cpu ?: 0.0) / 100.0).toFloat(),
+                                bigText = pct(cur?.cpu ?: 0.0),
+                                subText = "共 4 核",
+                                modifier = Modifier.weight(1f),
+                            )
+                            Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
+                            MetricCell(
+                                title = "内存使用率",
+                                progress = ((cur?.mem_pct ?: 0.0) / 100.0).toFloat(),
+                                bigText = pct(cur?.mem_pct ?: 0.0),
+                                subText = "${humanSize(cur?.mem_used ?: 0)} / ${humanSize(cur?.mem_total ?: 0)}",
+                                modifier = Modifier.weight(1f),
+                            )
                         }
-                        // 竖分隔线
-                        Box(Modifier.width(1.dp).height(170.dp).background(Hairline))
-                        // 象限 2：CPU
-                        Column(
-                            Modifier.weight(1f).height(180.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Text("CPU 使用率", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.height(12.dp))
-                            GaugeArc(((cur?.cpu ?: 0.0) / 100.0).toFloat())
-                        }
-                    }
-                    // 横分隔线
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
-                    Row {
-                        // 象限 3：内存
-                        Column(
-                            Modifier.weight(1f).height(180.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("内存使用率", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.width(6.dp))
-                                MiniBadge(humanSize(cur?.mem_used ?: 0))
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            GaugeArc(((cur?.mem_pct ?: 0.0) / 100.0).toFloat())
-                        }
-                        // 竖分隔线
-                        Box(Modifier.width(1.dp).height(170.dp).background(Hairline))
-                        // 象限 4：磁盘
-                        Column(
-                            Modifier.weight(1f).height(180.dp).padding(horizontal = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(disk?.mount ?: "/", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.width(6.dp))
-                                MiniBadge(humanSize(disk?.total ?: 0))
-                            }
-                            Spacer(Modifier.height(14.dp))
-                            val dpct = ((disk?.used_pct ?: 0.0) / 100.0).toFloat()
-                            HBar(dpct, tierColor(dpct))
-                            Spacer(Modifier.height(12.dp))
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                                Text("${(dpct * 100).toInt()}%", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tierColor(dpct))
-                                Spacer(Modifier.weight(1f))
-                                Text("${humanSize(disk?.used ?: 0)} / ${humanSize(disk?.total ?: 0)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                        Row(Modifier.height(IntrinsicSize.Min)) {
+                            MetricCell(
+                                title = "系统负载",
+                                progress = loadPct,
+                                bigText = String.format("%.2f", cur?.load1 ?: 0.0),
+                                subText = if (loadPct < 0.5f) "流畅 · 4 核" else if (loadPct < 0.8f) "正常 · 4 核" else "繁忙 · 4 核",
+                                modifier = Modifier.weight(1f),
+                            )
+                            Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
+                            MetricCell(
+                                title = "磁盘 ${disk?.mount ?: "/"}",
+                                progress = ((disk?.used_pct ?: 0.0) / 100.0).toFloat(),
+                                bigText = pct(disk?.used_pct ?: 0.0),
+                                subText = "${humanSize(disk?.used ?: 0)} / ${humanSize(disk?.total ?: 0)}",
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }
             }
 
-            // ---- 运行趋势区块 ----
+            // ---- 运行趋势区块（量程自适应：低占用也有波形感） ----
             item { SectionTitle("运行趋势") }
             item {
+                val cpuMax = maxOf(10.0, (d.history.maxOfOrNull { it.cpu } ?: 0.0) * 1.4)
                 PanelCard {
-                    Text("CPU 使用率", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("CPU 使用率", fontSize = 12.sp, color = LabelGray)
                     Spacer(Modifier.height(4.dp))
-                    LineChart(d.history.map { it.cpu }, BrandTeal)
+                    LineChart(d.history.map { it.cpu }, BrandTeal, yMax = cpuMax)
+                }
+            }
+            item {
+                val memMax = maxOf(10.0, (d.history.maxOfOrNull { it.mem_pct } ?: 0.0) * 1.4)
+                PanelCard {
+                    Text("内存使用率", fontSize = 12.sp, color = LabelGray)
+                    Spacer(Modifier.height(4.dp))
+                    LineChart(d.history.map { it.mem_pct }, AppColors.Blue, yMax = memMax)
                 }
             }
             item {
                 PanelCard {
-                    Text("内存使用率", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(4.dp))
-                    LineChart(d.history.map { it.mem_pct }, AppColors.Blue)
-                }
-            }
-            item {
-                PanelCard {
-                    Text("网络速率", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("蓝色=下载 · 橙色=上传", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("网络速率", fontSize = 12.sp, color = LabelGray)
+                    Text("蓝色=下载 · 橙色=上传", fontSize = 10.sp, color = LabelGray)
                     Spacer(Modifier.height(4.dp))
                     NetChart(d.history.map { it.recv.toDouble() }, d.history.map { it.sent.toDouble() })
                 }
