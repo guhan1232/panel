@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -120,6 +121,8 @@ func (s *Service) Register(api gin.IRouter) {
 	authed.GET("/setting/2fa/status", s.twoFAStatus)
 	authed.GET("/sessions", s.listSessions)
 	authed.GET("/auth/sessions", s.listSessions) // 别名：与前端 Setting.vue 一致
+	authed.GET("/auth/session-policy", s.getSessionPolicy)
+	authed.PUT("/auth/session-policy", s.setSessionPolicy)
 	authed.DELETE("/sessions/:id", s.revokeSession)
 	authed.DELETE("/auth/sessions/:id", s.revokeSession)
 	authed.POST("/sessions/revoke-others", s.revokeOtherSessions)
@@ -271,7 +274,7 @@ func (s *Service) bearerSession(c *gin.Context, token string) (*core.Session, bo
 	return &sess, true
 }
 
-// applySession 校验用户并注入上下文、APP 会话滑动续期、viewer 只读拦截。
+// applySession 校验用户并注入上下文、APP 会话滑动续期、在线会话自动踢出策略、viewer 只读拦截。
 func (s *Service) applySession(c *gin.Context, sess *core.Session) bool {
 	var u core.User
 	if err := s.db.First(&u, sess.UserID).Error; err != nil {
@@ -286,6 +289,33 @@ func (s *Service) applySession(c *gin.Context, sess *core.Session) bool {
 	c.Set("uid", u.ID)
 	c.Set("role", u.Role)
 	c.Set("session", sess.Token)
+
+	// 在线会话自动踢出策略：不登录超时（距创建）与不在线超时（距最后活跃），超限即删会话并拒绝
+	lastActive := sess.LastActiveAt
+	if lastActive.IsZero() {
+		lastActive = sess.CreatedAt // 存量会话无记录，首次请求补记
+	}
+	pol := s.sessionPolicy()
+	now := time.Now()
+	kick := ""
+	if pol.NotLoginMinutes > 0 && now.Sub(sess.CreatedAt) > time.Duration(pol.NotLoginMinutes)*time.Minute {
+		kick = "会话已超过不登录时限（" + policyHuman(pol.NotLoginMinutes) + "），被自动踢出"
+	} else if pol.OfflineMinutes > 0 && now.Sub(lastActive) > time.Duration(pol.OfflineMinutes)*time.Minute {
+		kick = "会话不在线超过 " + policyHuman(pol.OfflineMinutes) + "，被自动踢出"
+	}
+	if kick != "" {
+		s.db.Where("token = ?", sess.Token).Delete(&core.Session{})
+		slog.Info("会话被自动踢出", "uid", sess.UserID, "client", sess.Client, "ip", sess.IP, "reason", kick)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": kick})
+		return false
+	}
+	// 最后在线节流写库（>60s 才写，避免高频请求打库）
+	if now.Sub(lastActive) > time.Minute {
+		if err := s.db.Model(&core.Session{}).Where("token = ?", sess.Token).
+			Update("last_active_at", now).Error; err != nil {
+			slog.Warn("会话在线时间写入失败", "err", err)
+		}
+	}
 
 	// APP 会话滑动续期：剩余寿命 <15 天自动续至 30 天（仅跨过阈值才写库）
 	if sess.Client == SessionClientApp && time.Until(sess.ExpiresAt) < appRenewBelow {
@@ -310,6 +340,92 @@ func (s *Service) applySession(c *gin.Context, sess *core.Session) bool {
 	}
 	c.Next()
 	return true
+}
+
+// SessionPolicy 在线会话自动踢出策略（分钟，0 = 不启用）。
+type SessionPolicy struct {
+	OfflineMinutes   int `json:"offline_minutes"`   // 不在线超过 N 分钟自动踢
+	NotLoginMinutes  int `json:"not_login_minutes"` // 距登录超过 N 分钟自动踢
+}
+
+var sessionPolicyCache struct {
+	mu   sync.Mutex
+	pol  SessionPolicy
+	at   time.Time
+}
+
+// sessionPolicy 读取自动踢出策略（60s 内存缓存）。存量数据/解析失败按全 0（不启用）处理。
+func (s *Service) sessionPolicy() SessionPolicy {
+	sessionPolicyCache.mu.Lock()
+	defer sessionPolicyCache.mu.Unlock()
+	if time.Since(sessionPolicyCache.at) < time.Minute {
+		return sessionPolicyCache.pol
+	}
+	var pol SessionPolicy
+	if raw := core.GetSetting(s.db, core.KSessionPolicy); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &pol)
+	}
+	if pol.OfflineMinutes < 0 {
+		pol.OfflineMinutes = 0
+	}
+	if pol.NotLoginMinutes < 0 {
+		pol.NotLoginMinutes = 0
+	}
+	sessionPolicyCache.pol = pol
+	sessionPolicyCache.at = time.Now()
+	return pol
+}
+
+// policyHuman 分钟数的人类可读文案（策略提示用）。
+func policyHuman(minutes int) string {
+	switch {
+	case minutes%60 == 0 && minutes >= 60:
+		return fmt.Sprintf("%d 小时", minutes/60)
+	default:
+		return fmt.Sprintf("%d 分钟", minutes)
+	}
+}
+
+// getSessionPolicy 读取自动踢出策略。
+func (s *Service) getSessionPolicy(c *gin.Context) {
+	core.OK(c, s.sessionPolicy())
+}
+
+// setSessionPolicy 保存自动踢出策略（仅 admin）。两项均可选 0（不启用）或 10 分钟~48 小时（10~2880 分钟）。
+func (s *Service) setSessionPolicy(c *gin.Context) {
+	if Role(c.GetString("role")) != RoleAdmin {
+		core.Err(c, 403, "仅管理员可修改在线会话自动踢出策略")
+		return
+	}
+	var req SessionPolicy
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.BindErr(c, err)
+		return
+	}
+	check := func(v int, name string) bool {
+		if v == 0 {
+			return true
+		}
+		if v < 10 || v > 2880 {
+			core.Err(c, 400, name+"范围：10 分钟 ~ 48 小时（2880 分钟），0 表示不启用")
+			return false
+		}
+		return true
+	}
+	if !check(req.OfflineMinutes, "不在线超时") || !check(req.NotLoginMinutes, "不登录超时") {
+		return
+	}
+	raw, _ := json.Marshal(SessionPolicy{OfflineMinutes: req.OfflineMinutes, NotLoginMinutes: req.NotLoginMinutes})
+	if err := core.SetSetting(s.db, core.KSessionPolicy, string(raw)); err != nil {
+		core.Err(c, 500, err.Error())
+		return
+	}
+	sessionPolicyCache.mu.Lock()
+	sessionPolicyCache.pol = SessionPolicy{OfflineMinutes: req.OfflineMinutes, NotLoginMinutes: req.NotLoginMinutes}
+	sessionPolicyCache.at = time.Now()
+	sessionPolicyCache.mu.Unlock()
+	slog.Info("在线会话自动踢出策略已更新", "offline_minutes", req.OfflineMinutes, "not_login_minutes", req.NotLoginMinutes, "by", c.GetString("user"))
+	core.OK(c, req)
 }
 
 // Middleware API 鉴权：校验会话、注入 user/uid/role/session，并拦截 viewer 的写操作。
@@ -554,6 +670,8 @@ func (s *Service) listSessions(c *gin.Context) {
 			"device_name":  r.DeviceName,
 			"current":      r.Token == cur,
 			"expires":      r.ExpiresAt.Format("2006-01-02 15:04:05"),
+			"last_active":  r.LastActiveAt.Format("2006-01-02 15:04:05"),
+			"created_at":   r.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 	core.OK(c, items)

@@ -79,11 +79,25 @@
         </div>
         <p v-else class="wm-text-muted">尚未绑定或已解除。</p>
       </WmSectionCard>
-      <WmSectionCard class="setting-card" title="在线会话" description="当前账号在其他设备的登录会话，可踢出">
+      <WmSectionCard class="setting-card" title="在线会话" description="当前账号在其他设备的登录会话，可踢出；可配置超时自动踢出策略">
         <template #actions>
           <a-button size="small" danger :loading="revokingOthers" :disabled="!sessions.some((x: any) => !x.current)" @click="revokeOthers">退出其他设备</a-button>
           <a-button size="small" @click="loadSessions">刷新</a-button>
         </template>
+        <div class="session-policy">
+          <div class="session-policy__item">
+            <span class="session-policy__label">不在线超过</span>
+            <a-select v-model:value="sessionPolicy.offline" size="small" style="width: 130px" :options="policyOptions" />
+            <span class="session-policy__hint">距最后一次访问超时即自动踢出</span>
+          </div>
+          <div class="session-policy__item">
+            <span class="session-policy__label">不登录超过</span>
+            <a-select v-model:value="sessionPolicy.notLogin" size="small" style="width: 130px" :options="policyOptions" />
+            <span class="session-policy__hint">距登录时间超时即自动踢出</span>
+          </div>
+          <a-button size="small" type="primary" :loading="policySaving" @click="savePolicy">保存策略</a-button>
+          <WmStatusPill v-if="auth.role !== 'admin'" label="仅管理员可修改" tone="neutral" :dot="false" outline />
+        </div>
         <WmTable :data="sessions" size="small" empty-title="没有在线会话" empty-description="">
           <WmColumn label="IP" width="150"><template #default="{ row }"><span class="wm-mono">{{ row.ip }}</span></template></WmColumn>
           <WmColumn label="客户端" width="150">
@@ -92,7 +106,8 @@
               <WmStatusPill v-else label="Web" tone="info" :dot="false" />
             </template>
           </WmColumn>
-          <WmColumn label="设备" min-width="220"><template #default="{ row }"><span class="wm-text-muted wm-truncate">{{ row.ua }}</span></template></WmColumn>
+          <WmColumn label="设备" min-width="200"><template #default="{ row }"><span class="wm-text-muted wm-truncate">{{ row.ua }}</span></template></WmColumn>
+          <WmColumn label="最近在线" width="170"><template #default="{ row }"><span class="wm-mono">{{ row.last_active }}</span></template></WmColumn>
           <WmColumn label="过期" width="170"><template #default="{ row }"><span class="wm-mono">{{ row.expires }}</span></template></WmColumn>
           <WmColumn label="操作" width="90" fixed="right">
             <template #default="{ row }">
@@ -485,6 +500,43 @@ async function loadSessions() {
     sessions.value = (await api.get('/auth/sessions')) as any
   } catch {
     sessions.value = []
+  }
+}
+
+// ---- 在线会话自动踢出策略（10 分钟 ~ 48 小时，0=不启用）----
+const policyOptions = [
+  { value: 0, label: '不启用' },
+  { value: 10, label: '10 分钟' },
+  { value: 30, label: '30 分钟' },
+  { value: 60, label: '1 小时' },
+  { value: 120, label: '2 小时' },
+  { value: 360, label: '6 小时' },
+  { value: 720, label: '12 小时' },
+  { value: 1440, label: '24 小时' },
+  { value: 2880, label: '48 小时' }
+]
+const sessionPolicy = reactive({ offline: 0, notLogin: 0 })
+const policySaving = ref(false)
+
+async function loadPolicy() {
+  try {
+    const d: any = await api.get('/auth/session-policy')
+    sessionPolicy.offline = d.offline_minutes || 0
+    sessionPolicy.notLogin = d.not_login_minutes || 0
+  } catch {
+    sessionPolicy.offline = 0
+    sessionPolicy.notLogin = 0
+  }
+}
+
+async function savePolicy() {
+  policySaving.value = true
+  try {
+    await api.put('/auth/session-policy', { offline_minutes: sessionPolicy.offline, not_login_minutes: sessionPolicy.notLogin })
+    ElMessage.success('自动踢出策略已保存，超时会话将在下次访问时被拒绝并清理')
+    loadSessions()
+  } finally {
+    policySaving.value = false
   }
 }
 
@@ -928,6 +980,7 @@ function readPem(e: any, which: 'cert' | 'key') {
 onMounted(async () => {
   await loadInfo()
   loadSessions()
+  loadPolicy()
   loadTls()
   loadProxy()
   loadAppConfig()
@@ -1144,6 +1197,19 @@ async function clearToken(target: 'api' | 'mcp') {
 .setting-card :deep(.ant-form-item:last-child) { margin-bottom: 0; }
 .setting-card :deep(.ant-descriptions) { overflow: hidden; border-radius: var(--wm-r-md); }
 .setting-card :deep(.ant-descriptions-item-label) { width: 132px; color: var(--wm-ink-3); }
+.session-policy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--wm-border, #e4e7ec);
+  border-radius: 10px;
+  background: var(--wm-bg-soft, #fafbfc);
+}
+.session-policy__item { display: flex; align-items: center; gap: 8px; }
+.session-policy__label { font-size: 12px; font-weight: 600; color: var(--wm-ink-2, #475467); }
+.session-policy__hint { font-size: 11px; color: var(--wm-ink-3, #98a2b3); }
 
 @media (max-width: 980px) {
   .setting-group__head { align-items: flex-start; flex-direction: column; gap: var(--wm-s2); }

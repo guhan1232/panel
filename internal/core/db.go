@@ -28,6 +28,7 @@ const (
 	KAppSources     = "appstore_sources_v2" // 软件商店多仓库源（JSON 数组，含每源清单缓存）
 	KUpgradeURL     = "upgrade_manifest_url" // 面板在线自升级清单地址（JSON）
 	KPanelName      = "panel_name"           // 自定义面板名称（空 = 默认「寒语馨面板」）
+	KSessionPolicy  = "session_auto_kick"    // 在线会话自动踢出策略（JSON：不登录/不在线超时分钟，0=不启用）
 
 	// 移动 APP（docs/APP.md §7）：对外地址、APK 分发与自更新检查。
 	KAppPublicURL    = "app_public_url"    // 面板对外访问地址（扫码登录 qr_text 的 host；空 = 自动推导）
@@ -63,14 +64,15 @@ type User struct {
 }
 
 type Session struct {
-	Token      string    `gorm:"primaryKey;size:64" json:"token"`
-	UserID     uint      `json:"user_id"`
-	IP         string    `gorm:"size:64" json:"ip"`
-	UA         string    `gorm:"size:512" json:"ua"`
-	Client     string    `gorm:"size:16;default:web" json:"client"`     // web | app（APP 会话走 Bearer，30 天滑动续期）
-	DeviceName string    `gorm:"size:128" json:"device_name"`           // APP 登录时的设备名（机型）
-	ExpiresAt  time.Time `json:"expires_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	Token        string    `gorm:"primaryKey;size:64" json:"token"`
+	UserID       uint      `json:"user_id"`
+	IP           string    `gorm:"size:64" json:"ip"`
+	UA           string    `gorm:"size:512" json:"ua"`
+	Client       string    `gorm:"size:16;default:web" json:"client"` // web | app（APP 会话走 Bearer，30 天滑动续期）
+	DeviceName   string    `gorm:"size:128" json:"device_name"`       // APP 登录时的设备名（机型）
+	ExpiresAt    time.Time `json:"expires_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastActiveAt time.Time `json:"last_active_at"` // 最后在线（鉴权时节流写入；自动踢出策略的「不在线」判定基准）
 }
 
 type AuditLog struct {
