@@ -968,6 +968,15 @@ func (m *Module) Start() error {
 		return err
 	}
 	m.EnsureDefaultSource() // 默认脚本仓库（jiaoben 分支）清单
+	// 后台预取版本缓存（nginx pool 海外拉取较慢；启动预热让安装对话框秒开）
+	go func() {
+		time.Sleep(3 * time.Second)
+		start := time.Now()
+		_ = nginxPoolEntries()
+		_ = mariadbVersions()
+		_, _ = redisVersions()
+		slog.Info("软件商店版本缓存预热完成", "took", time.Since(start).Round(time.Millisecond))
+	}()
 	return nil
 }
 
@@ -2182,7 +2191,7 @@ var mariadbCache struct {
 func mariadbVersions() []string {
 	mariadbCache.mu.Lock()
 	defer mariadbCache.mu.Unlock()
-	if mariadbCache.vers != nil && time.Since(mariadbCache.at) < 10*time.Minute {
+	if mariadbCache.vers != nil && time.Since(mariadbCache.at) < 6*time.Hour {
 		return mariadbCache.vers
 	}
 	base := "https://mirrors.aliyun.com/mariadb/repo/"
@@ -2227,7 +2236,7 @@ var redisCache struct {
 func redisVersions() (map[string]string, []string) {
 	redisCache.mu.Lock()
 	defer redisCache.mu.Unlock()
-	if redisCache.byDisp != nil && time.Since(redisCache.at) < 10*time.Minute {
+	if redisCache.byDisp != nil && time.Since(redisCache.at) < 6*time.Hour {
 		return redisCache.byDisp, redisCache.order
 	}
 	_, cn := osRelease()
@@ -2305,17 +2314,21 @@ type nginxDeb struct {
 }
 
 var nginxPoolCache struct {
-	mu    sync.Mutex
-	byVer map[string]string // 版本号 → 最高修订的 deb（<branch>/<fname>，stable 与 mainline pool 合并）
-	at    time.Time
+	mu      sync.Mutex
+	byVer   map[string]string // 版本号 → 最高修订的 deb（<branch>/<fname>，stable 与 mainline pool 合并）
+	pools   map[string]string // pool URL → Last-Modified（304 条件请求用）
+	at      time.Time
+	fetched bool
 }
 
+const nginxPoolTTL = 6 * time.Hour
+
 // nginxPoolEntries 拉取 nginx.org packages 的 stable 与 mainline 两个 pool 目录，
-// 按当前发行版代号与架构过滤（缓存 10 分钟）。主线版本在 packages/mainline/<distro>/pool/ 独立发布。
+// 按当前发行版代号与架构过滤（缓存 6 小时 + Last-Modified 条件请求：未变化时 304 零下载）。
 func nginxPoolEntries() []nginxDeb {
 	nginxPoolCache.mu.Lock()
 	defer nginxPoolCache.mu.Unlock()
-	if nginxPoolCache.byVer != nil && time.Since(nginxPoolCache.at) < 10*time.Minute {
+	if nginxPoolCache.fetched && time.Since(nginxPoolCache.at) < nginxPoolTTL {
 		return poolList(nginxPoolCache.byVer)
 	}
 	_, cn := osRelease()
@@ -2332,13 +2345,39 @@ func nginxPoolEntries() []nginxDeb {
 	}
 	re := regexp.MustCompile(`nginx_(\d+(?:\.\d+){2})-(\d+)~([a-z0-9]+)_(amd64|arm64)\.deb`)
 	arch := runtime.GOARCH
+	// 沿用缓存条目（对应 pool 304 未变化时零下载）
 	byVer := map[string]string{}
-	bestRev := map[string]int{} // branch|ver → 最高 deb 修订号
+	if nginxPoolCache.byVer != nil {
+		for v, f := range nginxPoolCache.byVer {
+			byVer[v] = f
+		}
+	}
+	newPools := map[string]string{}
 	for branch, base := range pools {
-		data, err := httpGet(base, 20*time.Second, 4<<20)
+		data, notModified, respLM, err := httpGetCond(base, 20*time.Second, 4<<20, nginxPoolCache.pools[base])
 		if err != nil {
+			continue // 拉取失败沿用缓存条目
+		}
+		if notModified {
+			// 保留该分支旧条目（按前缀过滤重建）
+			for v, f := range nginxPoolCache.byVer {
+				if strings.HasPrefix(f, branch+"/") {
+					byVer[v] = f
+				}
+			}
+			if lm, ok := nginxPoolCache.pools[base]; ok {
+				newPools[base] = lm
+			}
 			continue
 		}
+		newPools[base] = respLM
+		// 该分支以新数据为准：清掉缓存中此分支旧条目
+		for v, f := range byVer {
+			if strings.HasPrefix(f, branch+"/") {
+				delete(byVer, v)
+			}
+		}
+		bestRev := map[string]int{} // branch|ver → 最高 deb 修订号
 		for _, m := range re.FindAllStringSubmatch(string(data), -1) {
 			if m[3] != cn || m[4] != arch {
 				continue
@@ -2356,10 +2395,13 @@ func nginxPoolEntries() []nginxDeb {
 		return nil
 	}
 	nginxPoolCache.byVer = byVer
+	nginxPoolCache.pools = newPools
 	nginxPoolCache.at = time.Now()
+	nginxPoolCache.fetched = true
 	return poolList(byVer)
 }
 
+// respLastModified 提取 Last-Modified 响应头（条件请求用；缺省回退当前 UTC 时间）。
 func nginxDownloadVersions() []string {
 	data, err := httpGet("https://nginx.org/download/", 20*time.Second, 4<<20)
 	if err != nil {
@@ -2429,21 +2471,44 @@ var nginxRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 var versionTokenRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+~:-]{0,79}$`)
 
 func httpGet(url string, timeout time.Duration, limit int64) ([]byte, error) {
+	data, _, _, err := httpGetCond(url, timeout, limit, "")
+	return data, err
+}
+
+// httpGetCond 带条件请求的 GET：lastModified 非空时携带 If-Modified-Since，
+// 服务端返回 304（内容未变化）时不下载正文，直接返回 notModified=true（调用方沿用缓存）。
+// 返回的 respLM 为本次响应的 Last-Modified 头（304 时为请求传入值，调用方应保留）。
+func httpGetCond(url string, timeout time.Duration, limit int64, lastModified string) (data []byte, notModified bool, respLM string, err error) {
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, "", err
 	}
 	req.Header.Set("User-Agent", "hanyuxin-panel")
+	if lastModified != "" {
+		req.Header.Set("If-Modified-Since", lastModified)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusNotModified {
+		return nil, true, lastModified, nil
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, limit))
+	if resp.StatusCode != 200 {
+		return nil, false, "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	data, err = io.ReadAll(io.LimitReader(resp.Body, limit))
+	return data, false, respLMOf(resp), err
+}
+
+// respLMOf 提取 Last-Modified 响应头（缺省回退当前 UTC 时间）。
+func respLMOf(resp *http.Response) string {
+	if lm := resp.Header.Get("Last-Modified"); lm != "" {
+		return lm
+	}
+	return time.Now().UTC().Format(http.TimeFormat)
 }
 
 // parseAptMadisonVersions 提取 apt-cache madison 的完整包版本号。
