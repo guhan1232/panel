@@ -470,27 +470,42 @@ volumes:
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
 			entries := nginxPoolEntries()
 			if len(entries) == 0 {
+				// 兜底：download 页全量版本（mainline+stable）
 				for _, v := range nginxDownloadVersions() {
 					out = append(out, AppVersion{Version: v, Note: "nginx.org 官方发布版本"})
 				}
-			} else {
-				maxMinor := 0
-				for _, e := range entries {
-					if parts := strings.Split(e.Ver, "."); len(parts) >= 2 {
-						if mi, _ := strconv.Atoi(parts[1]); mi > maxMinor {
-							maxMinor = mi
-						}
-					}
+				return out, nil
+			}
+			// minor 奇偶区分主线（奇）/稳定（偶）分支，各分支内最大完整版本为「当前」
+			maxStable, maxMain := "", ""
+			for _, e := range entries {
+				parts := strings.Split(e.Ver, ".")
+				if len(parts) < 2 {
+					continue
 				}
-				for _, e := range entries {
-					note := "nginx.org 历史稳定版"
-					if parts := strings.Split(e.Ver, "."); len(parts) >= 2 {
-						if mi, _ := strconv.Atoi(parts[1]); mi == maxMinor {
-							note = "nginx.org 当前稳定版"
-						}
+				mi, _ := strconv.Atoi(parts[1])
+				if mi%2 == 0 {
+					if maxStable == "" || verLess(maxStable, e.Ver) {
+						maxStable = e.Ver
 					}
-					out = append(out, AppVersion{Version: e.Ver, Note: note})
+				} else if maxMain == "" || verLess(maxMain, e.Ver) {
+					maxMain = e.Ver
 				}
+			}
+			for _, e := range entries {
+				parts := strings.Split(e.Ver, ".")
+				mi := 0
+				if len(parts) >= 2 {
+					mi, _ = strconv.Atoi(parts[1])
+				}
+				note := "nginx.org 稳定版"
+				if mi%2 == 1 {
+					note = "nginx.org 主线版"
+				}
+				if (mi%2 == 0 && e.Ver == maxStable) || (mi%2 == 1 && e.Ver == maxMain) {
+					note = "nginx.org 当前" + strings.TrimPrefix(note, "nginx.org ")
+				}
+				out = append(out, AppVersion{Version: e.Ver, Note: note})
 			}
 			return out, nil
 		},
@@ -505,17 +520,25 @@ volumes:
 				if srcID != "" && srcID != "auto" && srcID != "official" {
 					return nil, nil, nil, "", "", fmt.Errorf("Nginx 指定版本来自 nginx.org 官方源，请选择官方源")
 				}
-				fname := nginxPoolCache.byVer[ver]
-				if fname == "" {
+				entry := nginxPoolCache.byVer[ver]
+				if entry == "" {
 					return nil, nil, nil, "", "", fmt.Errorf("nginx %s 在 nginx.org 仓库中不存在（当前发行版/架构）", ver)
+				}
+				branch, fname := "stable", entry
+				if i := strings.Index(entry, "/"); i >= 0 {
+					branch, fname = entry[:i], entry[i+1:]
 				}
 				distroPath := "ubuntu"
 				if id, _ := osRelease(); id == "debian" {
 					distroPath = "debian"
 				}
+				poolBase := "https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/"
+				if branch == "mainline" {
+					poolBase = "https://nginx.org/packages/mainline/" + distroPath + "/pool/nginx/n/nginx/"
+				}
 				deb := "/tmp/hanyuxin-nginx-" + ver + ".deb"
 				pre = []string{
-					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/" + fname,
+					"curl -fSL --retry 3 --connect-timeout 30 -o " + deb + " " + poolBase + fname,
 					"systemctl stop nginx 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 purge -y nginx nginx-common nginx-core 2>/dev/null || true",
 					"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + deb,
@@ -524,6 +547,9 @@ volumes:
 				unit = "nginx"
 				post = []string{"rm -f " + deb}
 				note = "nginx.org " + ver
+				if branch == "mainline" {
+					note = "nginx.org " + ver + "（主线）"
+				}
 				return pre, pkgs, post, unit, note, nil
 			}
 			repo := "http://nginx.org/packages"
@@ -2233,16 +2259,17 @@ func osRelease() (id, codename string) {
 // nginxDeb nginx.org pool 中的一个 deb：Ver 为上游版本号，File 为完整文件名。
 type nginxDeb struct {
 	Ver  string
-	File string
+	File string // "<branch>/<fname>"，branch = stable | mainline（决定 pool 下载路径）
 }
 
 var nginxPoolCache struct {
 	mu    sync.Mutex
-	byVer map[string]string // 版本号 → 最高修订的 deb 文件名
+	byVer map[string]string // 版本号 → 最高修订的 deb（<branch>/<fname>，stable 与 mainline pool 合并）
 	at    time.Time
 }
 
-// nginxPoolEntries 拉取 nginx.org packages pool 目录，按当前发行版代号与架构过滤（缓存 10 分钟）。
+// nginxPoolEntries 拉取 nginx.org packages 的 stable 与 mainline 两个 pool 目录，
+// 按当前发行版代号与架构过滤（缓存 10 分钟）。主线版本在 packages/mainline/<distro>/pool/ 独立发布。
 func nginxPoolEntries() []nginxDeb {
 	nginxPoolCache.mu.Lock()
 	defer nginxPoolCache.mu.Unlock()
@@ -2257,24 +2284,31 @@ func nginxPoolEntries() []nginxDeb {
 	if id, _ := osRelease(); id == "debian" {
 		distroPath = "debian"
 	}
-	base := "https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/"
-	data, err := httpGet(base, 20*time.Second, 4<<20)
-	if err != nil {
-		return nil
+	pools := map[string]string{
+		"stable":   "https://nginx.org/packages/" + distroPath + "/pool/nginx/n/nginx/",
+		"mainline": "https://nginx.org/packages/mainline/" + distroPath + "/pool/nginx/n/nginx/",
 	}
 	re := regexp.MustCompile(`nginx_(\d+(?:\.\d+){2})-(\d+)~([a-z0-9]+)_(amd64|arm64)\.deb`)
 	arch := runtime.GOARCH
 	byVer := map[string]string{}
-	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
-		if m[3] != cn || m[4] != arch {
+	bestRev := map[string]int{} // branch|ver → 最高 deb 修订号
+	for branch, base := range pools {
+		data, err := httpGet(base, 20*time.Second, 4<<20)
+		if err != nil {
 			continue
 		}
-		if old, ok := byVer[m[1]]; ok {
-			if debRev(old) >= m[2] {
+		for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+			if m[3] != cn || m[4] != arch {
 				continue
 			}
+			rev, _ := strconv.Atoi(m[2])
+			k := branch + "|" + m[1]
+			if best, ok := bestRev[k]; ok && best >= rev {
+				continue
+			}
+			bestRev[k] = rev
+			byVer[m[1]] = branch + "/" + m[0]
 		}
-		byVer[m[1]] = m[0]
 	}
 	if len(byVer) == 0 {
 		return nil
