@@ -492,7 +492,7 @@ volumes:
 		},
 	},
 	{
-		Key: "nginx-pkg", Name: "Nginx", DefaultVersion: "distro", Desc: "Web 服务器/反向代理（发行版 / nginx.org 全部历史版本）", Kind: "package",
+		Key: "nginx-pkg", Name: "Nginx", DefaultVersion: "distro", Desc: "Web 服务器/反向代理（经系统镜像源安装）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
@@ -570,7 +570,7 @@ volumes:
 		},
 	},
 	{
-		Key: "mariadb", Name: "MySQL / MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（发行版 / 阿里云镜像 10.6→13 全版本）", Kind: "package",
+		Key: "mariadb", Name: "MySQL / MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（经系统镜像源安装）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
@@ -636,7 +636,7 @@ volumes:
 		},
 	},
 	{
-		Key: "redis-pkg", Name: "Redis", DefaultVersion: "distro", Desc: "内存数据库/缓存（发行版 / Redis 官方仓库 6.0→最新全版本）", Kind: "package",
+		Key: "redis-pkg", Name: "Redis", DefaultVersion: "distro", Desc: "内存数据库/缓存（经系统镜像源安装）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
 			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
@@ -678,7 +678,7 @@ volumes:
 		},
 	},
 	{
-		Key: "postgresql-pkg", Name: "PostgreSQL", DefaultVersion: "distro", Desc: "关系型数据库（发行版 / PGDG 13-17）", Kind: "package",
+		Key: "postgresql-pkg", Name: "PostgreSQL", DefaultVersion: "distro", Desc: "关系型数据库（经系统镜像源安装）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
 			return []AppVersion{
@@ -741,7 +741,7 @@ volumes:
 		},
 	},
 	{
-		Key: "memcached-pkg", Name: "Memcached", DefaultVersion: "distro", Desc: "内存缓存（发行版软件包，可选已发布包版本）", Kind: "package",
+		Key: "memcached-pkg", Name: "Memcached", DefaultVersion: "distro", Desc: "内存缓存（经系统镜像源安装）", Kind: "package",
 		Params: []Param{},
 		VersionList: func() ([]AppVersion, error) {
 			return memcachedVersions(), nil
@@ -1443,7 +1443,8 @@ func (m *Module) install(c *gin.Context) {
 		}
 		status = s
 	} else if tpl.Kind == "package" {
-		s, pkgs, unit, err := m.installPackage(tpl, req.Name, req.Version, req.Mirror, p)
+		// 系统包统一走系统镜像源（apt/dnf 当前源）安装；版本与下载源参数不再受理（APP/旧调用一并生效）
+		s, pkgs, unit, err := m.installPackage(tpl, req.Name, "", "auto", p)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return

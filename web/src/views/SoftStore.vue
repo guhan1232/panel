@@ -273,16 +273,20 @@
             <div class="hint">版本清单来自官方源和镜像目录，与面板运行在 Windows 还是 Linux 无关。</div>
           </a-form-item>
         </div>
-        <div class="wm-form-sec" v-if="cur?.kind !== 'script'">
+        <div class="wm-form-sec" v-if="cur?.kind === 'native'">
           <div class="wm-form-sec__title">下载与安装</div>
-          <a-form-item label="下载源" :style="cur?.kind === 'package' ? '' : 'margin-bottom: 0'">
+          <a-form-item label="下载源" style="margin-bottom: 0">
             <a-select v-model:value="instSource" style="width: 100%">
               <a-select-option v-for="s in sources" :key="s.id"
                 :value="s.id" :disabled="sourceDisabled(s.id)">{{ s.name }}</a-select-option>
             </a-select>
             <div v-if="sourceHint" class="hint">{{ sourceHint }}</div>
-            <div class="hint">{{ cur?.kind === 'package' ? '系统包经所选镜像站的 apt 仓库定向安装（临时源，不改动系统全局配置）；未被收录的仓库自动回退官方源' : '镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道' }}</div>
+            <div class="hint">镜像站仅收录部分软件（未收录的源会置灰）；GitHub 类发布走加速通道</div>
           </a-form-item>
+        </div>
+        <div v-if="cur?.kind === 'package'" class="wm-form-sec">
+          <div class="wm-form-sec__title">安装方式</div>
+          <div class="hint">经系统镜像源安装（apt/dnf 当前配置的源；系统设置可一键更换国内镜像），由 systemd 托管服务。</div>
         </div>
         <div v-if="(cur?.params || []).length" class="wm-form-sec">
           <div class="wm-form-sec__title">参数</div>
@@ -760,12 +764,12 @@ async function openInstall(t: any) {
   cur.value = t
   instName.value = String(t.key || '').replace('custom:', '')
   instSource.value = 'auto'
-  instVer.value = t.default_version || ''
+  instVer.value = t.kind === 'package' ? '' : (t.default_version || '')
   Object.keys(instParams).forEach((k) => delete instParams[k])
   for (const p of t.params || []) instParams[p.key] = p.def || ''
   dlg.value = true
-  // native/package 拉取可选版本清单
-  if (t.kind === 'native' || t.kind === 'package') {
+  // 仅 native 拉取可选版本清单（package 统一走系统镜像源，不选版本）
+  if (t.kind === 'native') {
     try {
       const d: any = await api.get('/apps/versions', { params: { key: t.key } })
       cur.value = { ...t, versions: d.versions || [] }
@@ -792,7 +796,11 @@ async function deploy() {
   }
   deploying.value = true
   try {
-    const d: any = await api.post('/apps', { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }, { timeout: 1900000 })
+    // package 统一走系统镜像源（后端强制，版本/源参数不受理）
+    const payload = cur.value.kind === 'package'
+      ? { app_key: cur.value.key, name: instName.value, params: { ...instParams } }
+      : { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }
+    const d: any = await api.post('/apps', payload, { timeout: 1900000 })
     ElMessage.success(d?.status || '安装完成')
     dlg.value = false
     loadAll()
