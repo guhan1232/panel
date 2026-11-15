@@ -286,7 +286,15 @@
         </div>
         <div v-if="cur?.kind === 'package'" class="wm-form-sec">
           <div class="wm-form-sec__title">安装方式</div>
-          <div class="hint">经系统镜像源安装（apt/dnf 当前配置的源；系统设置可一键更换国内镜像），由 systemd 托管服务。</div>
+          <a-form-item v-if="cur?.versions?.length" label="版本（系统镜像源内可用）" style="margin-bottom: 0">
+            <a-select v-model:value="instVer" style="width: 100%">
+              <a-select-option v-for="v in cur.versions" :key="v.version" :value="v.version">
+                {{ v.version }}<template v-if="v.note">（{{ v.note }}）</template>
+              </a-select-option>
+            </a-select>
+            <div class="hint">版本列表来自系统镜像源实时查询；默认使用系统推荐版本，也可指定具体版本（apt/dnf 按版本号安装）。</div>
+          </a-form-item>
+          <div v-else class="hint">经系统镜像源安装（apt/dnf 当前配置的源；系统设置可一键更换国内镜像），由 systemd 托管服务。</div>
         </div>
         <div v-if="(cur?.params || []).length" class="wm-form-sec">
           <div class="wm-form-sec__title">参数</div>
@@ -764,12 +772,12 @@ async function openInstall(t: any) {
   cur.value = t
   instName.value = String(t.key || '').replace('custom:', '')
   instSource.value = 'auto'
-  instVer.value = t.kind === 'package' ? '' : (t.default_version || '')
+  instVer.value = t.default_version || ''
   Object.keys(instParams).forEach((k) => delete instParams[k])
   for (const p of t.params || []) instParams[p.key] = p.def || ''
   dlg.value = true
-  // 仅 native 拉取可选版本清单（package 统一走系统镜像源，不选版本）
-  if (t.kind === 'native') {
+  // native 拉官方发行版本清单；package 拉系统镜像源内可用版本（可 pin 指定版本）
+  if (t.kind === 'native' || t.kind === 'package') {
     try {
       const d: any = await api.get('/apps/versions', { params: { key: t.key } })
       cur.value = { ...t, versions: d.versions || [] }
@@ -796,9 +804,9 @@ async function deploy() {
   }
   deploying.value = true
   try {
-    // package 统一走系统镜像源（后端强制，版本/源参数不受理）
+    // package 走系统镜像源（可指定源内版本 pin 安装），无下载源选择
     const payload = cur.value.kind === 'package'
-      ? { app_key: cur.value.key, name: instName.value, params: { ...instParams } }
+      ? { app_key: cur.value.key, name: instName.value, version: instVer.value, params: { ...instParams } }
       : { app_key: cur.value.key, name: instName.value, version: instVer.value, mirror: instSource.value, params: { ...instParams } }
     const d: any = await api.post('/apps', payload, { timeout: 1900000 })
     ElMessage.success(d?.status || '安装完成')

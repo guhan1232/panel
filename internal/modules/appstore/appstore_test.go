@@ -183,7 +183,7 @@ func TestCrossPlatformVersionParsers(t *testing.T) {
 }
 
 func TestSoftwareStoreVersionContracts(t *testing.T) {
-	want := []string{"nginx-pkg", "mariadb", "redis-pkg", "postgresql-pkg", "memcached-pkg", "caddy", "minio", "node_exporter", "frps"}
+	want := []string{"nginx-pkg", "mysql", "mariadb", "redis-pkg", "postgresql-pkg", "memcached-pkg", "caddy", "minio", "node_exporter", "frps"}
 	for _, key := range want {
 		var got *Template
 		for i := range templates {
@@ -196,14 +196,21 @@ func TestSoftwareStoreVersionContracts(t *testing.T) {
 			t.Errorf("missing software template %s", key)
 			continue
 		}
+		// 系统包：版本统一走系统镜像源（listVersions 经 systemPkgVersions 提供，默认 distro 可 pin 指定版本）
+		if got.Kind == "package" {
+			if got.DefaultVersion != "distro" {
+				t.Errorf("%s package default version must be distro", key)
+			}
+			if got.Pkg == nil {
+				t.Errorf("%s must define package list for the system source", key)
+			}
+			continue
+		}
 		if got.DefaultVersion == "" || got.VersionList == nil {
 			t.Errorf("%s must expose a selectable version list", key)
 		}
 		if got.Kind == "native" && got.NativeVersionURL == nil {
 			t.Errorf("%s must resolve a selected native version", key)
-		}
-		if got.Kind == "package" && got.PkgInstallVer == nil {
-			t.Errorf("%s must install a selected package version", key)
 		}
 	}
 }

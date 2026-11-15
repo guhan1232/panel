@@ -164,34 +164,6 @@ var templates = []Template{
 		},
 	},
 	{
-		Key: "mysql", Name: "MySQL 8", Desc: "关系型数据库（容器）", Kind: "compose",
-		Params: []Param{
-			{Key: "port", Label: "宿主机端口", Def: "3306", Required: true},
-			{Key: "root_pass", Label: "root 密码", Required: true},
-		},
-		Gen: func(p map[string]string) (string, error) {
-			port, err := portParam(p, "3306")
-			if err != nil {
-				return "", err
-			}
-			pass, err := required(p, "root_pass", "root 密码")
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf(`services:
-  mysql:
-    image: mysql:8
-    ports:
-      - %q:3306
-    environment:
-      MYSQL_ROOT_PASSWORD: %s
-    volumes:
-      - ./data:/var/lib/mysql
-    restart: always
-`, port, yamlStr(pass)), nil
-		},
-	},
-	{
 		Key: "redis", Name: "Redis 7", Desc: "内存数据库/缓存（容器）", Kind: "compose",
 		Params: []Param{
 			{Key: "port", Label: "宿主机端口", Def: "6379", Required: true},
@@ -570,69 +542,27 @@ volumes:
 		},
 	},
 	{
-		Key: "mariadb", Name: "MySQL / MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（经系统镜像源安装）", Kind: "package",
+		Key: "mysql", Name: "MySQL", DefaultVersion: "distro", Desc: "关系型数据库（系统镜像源可选版本；apt 系部分发行版仅提供 MariaDB，请改用 MariaDB 应用）", Kind: "package",
 		Params: []Param{},
-		VersionList: func() ([]AppVersion, error) {
-			out := []AppVersion{{Version: "distro", Note: "发行版源"}}
-			for _, v := range mariadbVersions() {
-				note := "阿里云镜像 · 稳定分支"
-				if strings.Contains(v, "rolling") {
-					note = "阿里云镜像 · 滚动分支"
-				} else if strings.Count(v, ".") >= 2 {
-					note = "阿里云镜像 · 指定小版本"
+		Pkg: func(distro string) ([]string, string, error) {
+			if distro == "apt" {
+				// Debian/Ubuntu 各版本的 MySQL 包名不同：按可用性探测（Ubuntu mysql-server；Debian trixie mysql-innovation；无候选则提示改用 MariaDB）
+				out, _, err := execx.Run("appstore", 60*time.Second, "sh", "-c",
+					"for c in mysql-server mysql-innovation; do if apt-cache show $c >/dev/null 2>&1; then echo $c; break; fi; done")
+				cand := strings.TrimSpace(out)
+				if err != nil || cand == "" {
+					return nil, "", fmt.Errorf("当前发行版的系统源未提供 MySQL 包（Debian 系多仅提供 MariaDB，请使用 MariaDB 应用）")
 				}
-				out = append(out, AppVersion{Version: v, Note: note})
+				return []string{cand}, "mysql", nil
 			}
-			return out, nil
+			return []string{"mysql-server"}, "mysqld", nil
 		},
+	},
+	{
+		Key: "mariadb", Name: "MariaDB", DefaultVersion: "distro", Desc: "关系型数据库（系统镜像源可选版本）", Kind: "package",
+		Params: []Param{},
 		Pkg: func(distro string) ([]string, string, error) {
 			return []string{"mariadb-server", "mariadb-client"}, "mariadb", nil
-		},
-		PkgInstallVer: func(ver, distro, srcID string) (pre []string, pkgs []string, post []string, unit string, note string, err error) {
-			if distro != "apt" {
-				// dnf：distro 版走发行版源；指定版本走阿里云 MariaDB yum 镜像（目录结构与官方 yum.mariadb.org 一致）
-				if ver == "distro" {
-					return nil, []string{"mariadb-server", "mariadb-client"}, nil, "mariadb", "发行版源", nil
-				}
-				if srcID == "official" || srcID == "off" {
-					return nil, nil, nil, "", "", fmt.Errorf("MariaDB dnf 安装的 yum 镜像仅阿里云收录，请选择阿里云镜像或改用 apt 系发行版")
-				}
-				pre = []string{
-					"cat > /etc/yum.repos.d/MariaDB.repo <<MARIADB_REPO_EOF\n" +
-						"[mariadb]\n" +
-						"name = MariaDB\n" +
-						"baseurl = https://mirrors.aliyun.com/mariadb/yum/" + ver + "/centos$(rpm -E %{rhel} 2>/dev/null || echo 9)-amd64\n" +
-						"gpgkey = https://yum.mariadb.org/RPM-GPG-KEY-MariaDB\n" +
-						"gpgcheck = 1\n" +
-						"MARIADB_REPO_EOF",
-				}
-				pkgs = []string{"MariaDB-server", "MariaDB-client"}
-				unit = "mariadb"
-				note = "MariaDB " + ver + "（阿里云 yum 镜像）"
-				return pre, pkgs, post, unit, note, nil
-			}
-			repo := "https://mirrors.aliyun.com/mariadb/repo/" + ver
-			sourceNote := "阿里云镜像"
-			switch srcID {
-			case "", "auto", "aliyun":
-			case "tencent-in":
-				repo = "http://mirrors.tencentyun.com/mariadb/repo/" + ver
-				sourceNote = "腾讯云内网镜像"
-			case "official":
-				repo = "https://deb.mariadb.org/" + ver
-				sourceNote = "MariaDB 官方源"
-			default:
-				return nil, nil, nil, "", "", fmt.Errorf("MariaDB 指定版本仅支持阿里云/腾讯云内网镜像或官方源，请更换下载源")
-			}
-			pre = []string{
-				"install -d /etc/apt/keyrings",
-				"curl -fsSL https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor --yes -o /etc/apt/keyrings/mariadb-keyring.gpg",
-				`dp=$(. /etc/os-release && echo $ID); cn=$(. /etc/os-release && echo $VERSION_CODENAME); echo "deb [signed-by=/etc/apt/keyrings/mariadb-keyring.gpg] ` + repo + `/$dp $cn main" > /etc/apt/sources.list.d/mariadb-org.list`,
-			}
-			pkgs = []string{"mariadb-server", "mariadb-client"}
-			unit = "mariadb"
-			note = "MariaDB " + ver + " → " + sourceNote
-			return pre, pkgs, post, unit, note, nil
 		},
 	},
 	{
@@ -1221,6 +1151,15 @@ func (m *Module) listVersions(c *gin.Context) {
 		core.Err(c, 404, "模板不存在")
 		return
 	}
+	// 系统包：版本选项来自系统镜像源（apt-cache madison / dnf --showduplicates），可选具体版本 pin 安装
+	if tpl.Kind == "package" {
+		out := []AppVersion{{Version: "distro", Note: "系统默认"}}
+		if pkgs, _, perr := tpl.Pkg(detectPkgManager()); perr == nil && len(pkgs) > 0 {
+			out = append(out, systemPkgVersions(pkgs)...)
+		}
+		core.OK(c, gin.H{"versions": out, "default": "distro"})
+		return
+	}
 	def := tpl.DefaultVersion
 	if tpl.VersionList == nil {
 		core.OK(c, gin.H{"versions": []AppVersion{{Version: def, Note: "最新/默认版本"}}, "default": def})
@@ -1443,8 +1382,8 @@ func (m *Module) install(c *gin.Context) {
 		}
 		status = s
 	} else if tpl.Kind == "package" {
-		// 系统包统一走系统镜像源（apt/dnf 当前源）安装；版本与下载源参数不再受理（APP/旧调用一并生效）
-		s, pkgs, unit, err := m.installPackage(tpl, req.Name, "", "auto", p)
+		// 系统包统一走系统镜像源（apt/dnf 当前源）；版本可从系统源内选择 pin 安装（srcID 不再参与）
+		s, pkgs, unit, err := m.installPackage(tpl, req.Name, req.Version, "auto", p)
 		if err != nil {
 			core.Err(c, 500, err.Error())
 			return
@@ -1943,60 +1882,26 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 	}
 	var pkgs []string
 	var unit string
-	var srcNote string
-	useAptMirror := false
-	if tpl.PkgInstallVer != nil && version != "" && version != "distro" {
-		pre, pk, post, u, note, err := tpl.PkgInstallVer(version, distro, srcID)
-		if err != nil {
-			return "", nil, "", err
-		}
-		for _, cmd := range pre {
-			if out, code, err := execx.RunShell("appstore:pkg", 20*time.Minute, cmd); err != nil {
-				return "", nil, "", fmt.Errorf("仓库准备失败(exit %d): %s", code, tailOf(out))
-			}
-		}
-		pkgs, unit = pk, u
-		srcNote = note
-		useAptMirror = tpl.Key == "memcached-pkg" && distro == "apt"
-		defer func() {
-			for _, cmd := range post {
-				_, _, _ = execx.RunShell("appstore:pkg", 10*time.Minute, cmd)
-			}
-		}()
-	} else {
-		var perr error
-		pkgs, unit, perr = tpl.Pkg(distro)
-		if perr != nil {
-			return "", nil, "", perr
-		}
-		if msrc, ok := aptMirrorSource(srcID); ok {
-			if distro == "apt" {
-				srcNote = "mirror:" + msrc.Name
-			} else {
-				srcNote = msrc.Name + "（该镜像未收录 dnf/yum 系统包源，已用官方源）"
-			}
-		}
+	pkgs, unit, err0 := tpl.Pkg(distro)
+	if err0 != nil {
+		return "", nil, "", err0
 	}
-	if len(pkgs) == 0 || unit == "" {
-		return "", nil, "", fmt.Errorf("模板包定义不完整")
+	// 系统源版本 pin：apt 用 pkg=ver（支持 epoch 冒号），dnf/yum 用 pkg-ver
+	if version != "" && version != "distro" {
+		pinned := make([]string, len(pkgs))
+		for i, p0 := range pkgs {
+			if distro == "apt" {
+				pinned[i] = p0 + "=" + version
+			} else {
+				pinned[i] = p0 + "-" + version
+			}
+		}
+		pkgs = pinned
 	}
 	var installCmd string
 	switch distro {
 	case "apt":
-		aptBase := "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; rc=$?; systemctl start unattended-upgrades || true; exit $rc"
-		if useAptMirror {
-			msrc, ok := aptMirrorSource(srcID)
-			if ok {
-				installCmd = aptMirrorInstallShell(msrc, pkgs)
-			} else {
-				installCmd = aptBase
-			}
-		} else if strings.HasPrefix(srcNote, "mirror:") {
-			msrc, _ := aptMirrorSource(srcID)
-			installCmd = aptMirrorInstallShell(msrc, pkgs)
-		} else {
-			installCmd = aptBase
-		}
+		installCmd = "systemctl stop unattended-upgrades || true; DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y " + strings.Join(pkgs, " ") + "; rc=$?; systemctl start unattended-upgrades || true; exit $rc"
 	case "dnf":
 		installCmd = "dnf install -y " + strings.Join(pkgs, " ")
 	default:
@@ -2014,15 +1919,65 @@ func (m *Module) installPackage(tpl *Template, name, version, srcID string, p ma
 	if state != "active" {
 		return "", nil, "", fmt.Errorf("服务未进入 active 状态（当前 %s），请检查 journalctl -u %s", state, unit)
 	}
-	msg := fmt.Sprintf("已安装并启动（%s，服务 %s）", strings.Join(pkgs, " "), unit)
-	switch {
-	case strings.HasPrefix(srcNote, "mirror:"):
-		msrc, _ := aptMirrorSource(srcID)
-		msg += "，安装源: " + msrc.Name
-	case srcNote != "":
-		msg += "，安装源: " + srcNote
-	}
+	msg := fmt.Sprintf("已安装并启动（%s，服务 %s，系统镜像源）", strings.Join(pkgs, " "), unit)
 	return msg, pkgs, unit, nil
+}
+
+// systemPkgVersions 查询系统镜像源内指定包的可用版本（安装时可 pin）：
+// apt 用 apt-cache madison（版本列），dnf/yum 用 --showduplicates（NEVRA 版本列，反转使最新在前）。
+// 查询失败返回空切片（前端仅显示「系统默认」）。
+func systemPkgVersions(pkgs []string) []AppVersion {
+	distro := detectPkgManager()
+	if distro == "" {
+		return nil
+	}
+	out := []AppVersion{}
+	seen := map[string]bool{}
+	add := func(v, note string) {
+		if v == "" || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, AppVersion{Version: v, Note: note})
+	}
+	switch distro {
+	case "apt":
+		out2, _, err := execx.Run("appstore", 60*time.Second, "apt-cache", append([]string{"madison"}, pkgs...)...)
+		if err != nil {
+			return nil
+		}
+		for _, line := range strings.Split(out2, "\n") {
+			parts := strings.Split(line, "|")
+			if len(parts) < 2 {
+				continue
+			}
+			add(strings.TrimSpace(parts[1]), "系统镜像源")
+		}
+	default:
+		out2, _, err := execx.Run("appstore", 120*time.Second, distro, "showduplicates", "list", "available")
+		if err != nil {
+			// yum 无 --showduplicates 时的兜底
+			out2, _, err = execx.Run("appstore", 120*time.Second, distro, "list", "available")
+			if err != nil {
+				return nil
+			}
+		}
+		for _, line := range strings.Split(out2, "\n") {
+			f := strings.Fields(line)
+			if len(f) < 2 || strings.HasSuffix(f[0], "Packages") || strings.HasSuffix(f[0], "内核") {
+				continue
+			}
+			add(f[1], "系统镜像源")
+		}
+		// dnf/yum 输出为旧→新，反转让最新在前
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	if len(out) > 40 {
+		out = out[:40]
+	}
+	return out
 }
 
 // repoVer 阿里云 MariaDB 仓库的一个版本目录。
